@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>whattONE v2 — لوحة تحكم واتساب</title>
+    <meta name="description" content="whattONE - أداة واتساب متقدمة مع قوالب الحضور والغياب">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/dashboard/style.css">
+</head>
+
+<body>
+    <div class="bg-particles"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-brand">
+                <div class="brand-icon">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="26" height="26">
+                        <path
+                            d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
+                        <path
+                            d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.75.75 0 00.917.918l4.458-1.495A11.952 11.952 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-2.32 0-4.47-.764-6.206-2.056l-.434-.328-2.88.966.966-2.88-.328-.434A9.946 9.946 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <h1>whattONE <span class="version-tag">v2</span></h1>
+                    <span class="brand-subtitle">نظام إشعارات الحضور والغياب</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <div class="status-badge" id="statusBadge">
+                    <span class="status-dot"></span>
+                    <span class="status-text">غير متصل</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Stats Cards -->
+        <section class="stats-grid">
+            <div class="stat-card stat-total">
+                <div class="stat-icon">📨</div>
+                <div class="stat-info"><span class="stat-value" id="statTotal">0</span><span
+                        class="stat-label">الإجمالي</span></div>
+            </div>
+            <div class="stat-card stat-sent">
+                <div class="stat-icon">✅</div>
+                <div class="stat-info"><span class="stat-value" id="statSent">0</span><span class="stat-label">تم
+                        الإرسال</span></div>
+            </div>
+            <div class="stat-card stat-failed">
+                <div class="stat-icon">❌</div>
+                <div class="stat-info"><span class="stat-value" id="statFailed">0</span><span
+                        class="stat-label">فشل</span></div>
+            </div>
+            <div class="stat-card stat-pending">
+                <div class="stat-icon">⏳</div>
+                <div class="stat-info"><span class="stat-value" id="statPending">0</span><span class="stat-label">في
+                        الانتظار</span></div>
+            </div>
+        </section>
+
+        <!-- Control Panel -->
+        <section class="control-panel">
+            <div class="panel-header">
+                <h2>🎮 التحكم</h2>
+                <span class="state-message" id="stateMessage">في وضع الانتظار</span>
+            </div>
+            <div class="control-buttons">
+                <button class="btn btn-start" id="btnStart" onclick="startBot()"><span
+                        class="btn-icon">▶</span><span>تشغيل</span></button>
+                <button class="btn btn-stop" id="btnStop" onclick="stopBot()" disabled><span
+                        class="btn-icon">⏹</span><span>إيقاف</span></button>
+                <button class="btn btn-clear" onclick="clearQueue()"><span class="btn-icon">🗑</span><span>مسح
+                        الطابور</span></button>
+            </div>
+        </section>
+
+        <!-- Tabs -->
+        <section class="tabs-container">
+            <div class="tabs-header">
+                <button class="tab-btn active" data-tab="import" onclick="switchTab('import')">📥 استيراد</button>
+                <button class="tab-btn" data-tab="templates" onclick="switchTab('templates')">📝 القوالب</button>
+                <button class="tab-btn" data-tab="compose" onclick="switchTab('compose')">✍️ إرسال</button>
+                <button class="tab-btn" data-tab="queue" onclick="switchTab('queue')">📨 الطابور</button>
+                <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ إعدادات</button>
+                <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">📜 سجلات</button>
+            </div>
+
+            <!-- ═══ Import Tab ═══ -->
+            <div class="tab-content active" id="tab-import">
+                <div class="import-zone" id="importZone">
+                    <div class="import-dropzone" id="dropzone">
+                        <span class="drop-icon">📂</span>
+                        <h3>اسحب ملف CSV أو Excel هنا</h3>
+                        <p>أو اضغط لاختيار ملف</p>
+                        <input type="file" id="importFileInput" accept=".csv,.xlsx,.xls" style="display:none">
+                        <button class="btn btn-outline" onclick="document.getElementById('importFileInput').click()">📎
+                            اختيار ملف</button>
+                    </div>
+                </div>
+
+                <!-- Preview (hidden initially) -->
+                <div class="import-preview" id="importPreview" style="display:none">
+                    <div class="preview-header">
+                        <h3>📊 معاينة البيانات</h3>
+                        <span class="preview-info" id="previewInfo"></span>
+                    </div>
+
+                    <!-- Column Mapping -->
+                    <div class="mapping-section">
+                        <h4>🧠 الأعمدة المكتشفة</h4>
+                        <div class="mapping-grid" id="mappingGrid"></div>
+                    </div>
+
+                    <!-- Data Preview Table -->
+                    <div class="preview-table-wrap">
+                        <table class="preview-table" id="previewTable">
+                            <thead id="previewHead"></thead>
+                            <tbody id="previewBody"></tbody>
+                        </table>
+                    </div>
+
+                    <!-- Status Override -->
+                    <div class="import-options">
+                        <h4>📌 اختيار الحالة</h4>
+                        <div class="status-selector">
+                            <label class="status-option">
+                                <input type="radio" name="importStatus" value="auto" checked>
+                                <span class="status-option-label">🔄 تلقائي من الملف</span>
+                            </label>
+                            <label class="status-option">
+                                <input type="radio" name="importStatus" value="absent">
+                                <span class="status-option-label">🔴 لم يحضر (غائب)</span>
+                            </label>
+                            <label class="status-option">
+                                <input type="radio" name="importStatus" value="late">
+                                <span class="status-option-label">🟡 متأخر</span>
+                            </label>
+                            <label class="status-option">
+                                <input type="radio" name="importStatus" value="excused">
+                                <span class="status-option-label">🟠 مستأذن</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Import Actions -->
+                    <div class="import-actions">
+                        <button class="btn btn-send" onclick="processImport()">
+                            <span class="btn-icon">🚀</span>
+                            <span>معالجة وإضافة للطابور</span>
+                        </button>
+                        <button class="btn btn-outline" onclick="resetImport()">↩ إعادة</button>
+                    </div>
+                </div>
+
+                <!-- Import Result -->
+                <div class="import-result" id="importResult" style="display:none">
+                    <div class="result-card success-card">
+                        <h3 id="resultTitle">✅ تم الاستيراد بنجاح</h3>
+                        <div class="result-stats" id="resultStats"></div>
+                        <button class="btn btn-outline" onclick="resetImport()">📥 استيراد آخر</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ Templates Tab ═══ -->
+            <div class="tab-content" id="tab-templates">
+                <div class="templates-grid" id="templatesGrid"></div>
+
+                <!-- Template Editor -->
+                <div class="template-editor" id="templateEditor" style="display:none">
+                    <h3 id="editorTitle">تعديل القالب</h3>
+                    <div class="form-group">
+                        <label>📌 اسم القالب</label>
+                        <input type="text" id="tplName" placeholder="اسم القالب">
+                    </div>
+                    <div class="form-group">
+                        <label>📄 نص الرسالة</label>
+                        <div class="placeholders-bar" id="placeholdersBar"></div>
+                        <textarea id="tplMessage" rows="10" placeholder="اكتب نص القالب..."></textarea>
+                    </div>
+                    <div class="form-row">
+                        <button class="btn btn-send" onclick="saveTemplate()">💾 حفظ</button>
+                        <button class="btn btn-outline" onclick="closeEditor()">إلغاء</button>
+                        <button class="btn btn-outline" onclick="previewTemplate()">👁 معاينة</button>
+                    </div>
+                    <div class="template-preview-box" id="tplPreviewBox" style="display:none">
+                        <h4>👁 معاينة الرسالة</h4>
+                        <pre id="tplPreviewText" dir="rtl"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ Compose Tab ═══ -->
+            <div class="tab-content" id="tab-compose">
+                <div class="compose-form">
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label>📱 رقم الهاتف</label>
+                            <input type="text" id="phoneInput" placeholder="05xxxxxxxx" dir="ltr">
+                        </div>
+                        <div class="form-group">
+                            <label>👤 اسم الطالب</label>
+                            <input type="text" id="nameInput" placeholder="اسم الطالب">
+                        </div>
+                    </div>
+                    <div class="form-row-3">
+                        <div class="form-group">
+                            <label>🏫 الصف</label>
+                            <input type="text" id="gradeInput" placeholder="الرابع">
+                        </div>
+                        <div class="form-group">
+                            <label>📋 الفصل</label>
+                            <input type="text" id="sectionInput" placeholder="أ">
+                        </div>
+                        <div class="form-group">
+                            <label>📌 الحالة</label>
+                            <select id="statusSelect">
+                                <option value="absent">🔴 لم يحضر</option>
+                                <option value="late">🟡 متأخر</option>
+                                <option value="excused">🟠 مستأذن</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>💬 الرسالة <small>(اختياري — سيتم استخدام القالب التلقائي)</small></label>
+                        <textarea id="messageInput" rows="4"
+                            placeholder="اترك فارغاً لاستخدام القالب التلقائي حسب الحالة..."></textarea>
+                    </div>
+                    <button class="btn btn-send" onclick="sendSingleMessage()">
+                        <span class="btn-icon">📤</span><span>إرسال</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- ═══ Queue Tab ═══ -->
+            <div class="tab-content" id="tab-queue">
+                <div class="queue-toolbar">
+                    <button class="btn btn-sm" onclick="refreshQueue()">🔄 تحديث</button>
+                    <div class="queue-filters">
+                        <button class="filter-btn active" data-filter="all" onclick="filterQueue('all')">الكل</button>
+                        <button class="filter-btn" data-filter="pending" onclick="filterQueue('pending')">⏳
+                            انتظار</button>
+                        <button class="filter-btn" data-filter="sent" onclick="filterQueue('sent')">✅ تم</button>
+                        <button class="filter-btn" data-filter="failed" onclick="filterQueue('failed')">❌ فشل</button>
+                    </div>
+                    <span class="queue-count" id="queueCount">0</span>
+                </div>
+                <div class="queue-list" id="queueList">
+                    <div class="empty-state"><span class="empty-icon">📭</span>
+                        <p>لا توجد رسائل</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ Settings Tab ═══ -->
+            <div class="tab-content" id="tab-settings">
+                <div class="settings-form">
+                    <h3>⚙️ الإعدادات المتقدمة</h3>
+                    <div class="settings-section">
+                        <h4>🏫 معلومات المدرسة</h4>
+                        <div class="form-group">
+                            <label>اسم المدرسة</label>
+                            <input type="text" id="setSchoolName" placeholder="اسم المدرسة">
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h4>🤖 إعدادات البوت</h4>
+                        <div class="form-row-2">
+                            <div class="form-group">
+                                <label>حجم الدفعة</label>
+                                <input type="number" id="setBatchSize" value="5" min="1" max="50">
+                            </div>
+                            <div class="form-group">
+                                <label>استراحة بين الدفعات (ثانية)</label>
+                                <input type="number" id="setLongBreak" value="60" min="10" max="600">
+                            </div>
+                        </div>
+                        <div class="form-row-2">
+                            <div class="form-group">
+                                <label>تأخير أدنى (ثانية)</label>
+                                <input type="number" id="setMinDelay" value="5" min="1" max="60">
+                            </div>
+                            <div class="form-group">
+                                <label>تأخير أقصى (ثانية)</label>
+                                <input type="number" id="setMaxDelay" value="15" min="5" max="120">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h4>📋 خيارات الاستيراد</h4>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="setNotifyPresent">
+                            <span>إرسال إشعار للحاضرين أيضاً</span>
+                        </label>
+                    </div>
+                    <button class="btn btn-send" onclick="saveSettings()">💾 حفظ الإعدادات</button>
+                </div>
+            </div>
+
+            <!-- ═══ Logs Tab ═══ -->
+            <div class="tab-content" id="tab-logs">
+                <div class="logs-toolbar">
+                    <button class="btn btn-sm" onclick="refreshLogs()">🔄 تحديث</button>
+                </div>
+                <div class="logs-container" id="logsContainer">
+                    <div class="empty-state"><span class="empty-icon">📃</span>
+                        <p>لا توجد سجلات</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer class="app-footer">
+            <p>whattONE v2.0 — نظام إشعارات الحضور والغياب</p>
+        </footer>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+    <script src="/dashboard/app.js"></script>
+</body>
+
+</html>

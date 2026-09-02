@@ -1,0 +1,603 @@
+diff --git a/pages/Admin.tsx b/pages/Admin.tsx
+index bc63276..265d098 100644
+--- a/pages/Admin.tsx
++++ b/pages/Admin.tsx
+@@ -1479,12 +1479,11 @@ const Admin: React.FC = () => {
+ 
+     try {
+       setBulkAttendanceLoading(true);
+-      const currentUser = await auth.getCurrentUser();
++      // recorded_by is now resolved internally by resolveRecorder() in db.ts
+       const result = await db.bulkMarkAllPresent({
+         class_name: selectedGrade,
+         section: selectedSection,
+-        date: getLocalISODate(),
+-        recorded_by: currentUser?.id || null
++        date: getLocalISODate()
+       });
+ 
+       if (result.success) {
+@@ -1514,11 +1513,10 @@ const Admin: React.FC = () => {
+ 
+     try {
+       setBulkAttendanceLoading(true);
+-      const currentUser = await auth.getCurrentUser();
++      // recorded_by is now resolved internally by resolveRecorder() in db.ts
+       const result = await db.bulkMarkAbsent({
+         student_ids: Array.from(selectedAbsentStudents),
+-        date: getLocalISODate(),
+-        recorded_by: currentUser?.id || null
++        date: getLocalISODate()
+       });
+ 
+       if (result.success) {
+@@ -1890,19 +1888,18 @@ const Admin: React.FC = () => {
+       }
+       setManualAttendanceSaving(true);
+       try {
++          // recorded_by is now resolved internally by resolveRecorder() in db.ts
+           let result;
+           if (manualAttendanceType === 'absence') {
+               result = await db.addManualAbsence({
+                   student_id: manualAttendanceForm.student_id,
+-                  date: manualAttendanceForm.date,
+-                  recorded_by: currentUser?.id || null
++                  date: manualAttendanceForm.date
+               });
+           } else {
+               result = await db.addManualAttendance({
+                   student_id: manualAttendanceForm.student_id,
+                   date: manualAttendanceForm.date,
+-                  time: manualAttendanceForm.time,
+-                  recorded_by: currentUser?.id || null
++                  time: manualAttendanceForm.time
+               });
+           }
+           if (!result.success) {
+diff --git a/pages/Supervision.tsx b/pages/Supervision.tsx
+index 7a15305..2da9a56 100644
+--- a/pages/Supervision.tsx
++++ b/pages/Supervision.tsx
+@@ -785,11 +785,11 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
+       let successCount = 0;
+       for (const studentId of selectedLateStudents) {
+         try {
++          // recorded_by is now resolved internally by resolveRecorder() in db.ts
+           const result = await db.addManualAttendance({
+             student_id: studentId,
+             date: lateTimeInput.date,
+-            time: lateTimeInput.time,
+-            recorded_by: currentUser?.id || null
++            time: lateTimeInput.time
+           });
+           if (result.success) {
+             successCount++;
+@@ -844,12 +844,12 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
+       await db.deleteAttendance(editAttendanceStudent.id, getLocalISODate());
+ 
+       // Add new record with updated status
++      // recorded_by is now resolved internally by resolveRecorder() in db.ts
+       if (editAttendanceStatus !== 'absent') {
+         await db.addManualAttendance({
+           student_id: editAttendanceStudent.id,
+           date: getLocalISODate(),
+-          time: editAttendanceTime,
+-          recorded_by: currentUser?.id || null
++          time: editAttendanceTime
+         });
+       }
+ 
+diff --git a/services/db.ts b/services/db.ts
+index bbfd41c..d994fc2 100644
+--- a/services/db.ts
++++ b/services/db.ts
+@@ -1,5 +1,5 @@
+ import { supabase, getSupabaseDebugInfo } from './supabase';
+-import { Student, AttendanceRecord, ExitRecord, ViolationRecord, Notification, DashboardStats, ReportFilter, DailySummary, STORAGE_KEYS, SystemSettings, DiagnosticResult, Role, SchoolClass, User, AppTheme, ClassStatsSummary, AuthAuditLog, ClientErrorLog, AuthAuditAction, ClientErrorSeverity, ClientErrorSource } from '../types';
++import { Student, AttendanceRecord, ExitRecord, ViolationRecord, Notification, DashboardStats, ReportFilter, DailySummary, STORAGE_KEYS, SystemSettings, DiagnosticResult, Role, SchoolClass, User, AppTheme, ClassStatsSummary, AuthAuditLog, ClientErrorLog, AuthAuditAction, ClientErrorSeverity, ClientErrorSource, RecorderInfo } from '../types';
+ import { CanonicalStudent } from '../types/import';
+ import { appCache, staticCache, realtimeCache, CACHE_KEYS } from './cache';
+ import { buildBootstrapAdminUser, validateBootstrapAdmin } from './bootstrapAdmin';
+@@ -21,6 +21,48 @@ const CACHE_TTL = {
+ const ADMIN_ROLES: Role[] = [Role.SITE_ADMIN, Role.SCHOOL_ADMIN];
+ const SUPERVISOR_ROLES: Role[] = [Role.SUPERVISOR_GLOBAL, Role.SUPERVISOR_CLASS, Role.WATCHER];
+ 
++// =============================================================================
++// resolveRecorder - Helper to safely resolve recorder info without sending strings to UUID column
++// =============================================================================
++/**
++ * Resolves recorder information for attendance_logs entries.
++ * Uses supabase.auth.getUser() to check for authenticated user.
++ *
++ * @param fallbackLabel - Label to use when no authenticated user (e.g., "kiosk", "admin-manual")
++ * @returns RecorderInfo with either UUID (if auth user) or label (if no auth user)
++ *
++ * @example
++ * // In bulkMarkAllPresent:
++ * const recorder = await resolveRecorder('admin-bulk');
++ * // Returns: { recorded_by: 'uuid-here', recorded_by_label: null } if authenticated
++ * // Returns: { recorded_by: null, recorded_by_label: 'admin-bulk' } if not authenticated
++ */
++export async function resolveRecorder(fallbackLabel: string = 'system'): Promise<RecorderInfo> {
++  try {
++    const { data: { user }, error } = await supabase.auth.getUser();
++
++    if (error || !user) {
++      // No authenticated user - use fallback label
++      return {
++        recorded_by: null,
++        recorded_by_label: fallbackLabel
++      };
++    }
++
++    // Authenticated user found - use their UUID
++    return {
++      recorded_by: user.id,
++      recorded_by_label: null
++    };
++  } catch (e) {
++    console.warn('[resolveRecorder] Error getting user, using fallback:', e);
++    return {
++      recorded_by: null,
++      recorded_by_label: fallbackLabel
++    };
++  }
++}
++
+ type SqlQueueEntry = {
+   id: string;
+   table: string;
+@@ -300,7 +342,6 @@ interface IDatabaseProvider {
+     student_id: string;
+     date: string;
+     time: string;
+-    recorded_by?: string | null;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -312,7 +353,6 @@ interface IDatabaseProvider {
+   addManualAbsence(record: {
+     student_id: string;
+     date: string;
+-    recorded_by?: string | null;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -325,7 +365,6 @@ interface IDatabaseProvider {
+     class_name: string;
+     section: string;
+     date: string;
+-    recorded_by: string;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -335,7 +374,6 @@ interface IDatabaseProvider {
+   bulkMarkAbsent(params: {
+     student_ids: string[];
+     date: string;
+-    recorded_by: string;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -345,7 +383,6 @@ interface IDatabaseProvider {
+     student_ids: string[];
+     date: string;
+     new_status: 'present' | 'absent' | 'late';
+-    recorded_by: string;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -1513,7 +1550,6 @@ class CloudProvider implements IDatabaseProvider {
+     student_id: string;
+     date: string;
+     time: string;
+-    recorded_by?: string | null;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -1530,17 +1566,30 @@ class CloudProvider implements IDatabaseProvider {
+       const timing = resolveManualAttendanceTiming(record.date, record.time, settings);
+       if (!timing) return { success: false, message: 'يرجى إدخال تاريخ ووقت صالحين' };
+ 
++      // Resolve recorder info (UUID if authenticated, label if not)
++      const recorder = await resolveRecorder('admin-manual');
++
++      const payload = {
++        student_id: record.student_id,
++        date: record.date,
++        timestamp: timing.timestamp,
++        status: timing.status,
++        minutes_late: timing.minutes_late,
++        recorded_by: recorder.recorded_by,
++        recorded_by_label: recorder.recorded_by_label,
++        device_id: 'admin-manual'
++      };
++
++      // Debug log for verification
++      console.log('[addManualAttendance] Payload sample:', {
++        student_id: payload.student_id,
++        recorded_by: payload.recorded_by,
++        recorded_by_label: payload.recorded_by_label
++      });
++
+       const { data, error } = await supabase
+         .from('attendance_logs')
+-        .insert({
+-          student_id: record.student_id,
+-          date: record.date,
+-          timestamp: timing.timestamp,
+-          status: timing.status,
+-          minutes_late: timing.minutes_late,
+-          recorded_by: record.recorded_by ?? null,
+-          device_id: 'admin-manual'
+-        })
++        .insert(payload)
+         .select()
+         .single();
+ 
+@@ -1567,7 +1616,6 @@ class CloudProvider implements IDatabaseProvider {
+   async addManualAbsence(record: {
+     student_id: string;
+     date: string;
+-    recorded_by?: string | null;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -1578,17 +1626,30 @@ class CloudProvider implements IDatabaseProvider {
+       const student = await this.getStudentById(record.student_id);
+       if (!student) return { success: false, message: 'رقم الطالب غير صحيح' };
+ 
++      // Resolve recorder info (UUID if authenticated, label if not)
++      const recorder = await resolveRecorder('admin-manual');
++
++      const payload = {
++        student_id: record.student_id,
++        date: record.date,
++        timestamp: new Date(record.date).toISOString(),
++        status: 'absent',
++        minutes_late: 0,
++        recorded_by: recorder.recorded_by,
++        recorded_by_label: recorder.recorded_by_label,
++        device_id: 'admin-manual'
++      };
++
++      // Debug log for verification
++      console.log('[addManualAbsence] Payload sample:', {
++        student_id: payload.student_id,
++        recorded_by: payload.recorded_by,
++        recorded_by_label: payload.recorded_by_label
++      });
++
+       const { data, error } = await supabase
+         .from('attendance_logs')
+-        .insert({
+-          student_id: record.student_id,
+-          date: record.date,
+-          timestamp: new Date(record.date).toISOString(),
+-          status: 'absent',
+-          minutes_late: 0,
+-          recorded_by: record.recorded_by ?? null,
+-          device_id: 'admin-manual'
+-        })
++        .insert(payload)
+         .select()
+         .single();
+ 
+@@ -1655,7 +1716,6 @@ class CloudProvider implements IDatabaseProvider {
+     class_name: string;
+     section: string;
+     date: string;
+-    recorded_by: string;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -1676,7 +1736,7 @@ class CloudProvider implements IDatabaseProvider {
+         .select('student_id')
+         .eq('date', params.date);
+ 
+-      const markedStudentIds = new Set(existingRecords?.map(r => r.student_id) || []);
++      const markedStudentIds = new Set(existingRecords?.map((r: { student_id: string }) => r.student_id) || []);
+ 
+       // Filter out students who already have records
+       const unmarkedStudents = allStudents.filter(s => !markedStudentIds.has(s.id));
+@@ -1690,6 +1750,9 @@ class CloudProvider implements IDatabaseProvider {
+         };
+       }
+ 
++      // Resolve recorder info (UUID if authenticated, label if not)
++      const recorder = await resolveRecorder('admin-bulk');
++
+       // Create attendance records for unmarked students
+       const attendanceRecords = unmarkedStudents.map(student => ({
+         student_id: student.id,
+@@ -1697,10 +1760,18 @@ class CloudProvider implements IDatabaseProvider {
+         timestamp: new Date(params.date).toISOString(),
+         status: 'present',
+         minutes_late: 0,
+-        recorded_by: params.recorded_by,
++        recorded_by: recorder.recorded_by,
++        recorded_by_label: recorder.recorded_by_label,
+         device_id: 'admin-bulk'
+       }));
+ 
++      // Debug log for verification
++      console.log('[bulkMarkAllPresent] Payload sample:', {
++        count: attendanceRecords.length,
++        recorded_by: recorder.recorded_by,
++        recorded_by_label: recorder.recorded_by_label
++      });
++
+       const { error } = await supabase
+         .from('attendance_logs')
+         .insert(attendanceRecords);
+@@ -1725,7 +1796,6 @@ class CloudProvider implements IDatabaseProvider {
+   async bulkMarkAbsent(params: {
+     student_ids: string[];
+     date: string;
+-    recorded_by: string;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -1736,6 +1806,9 @@ class CloudProvider implements IDatabaseProvider {
+         return { success: false, message: 'لم يتم تحديد أي طالب', count: 0 };
+       }
+ 
++      // Resolve recorder info (UUID if authenticated, label if not)
++      const recorder = await resolveRecorder('admin-bulk');
++
+       // Create absence records
+       const absenceRecords = params.student_ids.map(student_id => ({
+         student_id,
+@@ -1743,10 +1816,18 @@ class CloudProvider implements IDatabaseProvider {
+         timestamp: new Date(params.date).toISOString(),
+         status: 'absent',
+         minutes_late: 0,
+-        recorded_by: params.recorded_by,
++        recorded_by: recorder.recorded_by,
++        recorded_by_label: recorder.recorded_by_label,
+         device_id: 'admin-bulk'
+       }));
+ 
++      // Debug log for verification
++      console.log('[bulkMarkAbsent] Payload sample:', {
++        count: absenceRecords.length,
++        recorded_by: recorder.recorded_by,
++        recorded_by_label: recorder.recorded_by_label
++      });
++
+       // Delete any existing records for these students on this date
+       await supabase
+         .from('attendance_logs')
+@@ -1779,7 +1860,6 @@ class CloudProvider implements IDatabaseProvider {
+     student_ids: string[];
+     date: string;
+     new_status: 'present' | 'absent' | 'late';
+-    recorded_by: string;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -1790,6 +1870,9 @@ class CloudProvider implements IDatabaseProvider {
+         return { success: false, message: 'لم يتم تحديد أي طالب', updated_count: 0 };
+       }
+ 
++      // Resolve recorder info (UUID if authenticated, label if not)
++      const recorder = await resolveRecorder('admin-edit');
++
+       // Delete existing records
+       await supabase
+         .from('attendance_logs')
+@@ -1804,10 +1887,18 @@ class CloudProvider implements IDatabaseProvider {
+         timestamp: new Date(params.date).toISOString(),
+         status: params.new_status,
+         minutes_late: params.new_status === 'late' ? 30 : 0, // Default 30 minutes for late
+-        recorded_by: params.recorded_by,
++        recorded_by: recorder.recorded_by,
++        recorded_by_label: recorder.recorded_by_label,
+         device_id: 'admin-edit'
+       }));
+ 
++      // Debug log for verification
++      console.log('[updateAttendanceStatus] Payload sample:', {
++        count: updatedRecords.length,
++        recorded_by: recorder.recorded_by,
++        recorded_by_label: recorder.recorded_by_label
++      });
++
+       const { error } = await supabase
+         .from('attendance_logs')
+         .insert(updatedRecords);
+@@ -2820,7 +2911,6 @@ class LocalProvider implements IDatabaseProvider {
+     student_id: string;
+     date: string;
+     time: string;
+-    recorded_by?: string | null;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -2838,17 +2928,18 @@ class LocalProvider implements IDatabaseProvider {
+     if (!timing) return Promise.resolve({ success: false, message: 'يرجى إدخال تاريخ ووقت صالحين' });
+ 
+     const allLogs = this.get<AttendanceRecord>(STORAGE_KEYS.ATTENDANCE);
+-    const exists = allLogs.find(l => l.student_id === record.student_id && l.date === record.date);
++    const exists = allLogs.find((l: AttendanceRecord) => l.student_id === record.student_id && l.date === record.date);
+     if (exists) return Promise.resolve({ success: false, message: 'تم تسجيل حضور الطالب مسبقاً لهذا اليوم' });
+ 
+     const newRecord: AttendanceRecord = {
+-      id: Math.random().toString(36).substr(2, 9),
++      id: Math.random().toString(36).substring(2, 11),
+       student_id: record.student_id,
+       date: record.date,
+       timestamp: timing.timestamp,
+       status: timing.status,
+       minutes_late: timing.minutes_late,
+-      recorded_by: record.recorded_by ?? null,
++      recorded_by: null,
++      recorded_by_label: 'local-admin',
+       device_id: 'admin-manual'
+     };
+ 
+@@ -2875,7 +2966,6 @@ class LocalProvider implements IDatabaseProvider {
+   async addManualAbsence(record: {
+     student_id: string;
+     date: string;
+-    recorded_by?: string | null;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -2887,17 +2977,18 @@ class LocalProvider implements IDatabaseProvider {
+     if (!student) return Promise.resolve({ success: false, message: 'رقم الطالب غير صحيح' });
+ 
+     const allLogs = this.get<AttendanceRecord>(STORAGE_KEYS.ATTENDANCE);
+-    const exists = allLogs.find(l => l.student_id === record.student_id && l.date === record.date);
++    const exists = allLogs.find((l: AttendanceRecord) => l.student_id === record.student_id && l.date === record.date);
+     if (exists) return Promise.resolve({ success: false, message: 'تم تسجيل غياب الطالب مسبقاً لهذا اليوم' });
+ 
+     const newRecord: AttendanceRecord = {
+-      id: Math.random().toString(36).substr(2, 9),
++      id: Math.random().toString(36).substring(2, 11),
+       student_id: record.student_id,
+       date: record.date,
+       timestamp: new Date(record.date).toISOString(),
+       status: 'absent',
+       minutes_late: 0,
+-      recorded_by: record.recorded_by ?? null,
++      recorded_by: null,
++      recorded_by_label: 'local-admin',
+       device_id: 'admin-manual'
+     };
+ 
+@@ -2979,7 +3070,6 @@ class LocalProvider implements IDatabaseProvider {
+     class_name: string;
+     section: string;
+     date: string;
+-    recorded_by: string;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -2995,7 +3085,7 @@ class LocalProvider implements IDatabaseProvider {
+ 
+       const attendance = this.get<AttendanceRecord>(STORAGE_KEYS.ATTENDANCE);
+       const markedStudentIds = new Set(
+-        attendance.filter(r => r.date === params.date).map(r => r.student_id)
++        attendance.filter((r: AttendanceRecord) => r.date === params.date).map((r: AttendanceRecord) => r.student_id)
+       );
+ 
+       const unmarkedStudents = allStudents.filter(s => !markedStudentIds.has(s.id));
+@@ -3016,7 +3106,8 @@ class LocalProvider implements IDatabaseProvider {
+         timestamp: new Date(params.date).toISOString(),
+         status: 'present',
+         minutes_late: 0,
+-        recorded_by: params.recorded_by,
++        recorded_by: null,
++        recorded_by_label: 'local-admin',
+         device_id: 'admin-bulk',
+         created_at: new Date().toISOString()
+       }));
+@@ -3038,7 +3129,6 @@ class LocalProvider implements IDatabaseProvider {
+   async bulkMarkAbsent(params: {
+     student_ids: string[];
+     date: string;
+-    recorded_by: string;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -3053,7 +3143,7 @@ class LocalProvider implements IDatabaseProvider {
+ 
+       // Remove existing records for these students on this date
+       const filtered = attendance.filter(
+-        r => !(r.date === params.date && params.student_ids.includes(r.student_id))
++        (r: AttendanceRecord) => !(r.date === params.date && params.student_ids.includes(r.student_id))
+       );
+ 
+       // Add new absence records
+@@ -3064,7 +3154,8 @@ class LocalProvider implements IDatabaseProvider {
+         timestamp: new Date(params.date).toISOString(),
+         status: 'absent',
+         minutes_late: 0,
+-        recorded_by: params.recorded_by,
++        recorded_by: null,
++        recorded_by_label: 'local-admin',
+         device_id: 'admin-bulk',
+         created_at: new Date().toISOString()
+       }));
+@@ -3086,7 +3177,6 @@ class LocalProvider implements IDatabaseProvider {
+     student_ids: string[];
+     date: string;
+     new_status: 'present' | 'absent' | 'late';
+-    recorded_by: string;
+   }): Promise<{
+     success: boolean;
+     message: string;
+@@ -3101,7 +3191,7 @@ class LocalProvider implements IDatabaseProvider {
+ 
+       // Remove existing records
+       const filtered = attendance.filter(
+-        r => !(r.date === params.date && params.student_ids.includes(r.student_id))
++        (r: AttendanceRecord) => !(r.date === params.date && params.student_ids.includes(r.student_id))
+       );
+ 
+       // Create new records with updated status
+@@ -3112,7 +3202,8 @@ class LocalProvider implements IDatabaseProvider {
+         timestamp: new Date(params.date).toISOString(),
+         status: params.new_status,
+         minutes_late: params.new_status === 'late' ? 30 : 0,
+-        recorded_by: params.recorded_by,
++        recorded_by: null,
++        recorded_by_label: 'local-admin',
+         device_id: 'admin-edit',
+         created_at: new Date().toISOString()
+       }));
+@@ -3853,10 +3944,10 @@ class Database implements IDatabaseProvider {
+   getAttendance(d?: string) { return this.provider.getAttendance(d); }
+   getStudentAttendance(id: string) { return this.provider.getStudentAttendance(id); }
+   markAttendance(id: string) { return this.provider.markAttendance(id); }
+-  addManualAttendance(record: { student_id: string; date: string; time: string; recorded_by?: string | null }) {
++  addManualAttendance(record: { student_id: string; date: string; time: string }) {
+     return this.provider.addManualAttendance(record);
+   }
+-  addManualAbsence(record: { student_id: string; date: string; recorded_by?: string | null }) {
++  addManualAbsence(record: { student_id: string; date: string }) {
+     return this.provider.addManualAbsence(record);
+   }
+   deleteAttendance(student_id: string, date: string) {
+@@ -3865,13 +3956,13 @@ class Database implements IDatabaseProvider {
+   getUnmarkedStudents(date: string, class_name: string, section: string) {
+     return this.provider.getUnmarkedStudents(date, class_name, section);
+   }
+-  bulkMarkAllPresent(params: { class_name: string; section: string; date: string; recorded_by: string }) {
++  bulkMarkAllPresent(params: { class_name: string; section: string; date: string }) {
+     return this.provider.bulkMarkAllPresent(params);
+   }
+-  bulkMarkAbsent(params: { student_ids: string[]; date: string; recorded_by: string }) {
++  bulkMarkAbsent(params: { student_ids: string[]; date: string }) {
+     return this.provider.bulkMarkAbsent(params);
+   }
+-  updateAttendanceStatus(params: { student_ids: string[]; date: string; new_status: 'present' | 'absent' | 'late'; recorded_by: string }) {
++  updateAttendanceStatus(params: { student_ids: string[]; date: string; new_status: 'present' | 'absent' | 'late' }) {
+     return this.provider.updateAttendanceStatus(params);
+   }
+   subscribeToAttendance(cb: (r: AttendanceRecord) => void) { return this.provider.subscribeToAttendance(cb); }
+diff --git a/types.ts b/types.ts
+index 1b437f2..d78bace 100644
+--- a/types.ts
++++ b/types.ts
+@@ -133,11 +133,18 @@ export interface AttendanceRecord {
+   timestamp: string;
+   status: 'present' | 'late' | 'absent';
+   minutes_late: number;
+-  recorded_by?: string | null;
++  recorded_by?: string | null;        // UUID of authenticated user (if available)
++  recorded_by_label?: string | null;  // Fallback label when no auth user (e.g., "kiosk", "system")
+   device_id?: string | null;
+   created_at?: string;
+ }
+ 
++// Recorder Info - returned by resolveRecorder helper
++export type RecorderInfo = {
++  recorded_by: string | null;
++  recorded_by_label: string | null;
++};
++
+ // Exit Record
+ export interface ExitRecord {
+   id: string;

@@ -1,0 +1,30 @@
+# Build/Release files
+release/
+*.dmg
+*.zip
+*.blockmap
+*.asar
+
+# Dependencies (Vercel installs them)
+node_modules/
+
+# Local environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Tests
+__tests__/
+coverage/
+
+# WhatsApp Python automation (not React components)
+whatsapp_session/
+venv/
+__pycache__/
+*.py

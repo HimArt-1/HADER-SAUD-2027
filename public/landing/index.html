@@ -1,0 +1,1498 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0B5361">
+  <title id="pageTitle">حاضر | HADER — المنظومة التقنية للحرم المدرسي الذكي والعمليات اللانقدية</title>
+  <meta name="description" id="pageDesc" content="حاضر: منظومة سحابية متقدمة تعتمد على الذكاء الاصطناعي لإدارة الحضور البيومتري، المدفوعات اللانقدية، والعمليات المدرسية المتكاملة.">
+  <link rel="icon" type="image/png" href="assets/img/logo.png">
+  <link rel="preload" href="assets/fonts/arsenica-medium.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="assets/fonts/arsenica-extrabold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">انتقل إلى المحتوى الرئيسي</a>
+
+<!-- ═══════════════════ NAV ═══════════════════ -->
+<nav class="nav" id="nav">
+  <a class="nav-logo" href="#hero" aria-label="العودة إلى بداية الصفحة">
+    <img src="assets/img/logo.png" alt="حاضر | HADER" class="nav-logo-img">
+  </a>
+  <div class="nav-center" id="primaryNavigation">
+    <a class="nav-link" href="#tech-pillars" data-i18n="nav_tech">البنية التقنية</a>
+    <a class="nav-link" href="#solutions" data-i18n="nav_solutions">الحلول والخدمات</a>
+    <a class="nav-link" href="#features" data-i18n="nav_features">المزايا الهندسية</a>
+    <a class="nav-link" href="#ecosystem" data-i18n="nav_ecosystem">المنظومة والربط</a>
+    <a class="nav-link" href="#how" data-i18n="nav_how">آلية العمل</a>
+    <a class="nav-link" href="#faq" data-i18n="nav_faq">الأسئلة الشائعة</a>
+  </div>
+  <button class="hamburger" id="hamburgerBtn" aria-label="فتح القائمة" aria-expanded="false" aria-controls="primaryNavigation">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
+  <div class="nav-right">
+    <div class="lang-toggle">
+      <button class="lang-btn" id="langEnBtn" onclick="switchLanguage('en')">EN</button>
+      <button class="lang-btn active" id="langArBtn" onclick="switchLanguage('ar')">AR</button>
+    </div>
+    <button class="theme-toggle" id="themeToggle" aria-label="تبديل الوضع">🌙</button>
+    <a class="nav-cta app-route-link" href="../index.html#/login" data-app-route="/login" data-i18n="nav_login">دخول النظام</a>
+  </div>
+</nav>
+
+<!-- ═══════════════════ HERO ═══════════════════ -->
+<main id="main-content">
+<section class="hero" id="hero">
+  <div class="hero-bg">
+    <div class="hero-blob hero-blob-1"></div>
+    <div class="hero-blob hero-blob-2"></div>
+    <div class="hero-blob hero-blob-3"></div>
+    <div class="hero-grid"></div>
+  </div>
+  <div class="hero-content">
+    <div class="hero-text">
+      <div class="hero-badge">
+        <span class="hero-badge-dot"></span>
+        <span data-i18n="hero_badge">نحو تحوّل رقمي مدرسي أكثر كفاءة وذكاء</span>
+      </div>
+      <h1 class="hero-h1" data-i18n="hero_h1">
+        أعد ابتكار<br>
+        التجربة اليومية في<br>
+        <span class="gradient-text">حرمك المدرسي</span>.
+      </h1>
+      <p class="hero-desc" data-i18n="hero_desc">
+        منظومة حاضر توحد عمليات تسجيل الحضور الذكي، إدارة المقاصف، والنداء الآمن في بيئة رقمية متكاملة تمنح الإدارة وأولياء الأمور تحكماً شاملاً وسلساً.
+      </p>
+      <div class="hero-ctas">
+        <a class="btn-primary app-route-link" href="../index.html#/login" data-app-route="/login">
+          <span data-i18n="hero_login">دخول النظام</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+        </a>
+        <a class="btn-secondary" href="#tech-pillars">
+          <span data-i18n="hero_btn_explore">استكشف البنية التقنية</span>
+        </a>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <div class="hero-stat-num" data-count="0.2" data-decimal="1" data-prefix="< " data-suffix="s">0</div>
+          <div class="hero-stat-label" data-i18n="stat_latency">زمن استجابة التعرف الحيوي</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-num" data-count="100" data-suffix="%">0</div>
+          <div class="hero-stat-label" data-i18n="stat_offline">جاهزية دون اتصال (Offline)</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-num" data-count="99.99" data-suffix="%" data-decimal="2">0</div>
+          <div class="hero-stat-label" data-i18n="stat_uptime">استقرار البنية الموزعة</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <div class="hero-phone">
+        <div class="phone-island"></div>
+        <div class="phone-status-bar">
+          <span>09:41</span>
+          <span>5G 📶 100% 🔋</span>
+        </div>
+        <div class="hero-phone-screen">
+          <div class="phone-app-bar">
+            <div class="phone-app-info">
+              <img src="assets/img/logo.png" alt="حاضر" class="hero-phone-logo">
+              <span class="phone-app-title" data-i18n="phone_app_name">تطبيق ولي الأمر</span>
+            </div>
+            <span class="phone-app-badge" data-i18n="phone_live_badge">مباشر • Live</span>
+          </div>
+
+          <div class="phone-notifs-container">
+            <!-- Notification 1: Attendance -->
+            <div class="phone-notif-bubble featured">
+              <div class="notif-top">
+                <div class="notif-sender">
+                  <div class="notif-icon-svg green">
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  </div>
+                  <span data-i18n="notif_1_sender">مدرسة الإبداع الأهلية</span>
+                </div>
+                <span class="notif-time" data-i18n="notif_1_time">٠٧:١٥ ص</span>
+              </div>
+              <div class="notif-title" data-i18n="notif_1_title">تم تسجيل حضور الطالب (سعود)</div>
+              <div class="notif-msg" data-i18n="notif_1_msg">تم التحضير البيومتري التلقائي عند بوابة الدخول الرئيسية بنجاح.</div>
+              <div class="notif-pill success" data-i18n="notif_1_badge">حاضر في الموعد المحدد</div>
+            </div>
+
+            <!-- Notification 2: Breakfast & Canteen Purchase -->
+            <div class="phone-notif-bubble">
+              <div class="notif-top">
+                <div class="notif-sender">
+                  <div class="notif-icon-svg amber">
+                    <svg viewBox="0 0 24 24"><path d="M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+                  </div>
+                  <span data-i18n="notif_2_sender">مقصف حاضر الذكي</span>
+                </div>
+                <span class="notif-time" data-i18n="notif_2_time">٠٩:٣٠ ص</span>
+              </div>
+              <div class="notif-title" data-i18n="notif_2_title">شراء وجبة فطور صحية (−١٢ ر.س)</div>
+              <div class="notif-msg" data-i18n="notif_2_msg">فطيرة أجبان وعصير برتقال طبيعي • الرصيد المتبقي بالمحفظة: ١٨٨ ر.س.</div>
+              <div class="notif-pill warning" data-i18n="notif_2_badge">متوافق مع الحمية الغذائية</div>
+            </div>
+
+            <!-- Notification 3: Dismissal & Permission -->
+            <div class="phone-notif-bubble">
+              <div class="notif-top">
+                <div class="notif-sender">
+                  <div class="notif-icon-svg blue">
+                    <svg viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="2"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                  </div>
+                  <span data-i18n="notif_3_sender">نداء الانصراف الذكي</span>
+                </div>
+                <span class="notif-time" data-i18n="notif_3_time">٠١:٢٥ م</span>
+              </div>
+              <div class="notif-title" data-i18n="notif_3_title">طلب انصراف واستئذان معتمد</div>
+              <div class="notif-msg" data-i18n="notif_3_msg">تم إشعار الطالب وتوجهه إلى سيارة ولي الأمر عند البوابة رقم (٢) بأمان.</div>
+              <div class="notif-pill info" data-i18n="notif_3_badge">خروج آمن وموثق</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Floating Live SMS/App Notification Badges -->
+      <div class="hero-float hero-float-1">
+        <div class="hero-float-ico">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <div>
+          <div style="font-weight:800;font-size:13px;color:var(--ink)" data-i18n="float_1_t">رسالة حضور فورية</div>
+          <div style="color:var(--ink-muted);font-size:11px;font-weight:600" data-i18n="float_1_d">وصل (سعود) للمدرسة في ٠٧:١٥ ص</div>
+        </div>
+      </div>
+      <div class="hero-float hero-float-2">
+        <div class="hero-float-ico">
+          <svg viewBox="0 0 24 24"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg>
+        </div>
+        <div>
+          <div style="font-weight:800;font-size:13px;color:var(--ink)" data-i18n="float_2_t">إشعار نداء وانصراف</div>
+          <div style="color:var(--ink-muted);font-size:11px;font-weight:600" data-i18n="float_2_d">جاري خروج الطالب للبوابة رقم (٢)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ TECH STACK & CAPABILITIES BANNER ═══════════════════ -->
+<section class="tech-banner-section">
+  <div class="tech-banner-label" data-i18n="tech_banner_title">المعايير الهندسية والبروتوكولات المعتمدة في منظومة حاضر</div>
+  <div class="tech-banner-track" id="techTrack">
+    <!-- Rendered via JS -->
+  </div>
+</section>
+
+<!-- ═══════════════════ TECHNICAL PILLARS ═══════════════════ -->
+<section class="arch-section" id="tech-pillars">
+  <div class="sec-wrap">
+    <div class="arch-head reveal">
+      <div class="eyebrow" data-i18n="arch_eyebrow">البنية الهندسية</div>
+      <h2 class="sec-title" data-i18n="arch_title">ركائز متقدمة تضمن <span class="hl">أعلى كفاءة وموثوقية</span></h2>
+      <p class="sec-sub" data-i18n="arch_sub">تم بناء حاضر وفق أحدث معايير الحوسبة السحابية الموزعة وخوارزميات الذكاء الاصطناعي الطرفية لتقديم أداء غير مسبوق.</p>
+    </div>
+    <div class="arch-grid stagger">
+      <div class="arch-card reveal" style="--i:0">
+        <div class="arch-badge" data-i18n="arch_1_b">Edge AI Engine</div>
+        <div class="icon-box teal">
+          <!-- Vector Neural Microchip / Biometric Icon -->
+          <svg viewBox="0 0 24 24">
+            <rect x="4" y="4" width="16" height="16" rx="3"/>
+            <rect x="9" y="9" width="6" height="6"/>
+            <line x1="9" y1="1" x2="9" y2="4"/>
+            <line x1="15" y1="1" x2="15" y2="4"/>
+            <line x1="9" y1="20" x2="9" y2="23"/>
+            <line x1="15" y1="20" x2="15" y2="23"/>
+            <line x1="20" y1="9" x2="23" y2="9"/>
+            <line x1="20" y1="14" x2="23" y2="14"/>
+            <line x1="1" y1="9" x2="4" y2="9"/>
+            <line x1="1" y1="14" x2="4" y2="14"/>
+          </svg>
+        </div>
+        <h3 data-i18n="arch_1_t">محرك الاستدلال الحيوي الطرفي</h3>
+        <p data-i18n="arch_1_d">معالجة وتحليل ملامح الوجه محلياً على الأجهزة الطرفية في أقل من 0.2 ثانية مع حماية ثلاثية الأبعاد ضد محاولات التزييف (Anti-Spoofing Liveness Detection).</p>
+      </div>
+
+      <div class="arch-card reveal" style="--i:1">
+        <div class="arch-badge" data-i18n="arch_2_b">Zero-Trust Vault</div>
+        <div class="icon-box emerald">
+          <!-- Vector Secure Shield Vault Icon -->
+          <svg viewBox="0 0 24 24">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <circle cx="12" cy="11" r="2.5"/>
+            <path d="M12 13.5V16"/>
+          </svg>
+        </div>
+        <h3 data-i18n="arch_2_t">بروتوكول الأمان المالي المشفر</h3>
+        <p data-i18n="arch_2_d">تشفير بنكي عالي المستوى AES-256 للمحافظ الرقمية وسجلات العمليات، مع تسوية حسابية آنية تلغي الأخطاء والفروقات المالية تماماً.</p>
+      </div>
+
+      <div class="arch-card reveal" style="--i:2">
+        <div class="arch-badge" data-i18n="arch_3_b">Autonomous Mesh</div>
+        <div class="icon-box blue">
+          <!-- Vector Mesh Network Sync Icon -->
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="5" r="3"/>
+            <circle cx="5" cy="19" r="3"/>
+            <circle cx="19" cy="19" r="3"/>
+            <line x1="7.6" y1="17.2" x2="10.4" y2="7.8"/>
+            <line x1="16.4" y1="17.2" x2="13.6" y2="7.8"/>
+            <line x1="8" y1="19" x2="16" y2="19"/>
+          </svg>
+        </div>
+        <h3 data-i18n="arch_3_t">بنية المزامنة الذاتية دون اتصال</h3>
+        <p data-i18n="arch_3_d">استمرارية كاملة لعمليات البيع والتحضير والنداء حتى في حالات انقطاع الإنترنت التام، مع مزامنة سحابية تفاضلية آمنة فور عودة الشبكة.</p>
+      </div>
+
+      <div class="arch-card reveal" style="--i:3">
+        <div class="arch-badge" data-i18n="arch_4_b">Cloud-Native APIs</div>
+        <div class="icon-box purple">
+          <!-- Vector Cloud Microservices Icon -->
+          <svg viewBox="0 0 24 24">
+            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+            <polyline points="13 13 16 16 19 13"/>
+            <line x1="16" y1="10" x2="16" y2="16"/>
+          </svg>
+        </div>
+        <h3 data-i18n="arch_4_t">بنية سحابية قابلة للتوسع اللانهائي</h3>
+        <p data-i18n="arch_4_d">بنية معمارية موزعة (Microservices) تدعم آلاف المعاملات في الثانية الواحدة مع واجهات ربط برمجية RESTful API فائقة السرعة.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ SOLUTIONS / PRODUCTS ═══════════════════ -->
+<section class="products-section" id="solutions">
+  <div class="sec-wrap">
+    <div class="products-head reveal">
+      <div class="eyebrow" data-i18n="sol_eyebrow">الحلول والخدمات</div>
+      <h2 class="sec-title" data-i18n="sol_title">منظومة شاملة تغطي <span class="hl">كامل متطلبات الحرم المدرسي</span></h2>
+      <p class="sec-sub" data-i18n="sol_sub">حلول مصممة لتسريع العمليات اليومية، إلغاء التعاملات النقدية، وتوفير أقصى درجات الأمان والرقابة الرقمية.</p>
+    </div>
+    <div class="products-grid stagger">
+      <!-- 1. Smart Attendance & Digital Permits -->
+      <div class="product-card reveal" style="--i:0">
+        <div class="icon-box teal">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 14 14"/>
+            <path d="M16 4h4v4"/>
+          </svg>
+        </div>
+        <h3 data-i18n="p1_t">الحضور والانصراف والاستئذان الرقمي</h3>
+        <p data-i18n="p1_d">رصد آلي لدخول وخروج الطلاب وإدارة طلبات الاستئذان المعتمدة رقمياً بين ولي الأمر وإدارة المدرسة مع توثيق أوقات الوصول والانصراف بدقة متناهية.</p>
+      </div>
+
+      <!-- 2. Instant Alerts & Notifications -->
+      <div class="product-card reveal" style="--i:1">
+        <div class="icon-box rose">
+          <svg viewBox="0 0 24 24">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            <circle cx="19" cy="4" r="2.5" fill="currentColor"/>
+          </svg>
+        </div>
+        <h3 data-i18n="p_alert_t">التبليغ الفوري والتنبيهات المباشرة</h3>
+        <p data-i18n="p_alert_d">قناة تواصل ذكية ترسل إشعارات فورية موثقة لأولياء الأمور والإدارة بخصوص التأخير الصباحي، الغياب، السلوك المدرسي، أو التعاميم العاجلة في ثوانٍ.</p>
+      </div>
+
+      <!-- 3. Teacher Merit & Reward Points -->
+      <div class="product-card reveal" style="--i:2">
+        <div class="icon-box amber">
+          <svg viewBox="0 0 24 24">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        </div>
+        <h3 data-i18n="p_rewards_t">نقاط ومكافآت الكادر التعليمي</h3>
+        <p data-i18n="p_rewards_d">منظومة تحفيزية تمكّن المعلمين من منح نقاط تميز وسلوك إيجابي للطلاب، تساعدهم في تعزيز دافعيتهم واستبدال النقاط بمكافآت فورية في المقصف والأنشطة.</p>
+      </div>
+
+      <!-- 4. Family Smart Wallet -->
+      <div class="product-card reveal" style="--i:3">
+        <div class="icon-box emerald">
+          <svg viewBox="0 0 24 24">
+            <rect x="2" y="5" width="20" height="14" rx="3"/>
+            <line x1="2" y1="10" x2="22" y2="10"/>
+            <circle cx="17" cy="15" r="1.5" fill="currentColor"/>
+          </svg>
+        </div>
+        <h3 data-i18n="p2_t">المحفظة العائلية الذكية</h3>
+        <p data-i18n="p2_d">محفظة إلكترونية تمكن أولياء الأمور من شحن الرصيد، تحديد سقف الصرف اليومي، ومتابعة مشتريات أبنائهم وتفاصيلها لحظياً.</p>
+      </div>
+
+      <!-- 5. Smart Canteen & Pre-Order -->
+      <div class="product-card reveal" style="--i:4">
+        <div class="icon-box blue">
+          <svg viewBox="0 0 24 24">
+            <path d="M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
+            <line x1="6" y1="1" x2="6" y2="4"/>
+            <line x1="10" y1="1" x2="10" y2="4"/>
+            <line x1="14" y1="1" x2="14" y2="4"/>
+          </svg>
+        </div>
+        <h3 data-i18n="p3_t">المقصف الرقمي والطلب المسبق</h3>
+        <p data-i18n="p3_d">إلغاء طوابير الانتظار تماماً من خلال كشك الخدمة الذاتية وتطبيق الطلب المسبق للوجبات مع مراعاة الحساسيات الغذائية للطلاب.</p>
+      </div>
+
+      <!-- 6. Smart Dismissal Dispatch -->
+      <div class="product-card reveal" style="--i:5">
+        <div class="icon-box purple">
+          <svg viewBox="0 0 24 24">
+            <rect x="1" y="3" width="15" height="13" rx="2"/>
+            <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>
+            <circle cx="5.5" cy="18.5" r="2.5"/>
+            <circle cx="18.5" cy="18.5" r="2.5"/>
+          </svg>
+        </div>
+        <h3 data-i18n="p5_t">نظام نداء الانصراف الذكي</h3>
+        <p data-i18n="p5_d">بديل رقمي متطور لمكبرات الصوت التقليدية يتيح تنظيم خروج الطلاب بدقة وأمان عند وصول ولي الأمر أو السائق المفوض إلى البوابة.</p>
+      </div>
+
+      <!-- 7. Smart Tuition & Invoicing -->
+      <div class="product-card reveal" style="--i:6">
+        <div class="icon-box teal">
+          <svg viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+        </div>
+        <h3 data-i18n="p6_t">الفوترة والتحصيل الآلي للرسوم</h3>
+        <p data-i18n="p6_d">جدولة الأقساط المدرسية والاشتراكات والنقل مع خيارات سداد مرنة وإصدار فواتير إلكترونية متوافقة مع متطلبات هيئة الزكاة والضريبة.</p>
+      </div>
+
+      <!-- 8. Uniform & Supplies Marketplace -->
+      <div class="product-card reveal" style="--i:7">
+        <div class="icon-box amber">
+          <svg viewBox="0 0 24 24">
+            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <path d="M16 10a4 4 0 0 1-8 0"/>
+          </svg>
+        </div>
+        <h3 data-i18n="p7_t">متجر الزي والمستلزمات</h3>
+        <p data-i18n="p7_d">بوابة إلكترونية تربط الموردين المعتمدين بالأسر لتوفير الزي المدرسي والكتب والقرطاسية مع تحديد المقاسات والدفع والتوصيل بكل سهولة.</p>
+      </div>
+
+      <!-- 9. Executive Analytics Dashboard -->
+      <div class="product-card reveal" style="--i:8">
+        <div class="icon-box emerald">
+          <svg viewBox="0 0 24 24">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+            <path d="M3 20h18"/>
+          </svg>
+        </div>
+        <h3 data-i18n="p9_t">مركز التحليلات والتقارير اليومية</h3>
+        <p data-i18n="p9_d">لوحة تحكم تنفيذية تعرض حركة التدفقات المالية، نسب الحضور اليومي، وسلوكيات النقاط التحفيزية بدقة تدعم اتخاذ القرار للإدارة.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ ECOSYSTEM & INTEGRATION ═══════════════════ -->
+<section class="how-section" id="ecosystem" style="background:var(--white)">
+  <div class="sec-wrap">
+    <div class="how-head reveal">
+      <div class="eyebrow" data-i18n="eco_eyebrow">المنظومة والربط</div>
+      <h2 class="sec-title" data-i18n="eco_title">تكامل تقني مرن مع <span class="hl">أنظمتكم الحالية</span></h2>
+      <p class="sec-sub" data-i18n="eco_sub">حاضر مصمم ليتوافق بسلاسة مع البنية التحتية للمؤسسات التعليمية والأنظمة الإدارية والمحاسبية المعتمدة.</p>
+    </div>
+    <div class="features-grid stagger">
+      <div class="feat-card reveal" style="--i:0">
+        <div class="icon-box teal">
+          <svg viewBox="0 0 24 24">
+            <polyline points="16 18 22 12 16 6"/>
+            <polyline points="8 6 2 12 8 18"/>
+            <line x1="12" y1="2" x2="12" y2="22"/>
+          </svg>
+        </div>
+        <h3 data-i18n="eco_1_t">الربط عبر واجهات API المتقدمة</h3>
+        <p data-i18n="eco_1_d">تكامل مباشر مع أنظمة إدارة المدارس (SIS) وقواعد البيانات التعليمية لتحديث بيانات الطلاب والجداول آلياً.</p>
+      </div>
+      <div class="feat-card reveal" style="--i:1">
+        <div class="icon-box blue">
+          <svg viewBox="0 0 24 24">
+            <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+            <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+            <line x1="12" y1="20" x2="12.01" y2="20"/>
+          </svg>
+        </div>
+        <h3 data-i18n="eco_2_t">العمل في وضع عدم الاتصال (Offline-First)</h3>
+        <p data-i18n="eco_2_d">استمرار عمليات البيع وتسجيل الحضور بكفاءة حتى عند انقطاع الشبكة، مع مزامنة سحابية فورية فور عودة الاتصال.</p>
+      </div>
+      <div class="feat-card reveal" style="--i:2">
+        <div class="icon-box emerald">
+          <svg viewBox="0 0 24 24">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            <circle cx="12" cy="16" r="1.5" fill="currentColor"/>
+          </svg>
+        </div>
+        <h3 data-i18n="eco_3_t">أعلى معايير الحوكمة والخصوصية</h3>
+        <p data-i18n="eco_3_d">تشفير بنكي للبيانات واستضافة محلية آمنة متوافقة بالكامل مع نظام حماية البيانات الشخصية واللوائح الوطنية.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ FEATURES ═══════════════════ -->
+<section class="features-section" id="features">
+  <div class="sec-wrap">
+    <div class="features-head reveal">
+      <div class="eyebrow" data-i18n="feat_eyebrow">المزايا الهندسية</div>
+      <h2 class="sec-title" data-i18n="feat_title">لماذا تتفوق <span class="hl">منظومة حاضر</span> تقنياً؟</h2>
+      <p class="sec-sub" data-i18n="feat_sub">مزيج هندسي متطور يجمع بين السرعة الفائقة والأمان الصارم والتشغيل المستقل المستدام.</p>
+    </div>
+    <div class="features-grid stagger">
+      <div class="feat-card reveal" style="--i:0">
+        <div class="feat-num">01</div>
+        <div class="icon-box teal">
+          <svg viewBox="0 0 24 24">
+            <rect x="2" y="3" width="15" height="12" rx="2"/>
+            <path d="M6 21h7M9.5 15v6"/>
+            <rect x="18" y="7" width="4" height="10" rx="1"/>
+          </svg>
+        </div>
+        <h3 data-i18n="f1_t">دعم كافة الأجهزة</h3>
+        <p data-i18n="f1_d">تجربة متوافقة بسلاسة مع أجهزة الحاسب والجوال والأجهزة اللوحية وشاشات الخدمة الذاتية، لتعمل منظومة حاضر بكفاءة في الإدارة والميدان.</p>
+      </div>
+      <div class="feat-card reveal" style="--i:1">
+        <div class="feat-num">02</div>
+        <div class="icon-box purple">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/>
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+        </div>
+        <h3 data-i18n="f2_t">خوارزميات ذكاء اصطناعي متكيفة</h3>
+        <p data-i18n="f2_d">تنبؤ ذكي بطلبات المقصف لتقليل الهدر، واكتشاف الأنماط غير الاعتيادية في الصرف أو الغياب لتنبيه الإدارة مبكراً.</p>
+      </div>
+      <div class="feat-card reveal" style="--i:2">
+        <div class="feat-num">03</div>
+        <div class="icon-box blue">
+          <svg viewBox="0 0 24 24">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+            <line x1="12" y1="18" x2="12.01" y2="18"/>
+          </svg>
+        </div>
+        <h3 data-i18n="f3_t">تطبيقات متخصصة لكافة الأطراف</h3>
+        <p data-i18n="f3_d">تطبيق لولي الأمر، تطبيق لبوابة الحراسة والنداء، واجهة كاشير سريعة، وبوابة إدارية مركزية للقيادات والمحاسبين.</p>
+      </div>
+      <div class="feat-card reveal" style="--i:3">
+        <div class="feat-num">04</div>
+        <div class="icon-box amber">
+          <svg viewBox="0 0 24 24">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </div>
+        <h3 data-i18n="f4_t">توريد وتجهيز العتاد الكامل</h3>
+        <p data-i18n="f4_d">نوفر الأجهزة الطرفية المحمولة، شاشات الخدمة الذاتية Kiosks، وأجهزة القراءة البيومترية مع ضمان صيانة وتشغيل مستمر.</p>
+      </div>
+      <div class="feat-card reveal" style="--i:4">
+        <div class="feat-num">05</div>
+        <div class="icon-box emerald">
+          <svg viewBox="0 0 24 24">
+            <path d="M3 3v18h18"/>
+            <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/>
+          </svg>
+        </div>
+        <h3 data-i18n="f5_t">مطابقة مالية صفرية الأخطاء</h3>
+        <p data-i18n="f5_d">القضاء التام على الفروقات النقدية وإلغاء عمليات الجرد اليدوي بفضل التسوية الحسابية الرقمية المؤتمتة.</p>
+      </div>
+      <div class="feat-card reveal" style="--i:5">
+        <div class="feat-num">06</div>
+        <div class="icon-box rose">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <polyline points="9 12 11 14 15 10"/>
+          </svg>
+        </div>
+        <h3 data-i18n="f6_t">حوكمة صارمة وحماية سيبرانية شاملة</h3>
+        <p data-i18n="f6_d">تطبيق أعلى بروتوكولات الأمان السيبراني المصرفي، مع رقابة وصول دقيقة وسجلات تدقيق تفصيلية غير قابلة للتعديل.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ INTERACTIVE DEMO ═══════════════════ -->
+<section class="demo-section" id="demo">
+  <div class="sec-wrap">
+    <div class="demo-head reveal">
+      <div>
+        <div class="eyebrow" data-i18n="demo_eyebrow">جرّب حاضر</div>
+        <h2 class="sec-title" data-i18n="demo_title">واجهة فعلية تشرح <span class="hl">تجربة النظام</span></h2>
+      </div>
+      <div class="demo-head-copy">
+        <p class="sec-sub" data-i18n="demo_sub">بدّل بين بوابة الموظفين وولي الأمر، ثم ادخل إلى نسخة العرض لاستكشاف الشاشات والمهام اليومية داخل نفس المساحة.</p>
+        <a class="demo-open-link app-route-link" href="../index.html#/demo" data-app-route="/demo" data-i18n="demo_open">فتح الديمو بحجم كامل</a>
+      </div>
+    </div>
+
+    <div class="demo-browser reveal">
+      <div class="demo-browser-bar" aria-hidden="true">
+        <div class="demo-browser-dots"><span></span><span></span><span></span></div>
+        <div class="demo-browser-address">app.hader.sa / demo</div>
+        <div class="demo-browser-status"><span></span> LIVE</div>
+      </div>
+      <div class="landing-demo" id="landingDemo">
+        <div class="landing-demo-login" id="demoLoginView">
+          <section class="demo-story-panel">
+            <div class="demo-brand-row">
+              <div class="demo-brand-mark"><img src="assets/img/logo.png" alt="حاضر"></div>
+              <div>
+                <p data-i18n="demo_system_name">نظام حاضر</p>
+                <h3 data-i18n="demo_card_title">ديمو تفاعلي داخل التطبيق</h3>
+              </div>
+            </div>
+            <div class="demo-story-copy">
+              <strong data-i18n="demo_explainer">محاكاة واحدة قابلة للشرح</strong>
+              <p data-i18n="demo_explainer_body">اختر بوابة الموظفين أو ولي الأمر، ثم ادخل إلى نسخة عرض تعمل داخل نفس البطاقة دون الانتقال إلى صفحة أخرى.</p>
+            </div>
+            <div class="demo-mini-metrics">
+              <div><b>٨١٢</b><span data-i18n="demo_metric_students">طالب حاضر</span></div>
+              <div><b>١٨٤</b><span data-i18n="demo_metric_messages">رسالة جاهزة</span></div>
+              <div><b>١٢</b><span data-i18n="demo_metric_reports">تقرير جاهز</span></div>
+            </div>
+          </section>
+
+          <section class="demo-login-panel">
+            <div class="demo-login-head">
+              <div><p data-i18n="demo_login_label">تسجيل الدخول</p><h3 id="demoPortalTitle">بوابة الموظفين</h3></div>
+              <div class="demo-login-icon" aria-hidden="true">✓</div>
+            </div>
+            <div class="demo-portal-tabs" role="tablist" aria-label="اختيار بوابة الديمو">
+              <button type="button" class="active" id="demoStaffTab" data-demo-portal="staff" data-i18n="demo_staff">الموظفين</button>
+              <button type="button" id="demoGuardianTab" data-demo-portal="guardian" data-i18n="demo_guardian">أولياء الأمور</button>
+            </div>
+            <div class="demo-fields">
+              <label><span id="demoIdentityLabel">اسم المستخدم</span><span class="demo-fake-input" id="demoIdentityValue">مثال: admin</span></label>
+              <label><span id="demoSecretLabel">كلمة المرور</span><span class="demo-fake-input">••••••••</span></label>
+            </div>
+            <button type="button" class="demo-enter-btn" id="demoEnterBtn"><span id="demoEnterLabel">دخول الموظفين التجريبي</span><b>←</b></button>
+            <div class="demo-login-foot"><span data-i18n="demo_disclaimer">واجهة عرض وليست تسجيل دخول فعلي</span><small>HADER DEMO</small></div>
+          </section>
+        </div>
+
+        <div class="landing-demo-workspace" id="demoWorkspace" hidden>
+          <div class="demo-workspace-head">
+            <div><strong id="demoWorkspaceTitle">واجهة الموظفين التجريبية</strong><span data-i18n="demo_school">مدرسة الملك فهد الثانوية</span></div>
+            <div class="demo-workspace-actions"><span data-i18n="demo_online">سحابي — متصل</span><button type="button" id="demoResetBtn" data-i18n="demo_back">رجوع للدخول</button></div>
+          </div>
+          <div class="demo-workspace-grid">
+            <aside class="demo-side-nav">
+              <button class="active" type="button" data-i18n="demo_nav_dashboard">الرئيسية</button>
+              <button type="button" data-i18n="demo_nav_attendance">الحضور اليومي</button>
+              <button type="button" data-i18n="demo_nav_messages">الإشعارات</button>
+              <button type="button" data-i18n="demo_nav_reports">التقارير</button>
+            </aside>
+            <section class="demo-dashboard-panel">
+              <div class="demo-dashboard-title"><div><span data-i18n="demo_today">مؤشرات اليوم الدراسي</span><h3 data-i18n="demo_dashboard_title">لوحة المتابعة اللحظية</h3></div><b data-i18n="demo_simulation">نسخة محاكاة</b></div>
+              <div class="demo-dashboard-metrics">
+                <article><span data-i18n="demo_present">حاضر</span><strong>٨١٢</strong><small>+٢٤</small></article>
+                <article><span data-i18n="demo_late">متأخر</span><strong>١٢</strong><small>−٣</small></article>
+                <article><span data-i18n="demo_absent">غائب</span><strong>٢٣</strong><small>−٥</small></article>
+              </div>
+              <div class="demo-activity-list">
+                <div><span><b data-i18n="demo_event_attendance">تسجيل حضور جديد</b><small data-i18n="demo_event_attendance_sub">عبدالله الزهراني — الصف الثالث</small></span><time>٠٧:١٢</time></div>
+                <div><span><b data-i18n="demo_event_message">إرسال إشعار لولي الأمر</b><small data-i18n="demo_event_message_sub">تنبيه تأخر صباحي</small></span><time>٠٧:٤٢</time></div>
+                <div><span><b data-i18n="demo_event_report">تحديث تقرير اليوم</b><small data-i18n="demo_event_report_sub">اكتملت مزامنة سجلات الحضور</small></span><time>٠٨:٠٥</time></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ HOW IT WORKS ═══════════════════ -->
+<section class="how-section" id="how">
+  <div class="sec-wrap">
+    <div class="how-head reveal">
+      <div class="eyebrow" data-i18n="how_eyebrow">آلية العمل</div>
+      <h2 class="sec-title" data-i18n="how_title">خطوات سريعة <span class="hl">للتحول الرقمي الكامل</span></h2>
+    </div>
+    <div class="how-steps stagger">
+      <div class="how-step reveal" style="--i:0">
+        <div class="how-step-num" data-i18n="step_1_n">١</div>
+        <h3 data-i18n="step_1_t">التجهيز وتهيئة الحساب</h3>
+        <p data-i18n="step_1_d">إعداد الهيكل الإداري للمدرسة وربط الفصول وقوائم الطلاب في بيئة سحابية مخصصة.</p>
+      </div>
+      <div class="how-step reveal" style="--i:1">
+        <div class="how-step-num" data-i18n="step_2_n">٢</div>
+        <h3 data-i18n="step_2_t">تركيب وتفعيل الأجهزة</h3>
+        <p data-i18n="step_2_d">تثبيت أجهزة نقاط البيع وشاشات الطلب الذاتي وتدريب الطاقم الإداري والتشغيلي.</p>
+      </div>
+      <div class="how-step reveal" style="--i:2">
+        <div class="how-step-num" data-i18n="step_3_n">٣</div>
+        <h3 data-i18n="step_3_t">إشراك أولياء الأمور والطلاب</h3>
+        <p data-i18n="step_3_d">إرسال روابط تفعيل المحفظة العائلية وتسجيل وسائل الدفع أو بصمة الوجه بسهولة.</p>
+      </div>
+      <div class="how-step reveal" style="--i:3">
+        <div class="how-step-num" data-i18n="step_4_n">٤</div>
+        <h3 data-i18n="step_4_t">التشغيل والمتابعة اللحظية</h3>
+        <p data-i18n="step_4_d">انطلاق العمليات اللانقدية ومتابعة التقارير الحية عبر لوحة المؤشرات المركزية.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ FAQ ═══════════════════ -->
+<section class="faq-section" id="faq">
+  <div class="sec-wrap">
+    <div class="faq-head reveal">
+      <div class="eyebrow" data-i18n="faq_eyebrow">الأسئلة الشائعة</div>
+      <h2 class="sec-title" data-i18n="faq_title">إجابات عن <span class="hl">استفساراتكم</span></h2>
+    </div>
+    <div class="faq-list">
+      <div class="faq-item reveal">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span data-i18n="faq_1_q">ما هي متطلبات تفعيل منظومة حاضر في منشأتنا؟</span>
+          <span class="faq-arrow">▼</span>
+        </button>
+        <div class="faq-a">
+          <p data-i18n="faq_1_a">لا تتطلب المنظومة تجهيزات معقدة؛ نوفر كافة الأجهزة الذكية والبرمجيات السحابية اللازمة، مع توفير خطة تدريب وتدشين سريعة تكتمل عادة خلال أيام قليلة.</p>
+        </div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span data-i18n="faq_2_q">كيف يضمن النظام عدم ضياع العمليات عند انقطاع الإنترنت؟</span>
+          <span class="faq-arrow">▼</span>
+        </button>
+        <div class="faq-a">
+          <p data-i18n="faq_2_a">تعمل أجهزة حاضر بتقنية Offline-First، حيث تخزن العمليات في مساحة مشفرة محلياً وتستمر في تنفيذ عمليات الشراء والتحضير، ثم تتم مزامنتها تلقائياً فور توفر الاتصال دون أدنى تعطل.</p>
+        </div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span data-i18n="faq_3_q">هل تناسب المنظومة الأكاديميات والأنشطة غير المدرسية؟</span>
+          <span class="faq-arrow">▼</span>
+        </button>
+        <div class="faq-a">
+          <p data-i18n="faq_3_a">نعم بكل تأكيد؛ تخدم منظومة حاضر الأكاديميات الرياضية، معاهد التدريب، مشغلي المقاصف، موردي الزي والمستلزمات، ومنظمي المعارض والفعاليات.</p>
+        </div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span data-i18n="faq_4_q">ما مستوى أمان وخصوصية البيانات الحيوية والمالية؟</span>
+          <span class="faq-arrow">▼</span>
+        </button>
+        <div class="faq-a">
+          <p data-i18n="faq_4_a">نطبق معايير التشفير المصرفية المتقدمة AES-256، وتتم استضافة كافة البيانات محلياً داخل مراكز بيانات آمنة بالمملكة مع التزام كامل بنظام حماية البيانات الشخصية.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ CTA & CONTACT FORM ═══════════════════ -->
+<section class="cta-section" id="contact">
+  <div class="sec-wrap">
+    <div class="cta-content reveal">
+      <h2 data-i18n="cta_heading">مستعد لبدء التحول الذكي في حرمكم المدرسي؟</h2>
+      <p data-i18n="cta_sub">فريقنا المختص جاهز لتقديم استشارة مخصصة وعرض توضيحي حي لجميع مميزات المنظومة.</p>
+      <a class="btn-white" href="tel:0541399911">
+        <span data-i18n="cta_call_btn">إتصل بنا</span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+      </a>
+    </div>
+
+    <!-- Contact Form Card -->
+    <div class="contact-card-wrap reveal">
+      <div class="contact-card-head">
+        <div class="eyebrow" style="margin-bottom:12px" data-i18n="form_eyebrow">تواصل معنا</div>
+        <h3 data-i18n="form_title">أخبرنا عن مدرستك أو عملك</h3>
+        <p data-i18n="form_subtitle">املأ النموذج أدناه وسيقوم مستشارنا بالرد عليك خلال أقل من ٢٤ ساعة.</p>
+      </div>
+
+      <form class="contact-form" id="contactForm" onsubmit="handleFormSubmit(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="firstName">
+              <span data-i18n="form_first_name">الاسم الأول</span> <span class="req">*</span>
+            </label>
+            <input class="form-input" type="text" id="firstName" name="firstName" required placeholder="مثال: عبد الله" data-i18n-ph="ph_first_name">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="lastName">
+              <span data-i18n="form_last_name">اسم العائلة</span>
+            </label>
+            <input class="form-input" type="text" id="lastName" name="lastName" placeholder="مثال: الغامدي" data-i18n-ph="ph_last_name">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="email">
+            <span data-i18n="form_email">البريد الإلكتروني</span> <span class="req">*</span>
+          </label>
+          <input class="form-input" type="email" id="email" name="email" required placeholder="name@school.edu.sa">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <span data-i18n="form_phone">رقم الجوال</span> <span class="req">*</span>
+          </label>
+          <div class="phone-group-wrap">
+            <select class="form-select" id="countryCode" name="countryCode" required aria-label="رمز الدولة">
+              <option value="+966" selected>+966 🇸🇦</option>
+              <option value="+971">+971 🇦🇪</option>
+              <option value="+965">+965 🇰🇼</option>
+              <option value="+974">+974 🇶🇦</option>
+              <option value="+973">+973 🇧🇭</option>
+              <option value="+968">+968 🇴🇲</option>
+            </select>
+            <input class="form-input" type="tel" id="phone" name="phone" required placeholder="05XXXXXXXX" dir="ltr" style="text-align:inherit">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="message">
+            <span data-i18n="form_msg">الرسالة</span> <span class="req">*</span>
+          </label>
+          <textarea class="form-textarea" id="message" name="message" required placeholder="أخبرنا كيف يمكننا مساعدتك..." data-i18n-ph="ph_msg"></textarea>
+        </div>
+
+        <button type="submit" class="btn-submit" id="submitBtn">
+          <span data-i18n="form_submit">إرسال الرسالة</span>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+        </button>
+
+        <div class="form-success-msg" id="formSuccess" data-i18n="form_success">
+          ✅ شكراً لك! تم استلام رسالتك بنجاح، وسيتواصل معك فريق حاضر قريباً.
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ═══════════════════ FOOTER ═══════════════════ -->
+<footer class="footer">
+  <div class="sec-wrap">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <img src="assets/img/logo.png" alt="حاضر" style="height:38px;width:auto;margin-bottom:12px;filter:brightness(0) invert(1);">
+        <p data-i18n="footer_bio">منظومة متقدمة تدعم التحوّل الرقمي وتوفر حلول تقنية متقدمة في المملكة العربية السعودية.</p>
+      </div>
+      <div class="footer-col">
+        <h4 data-i18n="foot_col_1_t">الحلول التقنية</h4>
+        <a href="#solutions" data-i18n="foot_link_1">الحضور والاستئذان الذكي</a>
+        <a href="#solutions" data-i18n="foot_link_2">المحفظة العائلية</a>
+        <a href="#solutions" data-i18n="foot_link_3">المقصف الرقمي</a>
+        <a href="#solutions" data-i18n="foot_link_4">التبليغ الفوري</a>
+        <a href="#solutions" data-i18n="foot_link_5">نداء الانصراف</a>
+      </div>
+      <div class="footer-col">
+        <h4 data-i18n="foot_col_2_t">القطاعات المستفيدة</h4>
+        <a href="#solutions" data-i18n="foot_link_6">المدارس والمجمعات</a>
+        <a href="#solutions" data-i18n="foot_link_7">الأكاديميات الرياضية</a>
+        <a href="#solutions" data-i18n="foot_link_8">مشغلو المقاصف</a>
+        <a href="#solutions" data-i18n="foot_link_9">موردو الزي والكتب</a>
+      </div>
+      <div class="footer-col">
+        <h4 data-i18n="foot_col_3_t">التواصل والدعم</h4>
+        <a href="tel:0541399911" data-i18n="nav_cta">إتصل بنا</a>
+        <a href="mailto:himcodeing@gmail.com">himcodeing@gmail.com</a>
+        <a href="#contact" data-i18n="foot_privacy">سياسة الخصوصية</a>
+        <a href="#contact" data-i18n="foot_terms">الشروط والأحكام</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span data-i18n="footer_rights">© 2026 HADER Information Systems Technology. جميع الحقوق محفوظة.</span>
+    </div>
+  </div>
+</footer>
+
+<!-- ═══════════════════ WhatsApp Widget ═══════════════════ -->
+<a class="wa-float" href="https://wa.me/966541399911" target="_blank" rel="noopener" aria-label="تواصل عبر واتساب">
+  💬
+</a>
+
+<!-- ═══════════════════ JAVASCRIPT & I18N ENGINE ═══════════════════ -->
+<script>
+/* ── Bilingual Translations Dictionary ── */
+const i18n = {
+  ar: {
+    pageTitle: "حاضر | HADER — المنظومة التقنية للحرم المدرسي الذكي والعمليات اللانقدية",
+    pageDesc: "حاضر: منظومة سحابية متقدمة تعتمد على الذكاء الاصطناعي لإدارة الحضور البيومتري، المدفوعات اللانقدية، والعمليات المدرسية المتكاملة.",
+    nav_tech: "البنية التقنية",
+    nav_solutions: "الحلول والخدمات",
+    nav_features: "المزايا الهندسية",
+    nav_ecosystem: "المنظومة والربط",
+    nav_how: "آلية العمل",
+    nav_faq: "الأسئلة الشائعة",
+    nav_cta: "اتصل بنا",
+    nav_login: "دخول النظام",
+    hero_badge: "نحو تحوّل رقمي مدرسي أكثر كفاءة وذكاء",
+    hero_h1: 'أعد ابتكار<br>التجربة اليومية في<br><span class="gradient-text">حرمك المدرسي</span>.',
+    hero_desc: "منظومة حاضر توحد عمليات تسجيل الحضور الذكي، إدارة المقاصف، والنداء الآمن في بيئة رقمية متكاملة تمنح الإدارة وأولياء الأمور تحكماً شاملاً وسلساً.",
+    hero_btn_call: "اتصل بنا",
+    hero_login: "دخول النظام",
+    hero_btn_explore: "استكشف البنية التقنية",
+    stat_latency: "زمن استجابة التعرف الحيوي",
+    stat_offline: "جاهزية دون اتصال (Offline Engine)",
+    stat_uptime: "استقرار البنية الموزعة (SLA)",
+    phone_app_name: "تطبيق ولي الأمر",
+    phone_live_badge: "مباشر • Live",
+    notif_1_sender: "مدرسة الإبداع الأهلية",
+    notif_1_time: "٠٧:١٥ ص",
+    notif_1_title: "تم تسجيل حضور الطالب (سعود)",
+    notif_1_msg: "تم التحضير البيومتري التلقائي عند بوابة الدخول الرئيسية بنجاح.",
+    notif_1_badge: "حاضر في الموعد المحدد",
+    notif_2_sender: "مقصف حاضر الذكي",
+    notif_2_time: "٠٩:٣٠ ص",
+    notif_2_title: "شراء وجبة فطور صحية (−١٢ ر.س)",
+    notif_2_msg: "فطيرة أجبان وعصير برتقال طبيعي • الرصيد المتبقي بالمحفظة: ١٨٨ ر.س.",
+    notif_2_badge: "متوافق مع الحمية الغذائية",
+    notif_3_sender: "نداء الانصراف الذكي",
+    notif_3_time: "٠١:٢٥ م",
+    notif_3_title: "طلب انصراف واستئذان معتمد",
+    notif_3_msg: "تم إشعار الطالب وتوجهه إلى سيارة ولي الأمر عند البوابة رقم (٢) بأمان.",
+    notif_3_badge: "خروج آمن وموثق",
+    float_1_t: "رسالة حضور فورية",
+    float_1_d: "وصل (سعود) للمدرسة في ٠٧:١٥ ص",
+    float_2_t: "إشعار نداء وانصراف",
+    float_2_d: "جاري خروج الطالب للبوابة رقم (٢)",
+    tech_banner_title: "المعايير الهندسية والبروتوكولات المعتمدة في منظومة حاضر",
+    tech_pills: [
+      "خوارزميات Edge AI الحيوية",
+      "تشفير بنكي AES-256 و TLS 1.3",
+      "بروتوكول المزامنة الذاتية Mesh Sync",
+      "واجهات RESTful API فائقة السرعة",
+      "فحص حيوية ثلاثي الأبعاد 3D Anti-Spoofing",
+      "مطابقة مالية لحظية Zero-Discrepancy",
+      "بنية تحتية سحابية موزعة Microservices"
+    ],
+    arch_eyebrow: "البنية الهندسية",
+    arch_title: 'ركائز متقدمة تضمن <span class="hl">أعلى كفاءة وموثوقية</span>',
+    arch_sub: "تم بناء حاضر وفق أحدث معايير الحوسبة السحابية الموزعة وخوارزميات الذكاء الاصطناعي الطرفية لتقديم أداء غير مسبوق.",
+    arch_1_b: "Edge AI Engine",
+    arch_1_t: "محرك الاستدلال الحيوي الطرفي",
+    arch_1_d: "معالجة وتحليل ملامح الوجه محلياً على الأجهزة الطرفية في أقل من 0.2 ثانية مع حماية ثلاثية الأبعاد ضد محاولات التزييف (Anti-Spoofing Liveness Detection).",
+    arch_2_b: "Zero-Trust Vault",
+    arch_2_t: "بروتوكول الأمان المالي المشفر",
+    arch_2_d: "تشفير بنكي عالي المستوى AES-256 للمحافظ الرقمية وسجلات العمليات، مع تسوية حسابية آنية تلغي الأخطاء والفروقات المالية تماماً.",
+    arch_3_b: "Autonomous Mesh",
+    arch_3_t: "بنية المزامنة الذاتية دون اتصال",
+    arch_3_d: "استمرارية كاملة لعمليات البيع والتحضير والنداء حتى في حالات انقطاع الإنترنت التام، مع مزامنة سحابية تفاضلية آمنة فور عودة الشبكة.",
+    arch_4_b: "Cloud-Native APIs",
+    arch_4_t: "بنية سحابية قابلة للتوسع اللانهائي",
+    arch_4_d: "بنية معمارية موزعة (Microservices) تدعم آلاف المعاملات في الثانية الواحدة مع واجهات ربط برمجية RESTful API فائقة السرعة.",
+    sol_eyebrow: "الحلول والخدمات",
+    sol_title: 'منظومة شاملة تغطي <span class="hl">كامل متطلبات الحرم المدرسي</span>',
+    sol_sub: "حلول مصممة لتسريع العمليات اليومية، إلغاء التعاملات النقدية، وتوفير أقصى درجات الأمان والرقابة الرقمية.",
+    p1_t: "الحضور والانصراف والاستئذان الرقمي",
+    p1_d: "رصد آلي لدخول وخروج الطلاب وإدارة طلبات الاستئذان المعتمدة رقمياً بين ولي الأمر وإدارة المدرسة مع توثيق أوقات الوصول والانصراف بدقة متناهية.",
+    p_alert_t: "التبليغ الفوري والتنبيهات المباشرة",
+    p_alert_d: "قناة تواصل ذكية ترسل إشعارات فورية موثقة لأولياء الأمور والإدارة بخصوص التأخير الصباحي، الغياب، السلوك المدرسي، أو التعاميم العاجلة في ثوانٍ.",
+    p_rewards_t: "نقاط ومكافآت الكادر التعليمي",
+    p_rewards_d: "منظومة تحفيزية تمكّن المعلمين من منح نقاط تميز وسلوك إيجابي للطلاب، تساعدهم في تعزيز دافعيتهم واستبدال النقاط بمكافآت فورية في المقصف والأنشطة.",
+    p2_t: "المحفظة العائلية الذكية",
+    p2_d: "محفظة إلكترونية تمكن أولياء الأمور من شحن الرصيد، تحديد سقف الصرف اليومي، ومتابعة مشتريات أبنائهم وتفاصيلها لحظياً.",
+    p3_t: "المقصف الرقمي والطلب المسبق",
+    p3_d: "إلغاء طوابير الانتظار تماماً من خلال كشك الخدمة الذاتية وتطبيق الطلب المسبق للوجبات مع مراعاة الحساسيات الغذائية للطلاب.",
+    p5_t: "نظام نداء الانصراف الذكي",
+    p5_d: "بديل رقمي متطور لمكبرات الصوت التقليدية يتيح تنظيم خروج الطلاب بدقة وأمان عند وصول ولي الأمر أو السائق المفوض إلى البوابة.",
+    p6_t: "الفوترة والتحصيل الآلي للرسوم",
+    p6_d: "جدولة الأقساط المدرسية والاشتراكات والنقل مع خيارات سداد مرنة وإصدار فواتير إلكترونية متوافقة مع متطلبات هيئة الزكاة والضريبة.",
+    p7_t: "متجر الزي والمستلزمات",
+    p7_d: "بوابة إلكترونية تربط الموردين المعتمدين بالأسر لتوفير الزي المدرسي والكتب والقرطاسية مع تحديد المقاسات والدفع والتوصيل بكل سهولة.",
+    p9_t: "مركز التحليلات والتقارير اليومية",
+    p9_d: "لوحة تحكم تنفيذية تعرض حركة التدفقات المالية، نسب الحضور اليومي، وسلوكيات النقاط التحفيزية بدقة تدعم اتخاذ القرار للإدارة.",
+    eco_eyebrow: "المنظومة والربط",
+    eco_title: 'تكامل تقني مرن مع <span class="hl">أنظمتكم الحالية</span>',
+    eco_sub: "حاضر مصمم ليتوافق بسلاسة مع البنية التحتية للمؤسسات التعليمية والأنظمة الإدارية والمحاسبية المعتمدة.",
+    eco_1_t: "الربط عبر واجهات API المتقدمة",
+    eco_1_d: "تكامل مباشر مع أنظمة إدارة المدارس (SIS) وقواعد البيانات التعليمية لتحديث بيانات الطلاب والجداول آلياً.",
+    eco_2_t: "العمل في وضع عدم الاتصال (Offline-First)",
+    eco_2_d: "استمرار عمليات البيع وتسجيل الحضور بكفاءة حتى عند انقطاع الشبكة، مع مزامنة سحابية فورية فور عودة الاتصال.",
+    eco_3_t: "أعلى معايير الحوكمة والخصوصية",
+    eco_3_d: "تشفير بنكي للبيانات واستضافة محلية آمنة متوافقة بالكامل مع نظام حماية البيانات الشخصية واللوائح الوطنية.",
+    feat_eyebrow: "المزايا الهندسية",
+    feat_title: 'لماذا تتفوق <span class="hl">منظومة حاضر</span> تقنياً؟',
+    feat_sub: "مزيج هندسي متطور يجمع بين السرعة الفائقة والأمان الصارم والتشغيل المستقل المستدام.",
+    f1_t: "دعم كافة الأجهزة",
+    f1_d: "تجربة متوافقة بسلاسة مع أجهزة الحاسب والجوال والأجهزة اللوحية وشاشات الخدمة الذاتية، لتعمل منظومة حاضر بكفاءة في الإدارة والميدان.",
+    f2_t: "خوارزميات ذكاء اصطناعي متكيفة",
+    f2_d: "تنبؤ ذكي بطلبات المقصف لتقليل الهدر، واكتشاف الأنماط غير الاعتيادية في الصرف أو الغياب لتنبيه الإدارة مبكراً.",
+    f3_t: "تطبيقات متخصصة لكافة الأطراف",
+    f3_d: "تطبيق لولي الأمر، تطبيق لبوابة الحراسة والنداء، واجهة كاشير سريعة، وبوابة إدارية مركزية للقيادات والمحاسبين.",
+    f4_t: "توريد وتجهيز العتاد الكامل",
+    f4_d: "نوفر الأجهزة الطرفية المحمولة، شاشات الخدمة الذاتية Kiosks، وأجهزة القراءة البيومترية مع ضمان صيانة وتشغيل مستمر.",
+    f5_t: "مطابقة مالية صفرية الأخطاء",
+    f5_d: "القضاء التام على الفروقات النقدية وإلغاء عمليات الجرد اليدوي بفضل التسوية الحسابية الرقمية المؤتمتة.",
+    f6_t: "حوكمة صارمة وحماية سيبرانية شاملة",
+    f6_d: "تطبيق أعلى بروتوكولات الأمان السيبراني المصرفي، مع رقابة وصول دقيقة وسجلات تدقيق تفصيلية غير قابلة للتعديل.",
+    demo_eyebrow: "جرّب حاضر",
+    demo_title: 'واجهة فعلية تشرح <span class="hl">تجربة النظام</span>',
+    demo_sub: "بدّل بين بوابة الموظفين وولي الأمر، ثم ادخل إلى نسخة العرض لاستكشاف الشاشات والمهام اليومية داخل نفس المساحة.",
+    demo_open: "فتح الديمو بحجم كامل",
+    demo_system_name: "نظام حاضر",
+    demo_card_title: "ديمو تفاعلي داخل التطبيق",
+    demo_explainer: "محاكاة واحدة قابلة للشرح",
+    demo_explainer_body: "اختر بوابة الموظفين أو ولي الأمر، ثم ادخل إلى نسخة عرض تعمل داخل نفس البطاقة دون الانتقال إلى صفحة أخرى.",
+    demo_metric_students: "طالب حاضر",
+    demo_metric_messages: "رسالة جاهزة",
+    demo_metric_reports: "تقرير جاهز",
+    demo_login_label: "تسجيل الدخول",
+    demo_staff: "الموظفين",
+    demo_guardian: "أولياء الأمور",
+    demo_staff_portal: "بوابة الموظفين",
+    demo_guardian_portal: "بوابة ولي الأمر",
+    demo_staff_identity: "اسم المستخدم",
+    demo_guardian_identity: "رقم الجوال",
+    demo_staff_identity_value: "مثال: admin",
+    demo_guardian_identity_value: "٠٥xxxxxxxx",
+    demo_staff_secret: "كلمة المرور",
+    demo_guardian_secret: "آخر ٤ أرقام من معرف الطالب",
+    demo_staff_enter: "دخول الموظفين التجريبي",
+    demo_guardian_enter: "دخول ولي الأمر التجريبي",
+    demo_staff_workspace: "واجهة الموظفين التجريبية",
+    demo_guardian_workspace: "بوابة ولي الأمر التجريبية",
+    demo_disclaimer: "واجهة عرض وليست تسجيل دخول فعلي",
+    demo_school: "مدرسة الملك فهد الثانوية",
+    demo_online: "سحابي — متصل",
+    demo_back: "رجوع للدخول",
+    demo_nav_dashboard: "الرئيسية",
+    demo_nav_attendance: "الحضور اليومي",
+    demo_nav_messages: "الإشعارات",
+    demo_nav_reports: "التقارير",
+    demo_today: "مؤشرات اليوم الدراسي",
+    demo_dashboard_title: "لوحة المتابعة اللحظية",
+    demo_simulation: "نسخة محاكاة",
+    demo_present: "حاضر",
+    demo_late: "متأخر",
+    demo_absent: "غائب",
+    demo_event_attendance: "تسجيل حضور جديد",
+    demo_event_attendance_sub: "عبدالله الزهراني — الصف الثالث",
+    demo_event_message: "إرسال إشعار لولي الأمر",
+    demo_event_message_sub: "تنبيه تأخر صباحي",
+    demo_event_report: "تحديث تقرير اليوم",
+    demo_event_report_sub: "اكتملت مزامنة سجلات الحضور",
+    how_eyebrow: "آلية العمل",
+    how_title: 'خطوات سريعة <span class="hl">للتحول الرقمي الكامل</span>',
+    step_1_n: "١",
+    step_1_t: "التجهيز وتهيئة الحساب",
+    step_1_d: "إعداد الهيكل الإداري للمدرسة وربط الفصول وقوائم الطلاب في بيئة سحابية مخصصة.",
+    step_2_n: "٢",
+    step_2_t: "تركيب وتفعيل الأجهزة",
+    step_2_d: "تثبيت أجهزة نقاط البيع وشاشات الطلب الذاتي وتدريب الطاقم الإداري والتشغيلي.",
+    step_3_n: "٣",
+    step_3_t: "إشراك أولياء الأمور والطلاب",
+    step_3_d: "إرسال روابط تفعيل المحفظة العائلية وتسجيل وسائل الدفع أو بصمة الوجه بسهولة.",
+    step_4_n: "٤",
+    step_4_t: "التشغيل والمتابعة اللحظية",
+    step_4_d: "انطلاق العمليات اللانقدية ومتابعة التقارير الحية عبر لوحة المؤشرات المركزية.",
+    faq_eyebrow: "الأسئلة الشائعة",
+    faq_title: 'إجابات عن <span class="hl">استفساراتكم</span>',
+    faq_1_q: "ما هي متطلبات تفعيل منظومة حاضر في منشأتنا؟",
+    faq_1_a: "لا تتطلب المنظومة تجهيزات معقدة؛ نوفر كافة الأجهزة الذكية والبرمجيات السحابية اللازمة، مع توفير خطة تدريب وتدشين سريعة تكتمل عادة خلال أيام قليلة.",
+    faq_2_q: "كيف يضمن النظام عدم ضياع العمليات عند انقطاع الإنترنت؟",
+    faq_2_a: "تعمل أجهزة حاضر بتقنية Offline-First، حيث تخزن العمليات في مساحة مشفرة محلياً وتستمر في تنفيذ عمليات الشراء والتحضير، ثم تتم مزامنتها تلقائياً فور توفر الاتصال دون أدنى تعطل.",
+    faq_3_q: "هل تناسب المنظومة الأكاديميات والأنشطة غير المدرسية؟",
+    faq_3_a: "نعم بكل تأكيد؛ تخدم منظومة حاضر الأكاديميات الرياضية، معاهد التدريب، مشغلي المقاصف، موردي الزي والمستلزمات، ومنظمي المعارض والفعاليات.",
+    faq_4_q: "ما مستوى أمان وخصوصية البيانات الحيوية والمالية؟",
+    faq_4_a: "نطبق معايير التشفير المصرفية المتقدمة AES-256، وتتم استضافة كافة البيانات محلياً داخل مراكز بيانات آمنة بالمملكة مع التزام كامل بنظام حماية البيانات الشخصية.",
+    cta_heading: "مستعد لبدء التحول الذكي في حرمكم المدرسي؟",
+    cta_sub: "فريقنا المختص جاهز لتقديم استشارة مخصصة وعرض توضيحي حي لجميع مميزات المنظومة.",
+    cta_call_btn: "إتصل بنا",
+    form_eyebrow: "تواصل معنا",
+    form_title: "أخبرنا عن مدرستك أو عملك",
+    form_subtitle: "املأ النموذج أدناه وسيقوم مستشارنا بالرد عليك خلال أقل من ٢٤ ساعة.",
+    form_first_name: "الاسم الأول",
+    form_last_name: "اسم العائلة",
+    form_email: "البريد الإلكتروني",
+    form_phone: "رقم الجوال",
+    form_msg: "الرسالة",
+    form_submit: "إرسال الرسالة",
+    form_success: "تم تجهيز رسالتك وفتح واتساب لإرسالها إلى فريق حاضر.",
+    ph_first_name: "مثال: عبد الله",
+    ph_last_name: "مثال: الغامدي",
+    ph_msg: "أخبرنا كيف يمكننا مساعدتك...",
+    footer_bio: "منظومة متقدمة تدعم التحوّل الرقمي وتوفر حلول تقنية متقدمة في المملكة العربية السعودية.",
+    foot_col_1_t: "الحلول التقنية",
+    foot_link_1: "الحضور والاستئذان الذكي",
+    foot_link_2: "المحفظة العائلية",
+    foot_link_3: "المقصف الرقمي",
+    foot_link_4: "التبليغ الفوري",
+    foot_link_5: "نداء الانصراف",
+    foot_col_2_t: "القطاعات المستفيدة",
+    foot_link_6: "المدارس والمجمعات",
+    foot_link_7: "الأكاديميات الرياضية",
+    foot_link_8: "مشغلو المقاصف",
+    foot_link_9: "موردو الزي والكتب",
+    foot_col_3_t: "التواصل والدعم",
+    foot_privacy: "سياسة الخصوصية",
+    foot_terms: "الشروط والأحكام",
+    footer_rights: "© 2026 HADER Information Systems Technology. جميع الحقوق محفوظة."
+  },
+  en: {
+    pageTitle: "HADER | Next-Gen AI Biometric & Cashless Campus Architecture",
+    pageDesc: "HADER: Advanced cloud-native ecosystem leveraging Edge AI for biometric check-in, cashless payments, and unified campus operations.",
+    nav_tech: "Architecture",
+    nav_solutions: "Solutions",
+    nav_features: "Engineering",
+    nav_ecosystem: "Ecosystem",
+    nav_how: "How It Works",
+    nav_faq: "FAQ",
+    nav_cta: "Contact Us",
+    nav_login: "Sign in",
+    hero_badge: "Advanced Edge-AI Biometric & Operations Engine — Architecture",
+    hero_h1: 'Reinvent The Daily<br>Experience In Your<br><span class="gradient-text">School Campus</span>.',
+    hero_desc: "HADER unifies cashless digital payments, biometric check-in, smart canteens, and dismissal dispatch in one secure, seamless ecosystem.",
+    hero_btn_call: "Contact Us",
+    hero_login: "Sign in",
+    hero_btn_explore: "Explore Architecture",
+    stat_latency: "Biometric Inference Latency",
+    stat_offline: "Offline Edge Resilience",
+    stat_uptime: "Distributed Infrastructure SLA",
+    phone_app_name: "Parent Portal App",
+    phone_live_badge: "Live Status",
+    notif_1_sender: "Al-Ebdaa Academy",
+    notif_1_time: "07:15 AM",
+    notif_1_title: "Student Check-in Recorded (Saud)",
+    notif_1_msg: "Automated biometric face recognition at Main Gate logged successfully.",
+    notif_1_badge: "On-Time Verified",
+    notif_2_sender: "HADER Smart Canteen",
+    notif_2_time: "09:30 AM",
+    notif_2_title: "Healthy Breakfast Purchased (−12 SAR)",
+    notif_2_msg: "Cheese pastry & fresh orange juice • Wallet balance: 188 SAR.",
+    notif_2_badge: "Dietary-Compliant",
+    notif_3_sender: "Smart Gate Dismissal",
+    notif_3_time: "01:25 PM",
+    notif_3_title: "Authorized Dismissal Call",
+    notif_3_msg: "Student notified and guided to Parent vehicle at Gate #2 safely.",
+    notif_3_badge: "Safe Exit Verified",
+    float_1_t: "Live Attendance Alert",
+    float_1_d: "Saud checked-in at 07:15 AM",
+    float_2_t: "Smart Gate Dismissal",
+    float_2_d: "Student heading to Gate #2",
+    tech_banner_title: "Engineering Standards & Certified Protocols in HADER",
+    tech_pills: [
+      "Edge-AI Facial Inference Engine",
+      "Banking-Grade AES-256 & TLS 1.3 Encryption",
+      "Autonomous Mesh Sync Protocol",
+      "High-Throughput RESTful APIs",
+      "3D Anti-Spoofing Liveness Detection",
+      "Zero-Discrepancy Real-time Reconciliation",
+      "Microservices Distributed Cloud Architecture"
+    ],
+    arch_eyebrow: "System Architecture",
+    arch_title: 'Engineering Pillars Ensuring <span class="hl">Peak Performance & Security</span>',
+    arch_sub: "HADER is architected on distributed cloud computing and Edge AI processing to deliver uncompromising speed, uptime, and resilience.",
+    arch_1_b: "Edge AI Engine",
+    arch_1_t: "Ultra-low Latency Biometric Inference",
+    arch_1_d: "On-device local facial feature matching in under 0.2s backed by 3D anti-spoofing liveness validation against photos and replay attacks.",
+    arch_2_b: "Zero-Trust Vault",
+    arch_2_t: "Encrypted Financial Settlement Protocol",
+    arch_2_d: "Banking-grade AES-256 encryption across all student wallets with real-time double-entry digital ledger accounting.",
+    arch_3_b: "Autonomous Mesh",
+    arch_3_t: "Offline-First Decentralized Sync",
+    arch_3_d: "Full operational continuity during campus internet blackouts, with automated differential cloud synchronization upon link recovery.",
+    arch_4_b: "Cloud-Native APIs",
+    arch_4_t: "High-Throughput Microservices Scalability",
+    arch_4_d: "Elastic cloud infrastructure processing thousands of concurrent events per second with sub-millisecond RESTful API endpoints.",
+    sol_eyebrow: "Solutions & Services",
+    sol_title: 'Complete Ecosystem Covering <span class="hl">All Campus Requirements</span>',
+    sol_sub: "Engineered to accelerate daily operations, eliminate cash, and ensure utmost digital security and financial control.",
+    p1_t: "Smart Attendance, Dismissal & Digital Permits",
+    p1_d: "Automated student gate check-in, authorized early dismissal requests, and digital permissions between parents and school administration.",
+    p_alert_t: "Instant Alerts & Direct Notifications",
+    p_alert_d: "Real-time, verified communication channel keeping parents and administration instantly updated on morning delays, attendance, and emergency broadcasts.",
+    p_rewards_t: "Student Merit & Teacher Reward Points",
+    p_rewards_d: "A gamified recognition system allowing educators to award positive behavioral points to students, redeemable instantly in the canteen and campus store.",
+    p2_t: "Smart Family Wallet",
+    p2_d: "Comprehensive digital wallet enabling parents to top up funds, configure daily spending limits, and track transactions live.",
+    p3_t: "Digital Canteen & Pre-Order",
+    p3_d: "Zero queues with self-service kiosks and mobile pre-ordering tailored to dietary preferences and allergies.",
+    p5_t: "Smart Dismissal System",
+    p5_d: "Modern alternative to loudspeakers, coordinating organized and safe student pickups when authorized drivers arrive.",
+    p6_t: "Automated Fee Billing",
+    p6_d: "Flexible tuition, transport, and subscription installments with ZATCA-compliant e-invoicing and automated reminders.",
+    p7_t: "Uniform & Supplies Portal",
+    p7_d: "Integrated marketplace connecting certified school vendors with parents for easy uniform sizing, ordering, and delivery.",
+    p9_t: "Executive Analytics & Daily Reporting",
+    p9_d: "Centralized live dashboard displaying revenue streams, daily attendance rates, and behavioral engagement metrics.",
+    eco_eyebrow: "Ecosystem & Integration",
+    eco_title: 'Seamless Technical Integration with <span class="hl">Your Existing Systems</span>',
+    eco_sub: "HADER is built to integrate smoothly with student information systems (SIS) and certified enterprise ERPs.",
+    eco_1_t: "Advanced API Connectivity",
+    eco_1_d: "Direct integration with major school management software to sync student profiles and class rosters automatically.",
+    eco_2_t: "Offline-First Reliability",
+    eco_2_d: "Uninterrupted point-of-sale and attendance logging during network drops, with instant cloud sync upon reconnection.",
+    eco_3_t: "Enterprise Governance & Privacy",
+    eco_3_d: "Banking-grade encryption with local data residency compliant with Saudi Personal Data Protection Law (PDPL).",
+    feat_eyebrow: "Engineering Highlights",
+    feat_title: 'Why Institutions <span class="hl">Choose HADER</span>',
+    feat_sub: "A powerful blend of high performance, uncompromising security, and exceptional user experience.",
+    f1_t: "Support for Every Device",
+    f1_d: "A seamless experience across desktops, mobile phones, tablets, and self-service kiosks, so HADER works reliably in both administration and field operations.",
+    f2_t: "Adaptive AI Algorithms",
+    f2_d: "Smart canteen demand forecasting to reduce food waste, and predictive anomaly detection for unusual spending patterns.",
+    f3_t: "Dedicated Multi-Role Apps",
+    f3_d: "Customized apps for parents, gate security officers, cashier staff, and an executive web portal for management.",
+    f4_t: "Full Hardware Supply & Warranty",
+    f4_d: "We provide, configure, and maintain handheld POS devices, self-service kiosks, and biometric hardware with continuous support.",
+    f5_t: "Zero-Discrepancy Reconciliation",
+    f5_d: "Eliminate cash handling errors and manual auditing with automated digital settlement and instant reporting.",
+    f6_t: "Enterprise Governance & Cyber Defense",
+    f6_d: "Advanced security protocols with granular role-based access control and immutable audit trails for every transaction.",
+    demo_eyebrow: "Try HADER",
+    demo_title: 'A working interface that shows <span class="hl">how HADER feels</span>',
+    demo_sub: "Switch between staff and parent portals, then enter the guided demo to explore everyday screens and tasks in the same frame.",
+    demo_open: "Open the full demo",
+    demo_system_name: "HADER System",
+    demo_card_title: "Interactive in-app demo",
+    demo_explainer: "One guided simulation",
+    demo_explainer_body: "Choose the staff or parent portal, then enter a working preview inside the same card without leaving the page.",
+    demo_metric_students: "Students present",
+    demo_metric_messages: "Messages ready",
+    demo_metric_reports: "Reports ready",
+    demo_login_label: "Sign in",
+    demo_staff: "Staff",
+    demo_guardian: "Parents",
+    demo_staff_portal: "Staff portal",
+    demo_guardian_portal: "Parent portal",
+    demo_staff_identity: "Username",
+    demo_guardian_identity: "Mobile number",
+    demo_staff_identity_value: "Example: admin",
+    demo_guardian_identity_value: "05xxxxxxxx",
+    demo_staff_secret: "Password",
+    demo_guardian_secret: "Last 4 digits of student ID",
+    demo_staff_enter: "Enter staff demo",
+    demo_guardian_enter: "Enter parent demo",
+    demo_staff_workspace: "Staff demo workspace",
+    demo_guardian_workspace: "Parent demo portal",
+    demo_disclaimer: "Preview interface — not a real sign-in",
+    demo_school: "King Fahd Secondary School",
+    demo_online: "Cloud — online",
+    demo_back: "Back to sign in",
+    demo_nav_dashboard: "Dashboard",
+    demo_nav_attendance: "Daily attendance",
+    demo_nav_messages: "Notifications",
+    demo_nav_reports: "Reports",
+    demo_today: "School-day indicators",
+    demo_dashboard_title: "Live operations dashboard",
+    demo_simulation: "Simulation",
+    demo_present: "Present",
+    demo_late: "Late",
+    demo_absent: "Absent",
+    demo_event_attendance: "New attendance recorded",
+    demo_event_attendance_sub: "Abdullah Al-Zahrani — Grade 3",
+    demo_event_message: "Parent notification sent",
+    demo_event_message_sub: "Morning lateness alert",
+    demo_event_report: "Daily report updated",
+    demo_event_report_sub: "Attendance records are synchronized",
+    how_eyebrow: "How It Works",
+    how_title: 'Fast Steps to <span class="hl">Complete Digital Transformation</span>',
+    step_1_n: "1",
+    step_1_t: "Setup & Onboarding",
+    step_1_d: "Configure school hierarchy, rosters, and student accounts in a dedicated secure cloud instance.",
+    step_2_n: "2",
+    step_2_t: "Hardware Deployment",
+    step_2_d: "Install POS terminals, self-ordering kiosks, and train administrative and operating staff.",
+    step_3_n: "3",
+    step_3_t: "Family & Student Activation",
+    step_3_d: "Send onboarding links for parents to activate digital wallets and register student biometric credentials.",
+    step_4_n: "4",
+    step_4_t: "Live Launch & Insights",
+    step_4_d: "Go 100% cashless and monitor live transactions and attendance metrics from the central dashboard.",
+    faq_eyebrow: "Frequently Asked Questions",
+    faq_title: 'Answers to <span class="hl">Common Questions</span>',
+    faq_1_q: "What are the requirements to launch HADER in our institution?",
+    faq_1_a: "No complex setup required. We provide all required hardware, cloud software, and a rapid deployment & staff training plan completed within days.",
+    faq_2_q: "How does the system handle internet outages?",
+    faq_2_a: "HADER devices utilize an Offline-First engine. Purchases and attendance are logged locally in encrypted storage and auto-synced the moment connection is restored.",
+    faq_3_q: "Is HADER suitable for academies and non-school activities?",
+    faq_3_a: "Absolutely! HADER actively powers sports academies, training institutes, canteen operators, uniform suppliers, and event organizers.",
+    faq_4_q: "How secure is student biometric and financial data?",
+    faq_4_a: "We apply bank-grade AES-256 encryption. All data is hosted locally inside secure data centers in Saudi Arabia in full compliance with PDPL regulations.",
+    cta_heading: "Ready to launch smart transformation on your campus?",
+    cta_sub: "Our specialized consulting team is ready to provide a customized assessment and live walkthrough of the platform.",
+    cta_call_btn: "Contact Us",
+    form_eyebrow: "Get In Touch",
+    form_title: "Tell us about your school or business",
+    form_subtitle: "Fill out the form below and our consultant will get back to you within 24 hours.",
+    form_first_name: "First Name",
+    form_last_name: "Family Name",
+    form_email: "Email Address",
+    form_phone: "Phone Number",
+    form_msg: "Message",
+    form_submit: "Send Message",
+    form_success: "Your message is ready. WhatsApp has opened so you can send it to the HADER team.",
+    ph_first_name: "e.g. Abdullah",
+    ph_last_name: "e.g. Al-Ghamdi",
+    ph_msg: "Tell us how we can help you...",
+    footer_bio: "An advanced ecosystem powering digital transformation and delivering cutting-edge technical solutions in Saudi Arabia.",
+    foot_col_1_t: "Solutions",
+    foot_link_1: "Smart Attendance",
+    foot_link_2: "Family Wallet",
+    foot_link_3: "Digital Canteen",
+    foot_link_4: "Instant Alerts",
+    foot_link_5: "Dismissal Call",
+    foot_col_2_t: "Sectors",
+    foot_link_6: "Schools & Complexes",
+    foot_link_7: "Sports Academies",
+    foot_link_8: "Canteen Operators",
+    foot_link_9: "Uniform Vendors",
+    foot_col_3_t: "Contact & Legal",
+    foot_privacy: "Privacy Policy",
+    foot_terms: "Terms of Service",
+    footer_rights: "© 2026 HADER Information Systems Technology. All rights reserved."
+  }
+};
+
+/* ── Language Switcher Engine ── */
+let currentLang = localStorage.getItem('waki-lang') || 'ar';
+let activeDemoPortal = 'staff';
+
+const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+const easternArabicDigits = '۰۱۲۳۴۵۶۷۸۹';
+
+function formatDigits(value, lang = currentLang) {
+  const western = String(value)
+    .replace(/[٠-٩]/g, digit => String(arabicDigits.indexOf(digit)))
+    .replace(/[۰-۹]/g, digit => String(easternArabicDigits.indexOf(digit)));
+  return lang === 'ar' ? western.replace(/\d/g, digit => arabicDigits[Number(digit)]) : western;
+}
+
+function localizePageDigits(lang) {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(node => {
+    const parent = node.parentElement;
+    if (!parent || ['SCRIPT', 'STYLE'].includes(parent.tagName)) return;
+    node.nodeValue = formatDigits(node.nodeValue || '', lang);
+  });
+
+  document.querySelectorAll('[placeholder]').forEach(field => {
+    field.setAttribute('placeholder', formatDigits(field.getAttribute('placeholder') || '', lang));
+  });
+}
+
+function updateDemoPortal() {
+  const copy = i18n[currentLang];
+  const isStaff = activeDemoPortal === 'staff';
+  document.getElementById('demoStaffTab').classList.toggle('active', isStaff);
+  document.getElementById('demoGuardianTab').classList.toggle('active', !isStaff);
+  document.getElementById('demoPortalTitle').textContent = copy[isStaff ? 'demo_staff_portal' : 'demo_guardian_portal'];
+  document.getElementById('demoIdentityLabel').textContent = copy[isStaff ? 'demo_staff_identity' : 'demo_guardian_identity'];
+  document.getElementById('demoIdentityValue').textContent = copy[isStaff ? 'demo_staff_identity_value' : 'demo_guardian_identity_value'];
+  document.getElementById('demoSecretLabel').textContent = copy[isStaff ? 'demo_staff_secret' : 'demo_guardian_secret'];
+  document.getElementById('demoEnterLabel').textContent = copy[isStaff ? 'demo_staff_enter' : 'demo_guardian_enter'];
+  document.getElementById('demoWorkspaceTitle').textContent = copy[isStaff ? 'demo_staff_workspace' : 'demo_guardian_workspace'];
+}
+
+function renderTechBanner(lang) {
+  const track = document.getElementById('techTrack');
+  const items = i18n[lang].tech_pills;
+  const list = [...items, ...items];
+  track.innerHTML = list.map(item => `<div class="tech-pill"><span class="tech-pill-dot"></span><span>${item}</span></div>`).join('');
+}
+
+function switchLanguage(lang) {
+  currentLang = lang;
+  localStorage.setItem('waki-lang', lang);
+
+  const html = document.documentElement;
+  const isEn = lang === 'en';
+
+  html.setAttribute('lang', lang);
+  html.setAttribute('dir', isEn ? 'ltr' : 'rtl');
+
+  document.getElementById('pageTitle').textContent = i18n[lang].pageTitle;
+  document.getElementById('pageDesc').setAttribute('content', i18n[lang].pageDesc);
+
+  document.getElementById('langEnBtn').classList.toggle('active', isEn);
+  document.getElementById('langArBtn').classList.toggle('active', !isEn);
+
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (i18n[lang][key]) {
+      el.innerHTML = i18n[lang][key];
+    }
+  });
+
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+    const key = el.getAttribute('data-i18n-ph');
+    if (i18n[lang][key]) {
+      el.setAttribute('placeholder', i18n[lang][key]);
+    }
+  });
+
+  renderTechBanner(lang);
+  updateDemoPortal();
+  localizePageDigits(lang);
+}
+
+switchLanguage(currentLang);
+
+/* ── App-safe routes (HTTP, deployed subpath, and Electron file://) ── */
+function resolveAppRoute(route) {
+  if (window.location.protocol === 'file:' && window.location.pathname.includes('/public/landing/')) {
+    return `http://localhost:5173/#${route}`;
+  }
+  return new URL(`../index.html#${route}`, window.location.href).href;
+}
+
+document.querySelectorAll('[data-app-route]').forEach(link => {
+  link.setAttribute('href', resolveAppRoute(link.getAttribute('data-app-route')));
+});
+
+/* ── Self-contained landing demo ── */
+document.querySelectorAll('[data-demo-portal]').forEach(button => {
+  button.addEventListener('click', () => {
+    activeDemoPortal = button.getAttribute('data-demo-portal');
+    updateDemoPortal();
+    localizePageDigits(currentLang);
+  });
+});
+
+document.getElementById('demoEnterBtn').addEventListener('click', () => {
+  document.getElementById('demoLoginView').hidden = true;
+  document.getElementById('demoWorkspace').hidden = false;
+  localizePageDigits(currentLang);
+});
+
+document.getElementById('demoResetBtn').addEventListener('click', () => {
+  document.getElementById('demoWorkspace').hidden = true;
+  document.getElementById('demoLoginView').hidden = false;
+});
+
+/* ── Dark Mode Toggle ── */
+const themeToggle = document.getElementById('themeToggle');
+const savedTheme = localStorage.getItem('waki-theme');
+if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+themeToggle.addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('waki-theme', next);
+  themeToggle.textContent = next === 'dark' ? '☀️' : '🌙';
+});
+if (savedTheme === 'dark') themeToggle.textContent = '☀️';
+
+/* ── Nav scroll effect ── */
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', window.scrollY > 50);
+});
+
+/* ── Mobile navigation ── */
+const hamburgerBtn = document.getElementById('hamburgerBtn');
+hamburgerBtn.addEventListener('click', () => {
+  const isOpen = nav.classList.toggle('menu-open');
+  hamburgerBtn.setAttribute('aria-expanded', String(isOpen));
+  hamburgerBtn.setAttribute('aria-label', isOpen ? 'إغلاق القائمة' : 'فتح القائمة');
+});
+
+/* ── Scroll Reveal ── */
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+      observer.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -60px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+/* ── Counter Animation ── */
+function animateCounter(el) {
+  const target = parseFloat(el.dataset.count);
+  const decimal = parseInt(el.dataset.decimal) || 0;
+  const suffix = el.dataset.suffix || '';
+  const prefix = el.dataset.prefix || '';
+  const duration = 2000;
+  const start = performance.now();
+
+  function update(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    let value = eased * target;
+
+    if (decimal > 0) {
+      el.textContent = formatDigits(prefix + value.toFixed(decimal) + suffix);
+    } else {
+      el.textContent = formatDigits(prefix + Math.round(value) + suffix);
+    }
+
+    if (progress < 1) requestAnimationFrame(update);
+  }
+  requestAnimationFrame(update);
+}
+
+const counterObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      animateCounter(entry.target);
+      counterObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.5 });
+
+document.querySelectorAll('[data-count]').forEach(el => counterObserver.observe(el));
+
+/* ── FAQ Toggle ── */
+function toggleFaq(btn) {
+  const item = btn.closest('.faq-item');
+  const wasActive = item.classList.contains('active');
+  document.querySelectorAll('.faq-item.active').forEach(i => i.classList.remove('active'));
+  if (!wasActive) item.classList.add('active');
+}
+
+/* ── Smooth scroll for nav links ── */
+document.querySelectorAll('a[href^="#"]').forEach(link => {
+  link.addEventListener('click', e => {
+    const href = link.getAttribute('href');
+    const target = href && href.length > 1 ? document.querySelector(href) : null;
+    if (target) {
+      e.preventDefault();
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      nav.classList.remove('menu-open');
+      hamburgerBtn.setAttribute('aria-expanded', 'false');
+    }
+  });
+});
+
+/* ── Contact Form Handler ── */
+function handleFormSubmit(e) {
+  e.preventDefault();
+  const submitBtn = document.getElementById('submitBtn');
+  const successMsg = document.getElementById('formSuccess');
+  const form = document.getElementById('contactForm');
+  const data = new FormData(form);
+  const fullName = `${data.get('firstName') || ''} ${data.get('lastName') || ''}`.trim();
+  const email = data.get('email') || '';
+  const phone = `${data.get('countryCode') || ''} ${data.get('phone') || ''}`.trim();
+  const message = data.get('message') || '';
+  const whatsappText = currentLang === 'en'
+    ? `New inquiry from ${fullName}\nEmail: ${email}\nPhone: ${phone}\n\n${message}`
+    : `استفسار جديد من ${fullName}\nالبريد: ${email}\nالجوال: ${phone}\n\n${message}`;
+
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = currentLang === 'en' ? '<span>Sending...</span>' : '<span>جاري الإرسال...</span>';
+  window.open(`https://wa.me/966541399911?text=${encodeURIComponent(whatsappText)}`, '_blank', 'noopener');
+  submitBtn.style.display = 'none';
+  successMsg.style.display = 'block';
+  form.reset();
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,109 @@
+-- =============================================================================
+-- Hader — ترتيب تنفيذ سكربتات SQL (مرجع تشغيلي)
+-- =============================================================================
+-- هذا الملف للقراءة والنسخ الانتقائي من الأقسام أدناه.
+-- لا تُنفَّذ الدفعة كاملة دفعة واحدة إلا إذا فهمت كل قسم.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- أ) مسار موصى به: مشروع Supabase مع `supabase db push` / CI
+-- -----------------------------------------------------------------------------
+-- 1) اجعل المخطط والسياسات الأساسية موجودة (مرة واحدة عند التهيئة):
+--      maintenance/sql/supabase_schema.sql
+--      maintenance/sql/supabase_functions.sql
+--      maintenance/sql/enable_supabase_realtime_publication.sql
+-- 2) ثم طبّق الهجرات دائماً بالترتيب الزمني من المجلد:
+--      supabase/migrations/
+--    الترتيب الصحيح للأسماء الحالية (لا تعيد ترتيبها يدوياً):
+--      20250214120000_add_support_telemetry_logs.sql
+--      20250214124500_add_telemetry_retention.sql
+--      20260128100000_attendance_logs_recorded_by_label.sql
+--      20260411120000_users_call_station_whatsapp.sql
+--      20260415130000_activity_emergency_logs.sql
+--      20260501090000_users_creation_schema_guard.sql
+--      20260506133000_harden_public_access_defaults.sql
+--      20260509120000_search_students_revoke_public_execute.sql
+--      20260510134500_allow_anon_search_students_for_kiosk.sql
+--      20260513160000_fix_notification_trigger_uuid_ids.sql
+--      20260513163000_fix_login_password_rpc_pgcrypto.sql
+--      20260513164000_clean_daily_summary_absent_count.sql
+--      20260513170000_add_exit_requester_relation.sql
+--      20260514090000_add_guardian_excuses_workflow.sql
+--      20260514100000_add_sync_tombstones.sql
+--      20260516120000_unique_attendance_student_date.sql
+--      20260518000000_fix_notification_type_constraint.sql
+--      20260823090000_bootstrap_hader_current.sql
+-- 3) تحقق:
+--      maintenance/sql/verify_public_access_hardening.sql
+
+-- -----------------------------------------------------------------------------
+-- ب) مسار لوحة Supabase (SQL Editor) — قاعدة جديدة تقريباً فارغة
+-- -----------------------------------------------------------------------------
+-- المسار الموحد الموصى به الآن (نسخ/لصق وتشغيل مرة واحدة):
+--   supabase/migrations/20260823090000_bootstrap_hader_current.sql
+--
+-- يجمع هذا الملف الحالة الحالية الكاملة: الجداول، الأعمدة المرحّلة، الدوال،
+-- الفهارس، RLS، التخزين، Realtime، وفحوص التحقق. وهو لا يحذف الجداول أو
+-- البيانات ولا ينشئ حساب مدير افتراضياً.
+--
+-- المسار المتعدد القديم يبقى مرجعاً للقواعد التي تحتاج صيانة انتقائية:
+-- 1) maintenance/sql/supabase_schema.sql
+-- 2) maintenance/sql/supabase_functions.sql
+-- 3) maintenance/sql/enable_supabase_realtime_publication.sql
+-- 4) supabase/migrations/*.sql بالترتيب الزمني
+-- 5) maintenance/sql/verify_public_access_hardening.sql
+
+-- -----------------------------------------------------------------------------
+-- ج) تحذير: إعادة بناء كاملة تدميرية (تطوير فقط)
+-- -----------------------------------------------------------------------------
+-- maintenance/sql/SQL_EDITOR_FULL.sql
+--      يحذف جداولاً أساسية في البداية — لا تستخدمه على إنتاج فيه بيانات.
+
+-- -----------------------------------------------------------------------------
+-- د) ترقية قاعدة قديمة (بدون مسح)
+-- -----------------------------------------------------------------------------
+-- راجع بالتسلسل حسب ما ينقصك:
+--   maintenance/sql/UPGRADE_SCHEMA_v2_to_v2.3.sql
+--   maintenance/sql/01_add_dismissals_and_storage.sql
+--        (إن كان مخططك أقدم من دمج الانصراف في supabase_schema.sql)
+--   maintenance/sql/FIX_SYNC_MIGRATION.sql
+--   maintenance/sql/MIGRATION_recorded_by_label.sql
+--   maintenance/sql/ADD_GUARDIAN_LOGIN_SECURITY.sql
+--        (اختياري إن لم تُطبَّق هجرة التحصين بعد)
+
+-- -----------------------------------------------------------------------------
+-- هـ) إصلاحات وصيانة — شغّل فقط عند الحاجة واقرأ الملف أولاً
+-- -----------------------------------------------------------------------------
+-- سياسات وإعدادات:
+--   fix_rls_policies.sql
+--   FIX_SETTINGS_RLS.sql
+--   fix_settings_table.sql
+--   update_settings_table.sql
+--   SUPABASE_QUICK_FIX.sql
+--   SUPABASE_MIGRATION_FIX.sql
+--   SUPABASE_REQUIRED_UPDATES.sql
+--   SUPABASE_LOGS_FIX.sql
+-- حضور وقيود:
+--   fix_attendance_logs_constraint.sql
+--   ADD_ATTENDANCE_CONSTRAINT.sql
+--   harden_data_scoping_and_sync.sql
+-- إشعارات وأعمدة:
+--   ADD_NOTIFICATIONS_COLUMNS.sql
+--   ADD_PRIORITY_COLUMN.sql
+-- انصراف:
+--   fix_dismissal_sync_schema.sql
+-- بيانات واختبار:
+--   SQL_EDITOR_SEED.sql
+--   CLEAN_DATA.sql
+--   CLEAN_REPAIR_LOGS.sql
+-- مستخدمون إداريون (مخاطر أمنية — راجع المحتوى):
+--   create_admin_user.sql
+--   create_admin_user_hashed.sql
+--   create_local_admin_user_hashed.sql
+--   create_new_admin.sql
+--   create_users.sql
+
+-- =============================================================================
+-- نهاية المرجع — استعلام بسيط إن احتاج المحرر "تنفيذاً"
+-- =============================================================================
+SELECT 1 AS execution_order_readme_ok;

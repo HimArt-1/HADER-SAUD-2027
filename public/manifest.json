@@ -1,0 +1,75 @@
+{
+    "id": "/",
+    "short_name": "حاضر",
+    "name": "نظام حاضر",
+    "description": "تطبيق حاضر لإدارة الحضور والانصراف والمزامنة المدرسية على الجوال وسطح المكتب",
+    "lang": "ar-SA",
+    "dir": "rtl",
+    "icons": [
+        {
+            "src": "favicon.ico",
+            "sizes": "64x64 32x32 24x24 16x16",
+            "type": "image/x-icon"
+        },
+        {
+            "src": "logo192.png",
+            "type": "image/png",
+            "sizes": "192x192",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "logo512.png",
+            "type": "image/png",
+            "sizes": "512x512",
+            "purpose": "any maskable"
+        }
+    ],
+    "start_url": "/?source=pwa",
+    "scope": "/",
+    "display": "standalone",
+    "display_override": ["standalone", "minimal-ui"],
+    "orientation": "portrait-primary",
+    "theme_color": "#0f172a",
+    "background_color": "#0f172a",
+    "categories": ["education", "utilities"],
+    "shortcuts": [
+        {
+            "name": "ماسح الباركود",
+            "short_name": "الماسح",
+            "description": "فتح ماسح الباركود للحضور",
+            "url": "/#/scanner",
+            "icons": [
+                {
+                    "src": "logo192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        },
+        {
+            "name": "الكشك",
+            "short_name": "كشك",
+            "description": "فتح وضع الكشك",
+            "url": "/#/kiosk",
+            "icons": [
+                {
+                    "src": "logo192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        },
+        {
+            "name": "محطة الحارس",
+            "short_name": "الحارس",
+            "description": "فتح محطة تنظيم الانصراف",
+            "url": "/#/guard-station",
+            "icons": [
+                {
+                    "src": "logo192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        }
+    ],
+    "related_applications": [],
+    "prefer_related_applications": false
+}

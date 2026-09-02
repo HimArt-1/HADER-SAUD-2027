@@ -1,0 +1,91 @@
+#!/bin/bash
+# ═══════════════════════════════════════
+# whattONE v2 — macOS App Launcher
+# ═══════════════════════════════════════
+
+# Get the real whattONE directory (parent of .app)
+APP_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+VENV="$APP_DIR/venv"
+LOG="$APP_DIR/logs/launcher.log"
+PORT="${WHATTONE_PORT:-5005}"
+
+mkdir -p "$APP_DIR/logs"
+
+# Notification helper
+notify() {
+    osascript -e "display notification \"$1\" with title \"🟢 whattONE\""
+}
+
+# Log
+echo "$(date) — whattONE Launcher started" >> "$LOG"
+echo "APP_DIR: $APP_DIR" >> "$LOG"
+
+# ─── Check Python ───
+PYTHON=""
+if [ -x "$VENV/bin/python" ]; then
+    PYTHON="$VENV/bin/python"
+elif command -v python3 &>/dev/null; then
+    PYTHON="python3"
+elif command -v python &>/dev/null; then
+    PYTHON="python"
+else
+    osascript -e 'display dialog "❌ Python غير مثبت!\n\nقم بتحميل Python من:\nhttps://www.python.org/downloads/" with title "whattONE" buttons {"تحميل Python","إلغاء"} default button 1'
+    RESULT=$?
+    if [ $RESULT -eq 0 ]; then
+        open "https://www.python.org/downloads/"
+    fi
+    exit 1
+fi
+
+# ─── Setup venv if needed ───
+if [ ! -d "$VENV" ]; then
+    notify "📦 جاري التثبيت لأول مرة..."
+    
+    # Show progress via AppleScript
+    osascript -e 'display dialog "📦 جاري تثبيت المتطلبات لأول مرة...\nقد يستغرق هذا دقيقة أو دقيقتين" with title "whattONE — التثبيت" buttons {"حسناً"} default button 1 giving up after 3'
+    
+    python3 -m venv "$VENV" 2>> "$LOG"
+    if [ $? -ne 0 ]; then
+        osascript -e 'display dialog "❌ فشل إنشاء البيئة الافتراضية" with title "whattONE" buttons {"حسناً"} default button 1'
+        exit 1
+    fi
+    
+    "$VENV/bin/pip" install --upgrade pip >> "$LOG" 2>&1
+    "$VENV/bin/pip" install -r "$APP_DIR/requirements.txt" >> "$LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        osascript -e 'display dialog "❌ فشل تثبيت المتطلبات\nراجع السجل في logs/launcher.log" with title "whattONE" buttons {"حسناً"} default button 1'
+        exit 1
+    fi
+    
+    PYTHON="$VENV/bin/python"
+    notify "✅ تم التثبيت بنجاح!"
+fi
+
+PYTHON="$VENV/bin/python"
+
+# ─── Load .env ───
+[ -f "$APP_DIR/.env" ] && export $(grep -v '^#' "$APP_DIR/.env" | grep -v '^$' | xargs)
+PORT="${WHATTONE_PORT:-5005}"
+
+# ─── Kill existing on port ───
+PID=$(lsof -ti:$PORT 2>/dev/null)
+[ ! -z "$PID" ] && kill -9 $PID 2>/dev/null
+
+# ─── Cleanup session locks ───
+for LOCK_FILE in SingletonLock SingletonSocket SingletonCookie; do
+    LOCK_PATH="$APP_DIR/session_data/$LOCK_FILE"
+    [ -e "$LOCK_PATH" ] && rm "$LOCK_PATH" 2>/dev/null
+done
+
+# ─── Launch ───
+notify "🚀 جاري التشغيل على المنفذ $PORT..."
+
+# Open browser after short delay
+(sleep 2 && open "http://localhost:$PORT") &
+
+# Start server
+echo "$(date) — Starting server on port $PORT" >> "$LOG"
+"$PYTHON" "$APP_DIR/server.py" >> "$LOG" 2>&1
+
+# If server exits
+notify "⚠️ تم إيقاف الخادم"

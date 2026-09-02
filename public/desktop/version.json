@@ -1,0 +1,19 @@
+{
+  "_comment": "إصدار النسخة المكتبية الخفيفة (App-Mode wrapper). يتم فحص هذا الملف من قبل واجهة Hader لتنبيه المستخدم عند توفر تحديث.",
+  "version": "1.0.0",
+  "buildId": "auto",
+  "channel": "lightweight",
+  "releasedAt": "2026-05-05T00:00:00Z",
+  "notesUrl": "https://github.com/HimArt-1/Hadr/releases",
+  "minSupportedVersion": "1.0.0",
+  "checksum": null,
+  "features": [
+    "mac-app-bundle",
+    "windows-silent-launcher",
+    "multi-resolution-icons",
+    "auto-update-detection",
+    "first-run-welcome",
+    "offline-pwa-cache",
+    "supabase-realtime-sync"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "hader-promo-video",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "remotion studio",
+    "build": "remotion render"
+  },
+  "dependencies": {
+    "@remotion/cli": "latest",
+    "@remotion/tailwind": "latest",
+    "lucide-react": "^0.364.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "remotion": "latest"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0",
+    "postcss": "^8.4.0",
+    "autoprefixer": "^10.4.0",
+    "typescript": "^5.3.3",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18"
+  }
+}

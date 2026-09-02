@@ -1,0 +1,21 @@
+{
+  "_comment": "قالب Manifest للنسخة المكتبية. عدّل الروابط أدناه بعد رفع ملفاتك إلى GitHub Releases ثم اضبط VITE_DESKTOP_RELEASE_URL=https://your-domain/desktop/manifest.json",
+  "version": "1.0.0",
+  "releasedAt": "2026-05-05T00:00:00Z",
+  "notesUrl": "https://github.com/HimArt-1/Hadr/releases/tag/v1.0.0",
+  "minSupportedVersion": "1.0.0",
+  "platforms": {
+    "mac": {
+      "url": "https://github.com/HimArt-1/Hadr/releases/download/v1.0.0/Hader-1.0.0-mac.dmg",
+      "size": 0,
+      "arch": ["x64", "arm64"],
+      "format": "dmg"
+    },
+    "windows": {
+      "url": "https://github.com/HimArt-1/Hadr/releases/download/v1.0.0/Hader-1.0.0-Setup.exe",
+      "size": 0,
+      "arch": ["x64"],
+      "format": "nsis"
+    }
+  }
+}

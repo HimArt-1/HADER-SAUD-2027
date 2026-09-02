@@ -1,0 +1,17 @@
+.git
+.github
+.cursor
+node_modules
+dist
+release
+coverage
+.env
+.env.*
+*.log
+venv
+**/venv
+whattONE/venv
+hader-promo-video/node_modules
+build/icons
+public/downloads
+agent-transcripts

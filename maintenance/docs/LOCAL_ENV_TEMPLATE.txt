@@ -1,0 +1,33 @@
+# ═══════════════════════════════════════════════════════════════
+# إعدادات البيئة المحلية (Hader Local Config)
+# ═══════════════════════════════════════════════════════════════
+# قم بنسخ هذا الملف وتسميته .env في المجلد الرئيسي ومجلد telegram
+# ═══════════════════════════════════════════════════════════════
+
+# 1. إعدادات Supabase (قاعدة البيانات)
+# احصل عليها من: Supabase Dashboard -> Project Settings -> API
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-service-role-key-here  # مطلوب للسيرفر (Python)
+
+# 2. إعدادات تيلجرام (Telegram Bot)
+# احصل عليها من: @BotFather
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+# معرفات القنوات (احصل عليها بإضافة البوت للقناة ثم توجيه رسالة لـ @JsonDumpBot)
+TELEGRAM_CHANNEL_LATE=-100xxxxxxxxx
+TELEGRAM_CHANNEL_ABSENCES=-100xxxxxxxxx
+TELEGRAM_CHANNEL_EXITS=-100xxxxxxxxx
+TELEGRAM_CHANNEL_KIOSK=-100xxxxxxxxx
+TELEGRAM_CHANNEL_SUPERVISOR=-100xxxxxxxxx
+TELEGRAM_CHANNEL_SYSTEM=-100xxxxxxxxx
+
+# 3. إعدادات الواتساب (WhatsApp Server)
+# المنفذ الذي سيعمل عليه السيرفر
+PORT=3000
+# مفتاح الحماية (اختياري)
+API_KEY=your-secret-api-key
+
+# 4. إعدادات النظام المحلي
+# وضع قاعدة البيانات (cloud, local, hybrid)
+VITE_DB_MODE=hybrid

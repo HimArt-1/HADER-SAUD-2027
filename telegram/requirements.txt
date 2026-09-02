@@ -1,0 +1,19 @@
+# ================================================
+# Hader Telegram Bot - Python Dependencies
+# ================================================
+# Install with: pip install -r requirements.txt
+# ================================================
+
+# Telegram Bot Framework
+python-telegram-bot>=21.0
+
+# Supabase Client (for DB queries + Realtime)
+supabase>=2.0
+realtime>=2.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Async Support
+asyncio-mqtt>=0.16.0
+httpx>=0.27.0
