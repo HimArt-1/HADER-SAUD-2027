@@ -260,8 +260,9 @@ Type: Guardian
 
 عند دفع وسم إصدار مثل `v1.0.0`، يبني GitHub Actions ملف DMG موحّداً
 لأجهزة Intel وApple Silicon ومثبّت EXE لويندوز x64، ثم ينشرهما مع
-`desktop-manifest.json`. يكتشف تطبيق حاضر هذا الملف تلقائياً عبر
-`VITE_DESKTOP_RELEASE_URL`.
+`desktop-manifest.json`. يقرأ موقع حاضر أحدث فهرس عبر
+`/api/desktop-release` من نطاقه نفسه لتجنب قيود CORS في المتصفح، بينما تبقى
+ملفات DMG وEXE مستضافة في GitHub Releases.
 
 - الدليل الكامل: `maintenance/docs/DESKTOP_APP_GUIDE.md`
 - دليل النشر: `maintenance/docs/NATIVE_DESKTOP_RELEASE.md`

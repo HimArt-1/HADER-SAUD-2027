@@ -6,9 +6,14 @@
 - `Hader-<version>-windows-x64-Setup.exe`: مثبّت NSIS لويندوز 64 بت.
 - `desktop-manifest.json`: فهرس إصدار يحتوي روابط الملفين وأحجامهما وبصمات SHA-256 للتحقق المستقل.
 
-زر التحميل داخل حاضر يقرأ تلقائياً أحدث فهرس من:
+زر التحميل داخل حاضر يقرأ الفهرس المنشور مع الموقع من:
 
-`https://github.com/HimArt-1/HADER-SAUD-2027/releases/latest/download/desktop-manifest.json`
+`https://hader-saud-2027.vercel.app/api/desktop-release`
+
+يمرّر هذا المسار تلقائيًا `desktop-manifest.json` من أحدث GitHub Release،
+فتصل الإصدارات القادمة إلى الموقع دون نسخ يدوي. لا يُستخدم رابط
+`releases/latest/download` مباشرة من المتصفح لأن استجابة إعادة التوجيه لا
+تسمح بجلب JSON عبر CORS.
 
 إن تعذّر الوصول إلى إصدار أصلي، يعرض التطبيق البديل الخفيف بوضوح. هذا البديل
 يفتح حاضر عبر Chrome أو Edge، لكنه لا يدعم نافذة جلسة نور المعزولة.

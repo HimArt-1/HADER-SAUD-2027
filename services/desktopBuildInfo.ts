@@ -57,12 +57,24 @@ export const APP_LAUNCH_PATH = '/';
 
 /**
  * Optional pre-built Electron release endpoint.
- * If your CI publishes `.dmg` and `.exe` artifacts, point this to a JSON
- * endpoint that follows the schema in `desktopReleaseChecker.ts`.
+ *
+ * Browsers cannot fetch GitHub's `releases/latest/download` redirect directly
+ * because the redirect response does not grant cross-origin access. The app
+ * therefore reads it through a same-origin server route while the installers
+ * themselves remain GitHub Release assets.
  */
+const LEGACY_GITHUB_MANIFEST_URL =
+  'https://github.com/HimArt-1/HADER-SAUD-2027/releases/latest/download/desktop-manifest.json';
+const configuredDesktopManifestUrl =
+  import.meta.env.VITE_DESKTOP_RELEASE_URL as string | undefined;
+const sameOriginDesktopManifestUrl = APP_URL
+  ? new URL('/api/desktop-release', APP_URL).toString()
+  : '';
+
 export const DESKTOP_RELEASE_MANIFEST_URL: string =
-  (import.meta.env.VITE_DESKTOP_RELEASE_URL as string | undefined)
-  || 'https://github.com/HimArt-1/HADER-SAUD-2027/releases/latest/download/desktop-manifest.json';
+  !configuredDesktopManifestUrl || configuredDesktopManifestUrl === LEGACY_GITHUB_MANIFEST_URL
+    ? sameOriginDesktopManifestUrl
+    : configuredDesktopManifestUrl;
 
 /** FNV-1a 32-bit hash, deterministic across browsers. */
 export function fnv1a(input: string): string {

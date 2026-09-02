@@ -21,7 +21,7 @@ VITE_WHATSAPP_API_KEY=your-secure-key-here
 
 # اختياري — يفعّل قناة Native (DMG/EXE) لزرّي تنزيل سطح المكتب
 # انظر: maintenance/docs/DESKTOP_APP_GUIDE.md (القسم 4)
-# VITE_DESKTOP_RELEASE_URL=https://cdn.example.com/desktop/manifest.json
+# VITE_DESKTOP_RELEASE_URL=https://your-production-domain.example/api/desktop-release
 ```
 
 ### 3. النشر على Vercel

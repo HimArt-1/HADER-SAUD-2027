@@ -103,12 +103,57 @@ describe('Desktop download — native release lookup', () => {
     localStorage.clear();
   });
 
-  it('uses the official GitHub latest-release manifest when no override is configured', async () => {
+  it('uses the same-origin desktop manifest when no override is configured', async () => {
     vi.resetModules();
     const { DESKTOP_RELEASE_MANIFEST_URL } = await import('../services/desktopBuildInfo');
     expect(DESKTOP_RELEASE_MANIFEST_URL).toBe(
-      'https://github.com/HimArt-1/HADER-SAUD-2027/releases/latest/download/desktop-manifest.json'
+      `${ORIGIN}/api/desktop-release`
     );
+  });
+
+  it('accepts installers published by the official Hader GitHub repository', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_DESKTOP_RELEASE_URL', `${ORIGIN}/api/desktop-release`);
+    const manifest = {
+      version: '1.0.0',
+      platforms: {
+        mac: {
+          url: 'https://github.com/HimArt-1/HADER-SAUD-2027/releases/download/v1.0.0/Hader-1.0.0-mac-universal.dmg',
+          size: 100,
+          sha256: 'a'.repeat(64),
+          format: 'dmg'
+        }
+      }
+    };
+    (globalThis as any).fetch = vi.fn(async () => ({ ok: true, json: async () => manifest }));
+
+    const { lookupNativeRelease } = await import('../services/desktopReleaseChecker');
+    await expect(lookupNativeRelease('mac')).resolves.toMatchObject({
+      available: true,
+      asset: { url: manifest.platforms.mac.url }
+    });
+    vi.unstubAllEnvs();
+  });
+
+  it('rejects cross-origin GitHub installers outside the official Hader repository', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_DESKTOP_RELEASE_URL', `${ORIGIN}/api/desktop-release`);
+    const manifest = {
+      version: '1.0.0',
+      platforms: {
+        windows: {
+          url: 'https://github.com/attacker/HADER-SAUD-2027/releases/download/v1.0.0/Hader-1.0.0-windows-x64-Setup.exe',
+          size: 100,
+          sha256: 'b'.repeat(64),
+          format: 'nsis'
+        }
+      }
+    };
+    (globalThis as any).fetch = vi.fn(async () => ({ ok: true, json: async () => manifest }));
+
+    const { lookupNativeRelease } = await import('../services/desktopReleaseChecker');
+    await expect(lookupNativeRelease('windows')).resolves.toMatchObject({ available: false });
+    vi.unstubAllEnvs();
   });
 
   it('caches manifest fetches in localStorage with a TTL', async () => {

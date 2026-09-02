@@ -75,6 +75,8 @@ export interface ReleaseLookupResult {
 const MANIFEST_TIMEOUT_MS = 6_000;
 const MANIFEST_CACHE_KEY = 'hader:desktop-release-manifest';
 const MANIFEST_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const OFFICIAL_GITHUB_RELEASE_PATH =
+  /^\/HimArt-1\/HADER-SAUD-2027\/releases\/download\/[^/]+\/[^/]+$/;
 
 interface CachedManifest {
   manifest: NativeReleaseManifest;
@@ -109,6 +111,18 @@ function writeCachedManifest(manifest: NativeReleaseManifest): void {
   }
 }
 
+const isTrustedInstallerOrigin = (assetUrl: URL, manifestUrl: URL): boolean => {
+  if (assetUrl.origin === manifestUrl.origin) return true;
+
+  return assetUrl.hostname === 'github.com'
+    && assetUrl.port === ''
+    && assetUrl.username === ''
+    && assetUrl.password === ''
+    && assetUrl.search === ''
+    && assetUrl.hash === ''
+    && OFFICIAL_GITHUB_RELEASE_PATH.test(assetUrl.pathname);
+};
+
 function isValidAsset(platform: Platform, value: unknown): value is NativeReleaseAsset {
   if (!value || typeof value !== 'object') return false;
   const asset = value as Partial<NativeReleaseAsset>;
@@ -116,8 +130,8 @@ function isValidAsset(platform: Platform, value: unknown): value is NativeReleas
 
   try {
     const assetUrl = new URL(asset.url);
-    const manifestOrigin = new URL(DESKTOP_RELEASE_MANIFEST_URL).origin;
-    if (assetUrl.protocol !== 'https:' || assetUrl.origin !== manifestOrigin) return false;
+    const manifestUrl = new URL(DESKTOP_RELEASE_MANIFEST_URL);
+    if (assetUrl.protocol !== 'https:' || !isTrustedInstallerOrigin(assetUrl, manifestUrl)) return false;
     const expectedExtension = platform === 'mac' ? '.dmg' : '.exe';
     if (!assetUrl.pathname.toLowerCase().endsWith(expectedExtension)) return false;
   } catch {

@@ -5,7 +5,7 @@
   "buildCommand": "npm run build",
   "rewrites": [
     {
-      "source": "/((?!assets/|downloads/|images/|desktop/|dragon-duel/).*)",
+      "source": "/((?!api/|assets/|downloads/|images/|desktop/|dragon-duel/).*)",
       "destination": "/index.html"
     }
   ],

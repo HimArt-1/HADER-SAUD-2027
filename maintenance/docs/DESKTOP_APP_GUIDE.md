@@ -209,7 +209,7 @@ release/
 
 ```ini
 VITE_APP_URL=https://your-production-domain.example
-VITE_DESKTOP_RELEASE_URL=https://cdn.example.com/desktop/manifest.json
+VITE_DESKTOP_RELEASE_URL=https://your-production-domain.example/api/desktop-release
 ```
 
 `VITE_APP_URL` هو الرابط الذي ستفتحه حزم macOS/Windows. عند تركه فارغًا
@@ -314,7 +314,7 @@ npx vitest run __tests__/desktop-download.spec.ts
 | النافذة تُفتح في tab عادي | المتصفح المثبّت ليس Chromium، أو إصدار قديم | ثبّت Chrome 100+ أو Edge 110+. |
 | البيانات لا تتزامن | تسجيل دخول بحساب مختلف، أو IndexedDB محلي تالف | افتح نفس عنوان التطبيق في تبويب عادي وسجّل دخول. عند الحاجة احذف ملف الـ profile في `~/Library/Application Support/Hader/AppMode`. |
 | Native channel لا يظهر | `VITE_DESKTOP_RELEASE_URL` غير معرّف، أو الـ manifest غير صالح | افحص الاستجابة في صفحة Network، وتأكّد من توافقها مع المخطط في القسم 4. |
-| رسائل تحذير CORS | الـ manifest يُخدَم بدون رؤوس CORS مناسبة | تأكّد من إضافة `Access-Control-Allow-Origin: *` على CDN. |
+| رسائل تحذير CORS | الـ manifest يُجلب من نطاق خارجي لا يسمح للمتصفح بقراءته | استخدم `/api/desktop-release` من نطاق التطبيق نفسه. |
 
 ---
 
