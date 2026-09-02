@@ -77,6 +77,21 @@ export const supabase: any = supabaseStatus.isConfigured
   ? createClient(supabaseUrl, supabaseKey)
   : createFallbackClient();
 
+export const revokeSurveySessionKeepalive = async (sessionToken: string): Promise<void> => {
+  if (!supabaseUrl || !supabaseKey || !sessionToken) return;
+  const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}/rest/v1/rpc/revoke_hader_survey_admin_session`, {
+    method: 'POST',
+    keepalive: true,
+    headers: {
+      apikey: supabaseKey,
+      Authorization: `Bearer ${supabaseKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ p_session_token: sessionToken })
+  });
+  if (!response.ok) throw new Error(`Survey session revocation failed (${response.status})`);
+};
+
 // Debug function to verify Supabase connection
 export function getSupabaseDebugInfo() {
   return {

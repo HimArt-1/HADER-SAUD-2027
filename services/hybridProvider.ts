@@ -1112,7 +1112,7 @@ export class HybridProvider {
     private async fetchUsersFromCloud(): Promise<User[]> {
         const { data, error } = await supabase
             .from('users')
-            .select('*')
+            .select('id, username, name, role, assigned_classes, assigned_sections, email, phone, is_active, can_use_whatsapp, last_login, created_at, updated_at')
             .order('created_at', { ascending: true });
 
         if (error) throw error;
@@ -1221,6 +1221,7 @@ export class HybridProvider {
             await syncService.syncNow('up');
         } catch (e) {
             logger.warn('Hybrid', 'Sync failed after deleteUser:', e);
+            throw e;
         }
     }
 

@@ -40,6 +40,7 @@ import {
 } from './dbHelpers';
 import { resolveRecorder } from './recorderResolver';
 import { accessPolicy } from '../modules/access';
+import { deleteManagedCloudUser, saveManagedCloudUser } from './surveys';
 import {
   decideAttendanceTiming,
   getAttendanceStatusCounts,
@@ -2755,34 +2756,8 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
 
       logger.debug('Users', '📝 Saving user to Supabase');
 
-      let data: any = null;
-      let error: any = null;
-
-      if (id) {
-        logger.debug('Users', `📝 Updating user in Supabase: ${id}`);
-        const response = await supabase
-          .from('users')
-          .update(payload)
-          .eq('id', id)
-          .select()
-          .single();
-        data = response.data;
-        error = response.error;
-      } else {
-        logger.debug('Users', '📝 Inserting new user to Supabase');
-        const response = await supabase
-          .from('users')
-          .insert([payload])
-          .select()
-          .single();
-        data = response.data;
-        error = response.error;
-      }
-
-      if (error) {
-        console.error('❌ Supabase save user error:', error);
-        throw error;
-      }
+      logger.debug('Users', id ? `📝 Updating user in Supabase: ${id}` : '📝 Inserting new user to Supabase');
+      const data = await saveManagedCloudUser(id ? { id, ...payload } : payload);
 
       if (!data) {
         throw new Error('No data returned from Supabase after insertion');
@@ -2856,15 +2831,14 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
       });
       // Show user-friendly error
       if (error?.code === 'PGRST301' || error?.message?.includes('permission denied')) {
-        throw new Error('خطأ في الصلاحيات: تأكد من إعدادات RLS في Supabase. يجب السماح بالقراءة والكتابة لجدول users.');
+        throw new Error('خطأ في الصلاحيات: أعد تسجيل الدخول بحساب إداري وتأكد من تطبيق ترحيل Supabase الأخير.');
       }
       throw error;
     }
   }
 
   async deleteUser(userId: string): Promise<void> {
-    const { error } = await supabase.from('users').delete().eq('id', userId);
-    if (error) throw error;
+    await deleteManagedCloudUser(userId);
     await this.writeDeleteTombstone('users', userId);
     // Invalidate cache
     appCache.delete(CACHE_KEYS.USERS);
@@ -2920,7 +2894,7 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
 
     try {
       // 1. Check System Connection
-      const { count: userCount, error: userError } = await supabase.from('users').select('*', { count: 'exact', head: true });
+      const { count: userCount, error: userError } = await supabase.from('users').select('id', { count: 'exact', head: true });
       results.push({
         key: 'connection',
         title: 'اتصال قاعدة البيانات',

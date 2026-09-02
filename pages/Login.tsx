@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { User, SystemSettings } from '../types';
 import { auth } from '../services/auth';
@@ -6,6 +6,7 @@ import { ArrowLeft, Building2, Loader2, LockKeyhole, ShieldCheck, UserCircle, Us
 import { validateBootstrapAdmin } from '../services/bootstrapAdmin';
 import { logError, getErrorMessage } from '../types/errors';
 import { useAdminTheme } from '../hooks/useAdminTheme';
+import TurnstileWidget from '../components/TurnstileWidget';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -19,6 +20,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [isLocalMode, setIsLocalMode] = useState(false);
+  const [modeResolved, setModeResolved] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [bootstrapStatus] = useState(() => validateBootstrapAdmin());
 
   useAdminTheme();
@@ -32,6 +36,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         if (cancelled) return;
 
         setIsLocalMode(db.getMode() === 'local');
+        setModeResolved(true);
         const s = await db.getSettings();
         if (cancelled) return;
         setSettings(s);
@@ -47,18 +52,34 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     };
   }, []);
 
+  const handleTurnstileToken = useCallback((token: string | null) => {
+    setTurnstileToken(token);
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
-      const result = await auth.login(username, password, activeTab);
+      const requiresBotCheck = modeResolved && !isLocalMode && activeTab === 'staff';
+      if (requiresBotCheck && (!import.meta.env.VITE_TURNSTILE_SITE_KEY || !turnstileToken)) {
+        setError(import.meta.env.VITE_TURNSTILE_SITE_KEY
+          ? 'أكمل التحقق الأمني ثم حاول مجدداً.'
+          : 'حماية تسجيل الدخول غير مهيأة. أضف مفتاح Turnstile العام ثم أعد تشغيل التطبيق.');
+        return;
+      }
+
+      const result = await auth.login(username, password, activeTab, turnstileToken ?? undefined);
 
       if (result.success && result.user) {
         onLogin(result.user);
       } else {
         setError(result.message || 'بيانات الدخول غير صحيحة');
+        if (requiresBotCheck) {
+          setTurnstileToken(null);
+          setTurnstileResetKey(value => value + 1);
+        }
       }
     } catch (err) {
       logError(err, 'Login - Handle Login');
@@ -248,9 +269,25 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   />
                 </div>
 
+                {modeResolved && !isLocalMode && activeTab === 'staff' && (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+                    {import.meta.env.VITE_TURNSTILE_SITE_KEY ? (
+                      <TurnstileWidget
+                        siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
+                        resetKey={turnstileResetKey}
+                        onToken={handleTurnstileToken}
+                      />
+                    ) : (
+                      <p className="text-xs leading-6 text-amber-100">
+                        يلزم ضبط VITE_TURNSTILE_SITE_KEY لحماية تسجيل الدخول السحابي.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || (modeResolved && !isLocalMode && activeTab === 'staff' && !turnstileToken)}
                   className={`group flex w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-base font-extrabold transition duration-300 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 ${loginTone === 'primary'
                     ? 'bg-primary-100 text-slate-950 hover:bg-primary-50'
                     : 'bg-emerald-100 text-slate-950 hover:bg-emerald-50'

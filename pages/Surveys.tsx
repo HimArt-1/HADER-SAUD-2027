@@ -34,6 +34,7 @@ import { whatsappGateway } from '../services/whatsappGateway';
 import {
   buildSurveyRecipients,
   createSurveyDraft,
+  isSurveyOpen,
   summarizeSurvey,
   type Survey,
   type SurveyAudience,
@@ -63,6 +64,13 @@ const statusClasses = {
   published: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200',
   closed: 'border-amber-400/20 bg-amber-400/10 text-amber-200'
 } as const;
+
+const displayStatus = (survey: Survey): Readonly<{ label: string; className: string }> => {
+  if (survey.status === 'published' && !isSurveyOpen(survey)) {
+    return { label: 'انتهى', className: 'border-amber-400/20 bg-amber-400/10 text-amber-200' };
+  }
+  return { label: statusLabels[survey.status], className: statusClasses[survey.status] };
+};
 
 const inputClass = 'input-glass mt-2 w-full rounded-xl border border-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500';
 const panelClass = 'glass-card rounded-[1.5rem] border border-white/10 bg-slate-950/60';
@@ -203,12 +211,10 @@ const Surveys: React.FC = () => {
     setClosesAt(toLocalDateTimeValue(survey?.closesAt ?? null));
     setQuestions(survey?.questions ?? [newQuestion()]);
     const nextAudience = survey?.audience ?? 'guardians';
-    const savedTargets = survey ? surveyService.draftRecipients(survey.id) : [];
+    const savedTargets = survey?.draftRecipients ?? [];
     const directoryIds = new Set(directory[nextAudience].map(recipient => recipient.id));
-    setManualRecipients((savedTargets ?? []).filter(recipient => !directoryIds.has(recipient.id)));
-    setSelectedRecipients(new Set(savedTargets !== null
-      ? savedTargets.map(recipient => recipient.id)
-      : directory[nextAudience].map(recipient => recipient.id)));
+    setManualRecipients(savedTargets.filter(recipient => !directoryIds.has(recipient.id)));
+    setSelectedRecipients(new Set(savedTargets.map(recipient => recipient.id)));
     setRecipientSearch('');
     setError('');
     setView('builder');
@@ -344,8 +350,16 @@ const Surveys: React.FC = () => {
     notify('نُسخت رسالة الدعوة');
   };
 
-  const queueWhatsApp = async () => {
+  const queueWhatsApp = async (reminder = false) => {
     if (!bundle) return;
+    if (reminder && bundle.survey.anonymous) {
+      setError('التذكير الفردي معطّل للاستبيان المجهول لأن النظام لا يربط الإجابات بأسماء المستلمين.');
+      return;
+    }
+    if (!isSurveyOpen(bundle.survey)) {
+      setError('انتهى هذا الاستبيان أو أُغلق؛ لا يمكن إرسال دعوات جديدة إليه.');
+      return;
+    }
     if (!canShareExternally) {
       setError('الإرسال الخارجي معطّل لأن الاستبيان غير متصل بتخزين سحابي مشترك ورابط HTTPS.');
       return;
@@ -354,30 +368,38 @@ const Surveys: React.FC = () => {
       setError('حسابك لا يملك صلاحية استخدام إرسال واتساب. يمكنك تصدير الروابط وتسليمها للمخول بالإرسال.');
       return;
     }
-    const pending = bundle.invitations.filter(invitation => !invitation.respondedAt && invitation.recipientContact);
+    const pending = bundle.invitations.filter(invitation => (
+      !invitation.respondedAt
+      && invitation.recipientContact
+      && (reminder || !invitation.queuedAt)
+    ));
     if (pending.length === 0) {
-      setError('لا توجد دعوات معلقة بأرقام جوال صالحة');
+      setError(reminder ? 'لا توجد دعوات معلقة لإعادة تذكيرها' : 'أُرسلت كل الدعوات الصالحة مسبقاً؛ استخدم زر التذكير إذا رغبت بإعادة الإرسال');
       return;
     }
+    if (reminder && !window.confirm(`إعادة إرسال تذكير إلى ${pending.length} مستلماً لم يجيبوا بعد؟`)) return;
     setBusy('whatsapp');
     setError('');
     setDistributionProgress(`تجهيز ${pending.length} دعوة...`);
     let queued = 0;
     try {
-      const messages = pending.map(invitation => ({
-        id: `survey-${invitation.id}`,
-        phone: invitation.recipientContact,
-        student_name: invitation.recipientName,
-        message: invitationMessage(bundle.survey, invitation),
-        status_label: 'دعوة استبيان'
-      }));
-      for (let index = 0; index < messages.length; index += 500) {
-        const batch = messages.slice(index, index + 500);
-        await whatsappGateway.enqueue(batch);
-        queued += batch.length;
-        setDistributionProgress(`أضيفت ${queued} من ${messages.length} دعوة إلى الطابور`);
+      for (let index = 0; index < pending.length; index += 500) {
+        const invitationBatch = pending.slice(index, index + 500);
+        await whatsappGateway.enqueue(invitationBatch.map(invitation => ({
+          id: reminder
+            ? `survey-reminder-${invitation.id}-${invitation.queuedAt ?? 'initial'}`
+            : `survey-${invitation.id}`,
+          phone: invitation.recipientContact,
+          student_name: invitation.recipientName,
+          message: invitationMessage(bundle.survey, invitation),
+          status_label: reminder ? 'تذكير استبيان' : 'دعوة استبيان'
+        })));
+        await surveyService.markQueued(invitationBatch.map(invitation => invitation.id));
+        queued += invitationBatch.length;
+        setDistributionProgress(`أضيفت ${queued} من ${pending.length} دعوة إلى الطابور`);
       }
-      notify(`أضيفت ${pending.length} دعوة إلى طابور واتساب`);
+      setBundle(await surveyService.bundle(bundle.survey.id));
+      notify(`أضيفت ${pending.length} ${reminder ? 'رسالة تذكير' : 'دعوة'} إلى طابور واتساب`);
     } catch (whatsappError) {
       const prefix = queued > 0 ? `أضيفت ${queued} من ${pending.length} دعوة قبل توقف الإرسال. ` : '';
       setError(whatsappError instanceof Error ? `${prefix}${whatsappError.message}. يمكنك نسخ الروابط أو تصديرها.` : `${prefix}تعذر الاتصال بخدمة واتساب`);
@@ -389,6 +411,10 @@ const Surveys: React.FC = () => {
 
   const exportInvitations = () => {
     if (!bundle) return;
+    if (!isSurveyOpen(bundle.survey)) {
+      setError('لا يمكن تصدير روابط توزيع لاستبيان منتهٍ أو مغلق.');
+      return;
+    }
     if (!canShareExternally) {
       setError('لا يمكن تصدير روابط توزيع قبل تفعيل التخزين السحابي ورابط HTTPS.');
       return;
@@ -428,8 +454,8 @@ const Surveys: React.FC = () => {
   }
 
   const summary = bundle ? summarizeSurvey(bundle.survey, bundle.invitations, bundle.responses) : null;
-  const totalPublished = surveys.filter(survey => survey.status === 'published').length;
-  const totalClosed = surveys.filter(survey => survey.status === 'closed').length;
+  const totalPublished = surveys.filter(survey => isSurveyOpen(survey)).length;
+  const totalClosed = surveys.filter(survey => survey.status === 'closed' || (survey.status === 'published' && !isSurveyOpen(survey))).length;
 
   return (
     <div className="min-h-[100dvh] space-y-6 px-4 py-6 sm:px-6 lg:px-8" dir="rtl">
@@ -469,7 +495,7 @@ const Surveys: React.FC = () => {
               <div className="divide-y divide-white/10">
                 {surveys.map(survey => (
                   <article key={survey.id} className="flex flex-col gap-4 px-5 py-5 transition hover:bg-white/[0.025] sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                    <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-black text-white">{survey.title}</h3><span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${statusClasses[survey.status]}`}>{statusLabels[survey.status]}</span></div><p className="mt-2 text-xs text-slate-400">{survey.audience === 'guardians' ? 'أولياء الأمور' : 'المعلمون'} · {survey.questions.length} أسئلة · {new Date(survey.createdAt).toLocaleDateString('ar-SA')}</p></div>
+                    <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-black text-white">{survey.title}</h3><span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${displayStatus(survey).className}`}>{displayStatus(survey).label}</span></div><p className="mt-2 text-xs text-slate-400">{survey.audience === 'guardians' ? 'أولياء الأمور' : 'المعلمون'} · {survey.questions.length} أسئلة · {new Date(survey.createdAt).toLocaleDateString('ar-SA')}</p></div>
                     <div className="flex gap-2">
                       {survey.status === 'draft' ? <><button type="button" onClick={() => resetBuilder(survey)} className="rounded-xl border border-primary-300/20 bg-primary-300/[0.06] px-4 py-2.5 text-xs font-bold text-primary-100">متابعة التحرير</button><button type="button" onClick={() => void handleRemove(survey)} disabled={busy !== null} aria-label={`حذف ${survey.title}`} className="rounded-xl border border-rose-300/15 px-3 text-rose-200 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button></> : <button type="button" onClick={() => void openDetails(survey.id)} disabled={busy !== null} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-slate-200 disabled:opacity-40">{busy === `details:${survey.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}النتائج والتوزيع</button>}
                     </div>
@@ -537,7 +563,7 @@ const Surveys: React.FC = () => {
       {view === 'details' && bundle && summary && (
         <div className="space-y-6">
           <section className={`${panelClass} overflow-hidden`}>
-            <div className="border-b border-white/10 p-5 sm:p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${statusClasses[bundle.survey.status]}`}>{statusLabels[bundle.survey.status]}</span><span className="text-xs text-slate-500">{bundle.survey.audience === 'guardians' ? 'أولياء الأمور' : 'المعلمون'}</span></div><h2 className="mt-3 text-2xl font-black text-white">{bundle.survey.title}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{bundle.survey.description || 'لا يوجد وصف لهذا الاستبيان.'}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void openDetails(bundle.survey.id)} disabled={busy !== null} aria-label="تحديث النتائج" className="rounded-xl border border-white/10 p-2.5 text-slate-300"><RefreshCw className={`h-4 w-4 ${busy?.startsWith('details:') ? 'animate-spin' : ''}`} /></button><button type="button" onClick={exportResponses} disabled={summary.responded === 0} className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2.5 text-xs font-bold text-slate-200 disabled:opacity-35"><Download className="h-4 w-4" />تصدير النتائج</button>{bundle.survey.status === 'published' && <button type="button" onClick={() => void handleClose()} disabled={busy !== null} className="flex items-center gap-2 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-4 py-2.5 text-xs font-bold text-amber-100"><Archive className="h-4 w-4" />إغلاق الاستبيان</button>}</div></div></div>
+            <div className="border-b border-white/10 p-5 sm:p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${displayStatus(bundle.survey).className}`}>{displayStatus(bundle.survey).label}</span><span className="text-xs text-slate-500">{bundle.survey.audience === 'guardians' ? 'أولياء الأمور' : 'المعلمون'}</span></div><h2 className="mt-3 text-2xl font-black text-white">{bundle.survey.title}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{bundle.survey.description || 'لا يوجد وصف لهذا الاستبيان.'}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void openDetails(bundle.survey.id)} disabled={busy !== null} aria-label="تحديث النتائج" className="rounded-xl border border-white/10 p-2.5 text-slate-300"><RefreshCw className={`h-4 w-4 ${busy?.startsWith('details:') ? 'animate-spin' : ''}`} /></button><button type="button" onClick={exportResponses} disabled={summary.responded === 0} className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2.5 text-xs font-bold text-slate-200 disabled:opacity-35"><Download className="h-4 w-4" />تصدير النتائج</button>{bundle.survey.status === 'published' && <button type="button" onClick={() => void handleClose()} disabled={busy !== null} className="flex items-center gap-2 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-4 py-2.5 text-xs font-bold text-amber-100"><Archive className="h-4 w-4" />إغلاق الاستبيان</button>}</div></div></div>
             <div className="grid gap-px bg-white/10 sm:grid-cols-4">{[
               { label: 'الدعوات', value: summary.invited, icon: UsersRound },
               { label: 'الإجابات', value: summary.responded, icon: ClipboardCheck },
@@ -549,7 +575,21 @@ const Surveys: React.FC = () => {
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
             <section className={`${panelClass} p-5 sm:p-6`}><div className="flex items-center justify-between"><div><h3 className="font-black text-white">تحليل الإجابات</h3><p className="mt-1 text-xs text-slate-400">تتحدث المؤشرات عند إعادة فتح هذا الاستبيان.</p></div><BarChart3 className="h-5 w-5 text-primary-200" /></div><div className="mt-6 space-y-5">{summary.questionResults.map((result, index) => <article key={result.question.id} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><div className="flex items-start justify-between gap-3"><div><span className="text-[10px] font-bold text-primary-200">السؤال {index + 1}</span><h4 className="mt-1 text-sm font-black text-white">{result.question.prompt}</h4></div><span className="shrink-0 text-[10px] text-slate-500">{result.answered} إجابة</span></div>{result.question.type === 'text' ? <div className="mt-4 space-y-2">{result.textAnswers.length ? result.textAnswers.map((answer, answerIndex) => <p key={`${answer}-${answerIndex}`} className="rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs leading-6 text-slate-300">{answer}</p>) : <p className="py-4 text-center text-xs text-slate-500">لا توجد إجابات نصية بعد.</p>}</div> : <div className="mt-4 space-y-3">{result.average !== null && <div className="mb-4 flex items-center justify-between rounded-xl bg-primary-400/[0.07] p-3"><span className="text-xs text-primary-100">متوسط التقييم</span><strong className="text-xl text-white">{result.average}<span className="text-xs text-slate-400"> / 5</span></strong></div>}{result.values.map(value => <div key={value.label}><div className="mb-1.5 flex justify-between text-xs"><span className="text-slate-300">{value.label}</span><span className="text-slate-500">{value.count} · {value.percentage}%</span></div><div className="h-2 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-primary-500 transition-all" style={{ width: `${value.percentage}%` }} /></div></div>)}</div>}</article>)}</div></section>
 
-            <aside className={`${panelClass} self-start overflow-hidden xl:sticky xl:top-6`}><div className="border-b border-white/10 p-5"><div className="flex items-center justify-between"><div><h3 className="font-black text-white">التوزيع والمتابعة</h3><p className="mt-1 text-xs text-slate-400">إرسال الدعوات ومراجعة حالتها.</p></div><MessageCircle className="h-5 w-5 text-primary-200" /></div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => void queueWhatsApp()} disabled={busy !== null || bundle.survey.status !== 'published' || !canUseWhatsApp || !canShareExternally} title={!canUseWhatsApp ? 'يتطلب صلاحية واتساب' : undefined} className="flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-3 py-3 text-xs font-black text-slate-950 disabled:opacity-35">{busy === 'whatsapp' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}إرسال عبر واتساب</button><button type="button" onClick={exportInvitations} disabled={!canShareExternally} className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-3 text-xs font-bold text-slate-200 disabled:opacity-35"><Download className="h-4 w-4" />تصدير الروابط</button></div>{distributionProgress && <p role="status" className="mt-3 text-center text-[10px] font-bold text-primary-200">{distributionProgress}</p>}</div><div className="max-h-[560px] divide-y divide-white/10 overflow-y-auto">{bundle.invitations.map(invitation => <div key={invitation.id} className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-xs text-white">{invitation.recipientName}</strong>{invitation.respondedAt ? <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold text-emerald-200">أجاب</span> : <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[9px] font-bold text-amber-200">معلّق</span>}</div><p className="mt-1 truncate text-[10px] text-slate-500">{invitation.recipientContact || 'لا يوجد رقم جوال'} · {invitation.recipientDetail}</p></div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => void copyInvitation(invitation)} disabled={!canShareExternally} aria-label={`نسخ رابط ${invitation.recipientName}`} className="rounded-lg border border-white/10 p-2 text-slate-300 disabled:opacity-30"><Copy className="h-3.5 w-3.5" /></button>{invitation.recipientContact && canShareExternally && <a href={`https://wa.me/${whatsappPhone(invitation.recipientContact)}?text=${encodeURIComponent(invitationMessage(bundle.survey, invitation))}`} target="_blank" rel="noreferrer" aria-label={`إرسال إلى ${invitation.recipientName}`} className="rounded-lg border border-primary-300/20 p-2 text-primary-200"><MessageCircle className="h-3.5 w-3.5" /></a>}</div></div></div>)}</div></aside>
+            <aside className={`${panelClass} self-start overflow-hidden xl:sticky xl:top-6`}>
+              <div className="border-b border-white/10 p-5">
+                <div className="flex items-center justify-between"><div><h3 className="font-black text-white">التوزيع والمتابعة</h3><p className="mt-1 text-xs text-slate-400">إرسال الدعوات ومراجعة حالتها.</p></div><MessageCircle className="h-5 w-5 text-primary-200" /></div>
+                {!isSurveyOpen(bundle.survey) && <p className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.07] p-3 text-[11px] leading-5 text-amber-100">انتهى استقبال الإجابات، ولذلك أُوقفت روابط الإرسال والتذكير.</p>}
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => void queueWhatsApp()} disabled={busy !== null || !isSurveyOpen(bundle.survey) || !canUseWhatsApp || !canShareExternally} title={!canUseWhatsApp ? 'يتطلب صلاحية واتساب' : undefined} className="flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-3 py-3 text-xs font-black text-slate-950 disabled:opacity-35">{busy === 'whatsapp' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}إرسال الجديد</button>
+                  <button type="button" onClick={() => void queueWhatsApp(true)} disabled={busy !== null || bundle.survey.anonymous || !isSurveyOpen(bundle.survey) || !canUseWhatsApp || !canShareExternally || !bundle.invitations.some(invitation => invitation.queuedAt && !invitation.respondedAt && invitation.recipientContact)} title={bundle.survey.anonymous ? 'حمايةً للخصوصية لا يربط النظام الإجابات المجهولة بالمستلمين' : undefined} className="flex items-center justify-center gap-2 rounded-xl border border-primary-300/20 px-3 py-3 text-xs font-bold text-primary-100 disabled:opacity-35"><RefreshCw className="h-4 w-4" />تذكير المعلّقين</button>
+                  <button type="button" onClick={exportInvitations} disabled={!canShareExternally || !isSurveyOpen(bundle.survey)} className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-3 text-xs font-bold text-slate-200 disabled:opacity-35"><Download className="h-4 w-4" />تصدير الروابط</button>
+                </div>
+                {distributionProgress && <p role="status" className="mt-3 text-center text-[10px] font-bold text-primary-200">{distributionProgress}</p>}
+              </div>
+              <div className="max-h-[560px] divide-y divide-white/10 overflow-y-auto">
+                {bundle.invitations.map(invitation => <div key={invitation.id} className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-xs text-white">{invitation.recipientName}</strong>{bundle.survey.anonymous ? <span className="rounded-full bg-sky-400/10 px-2 py-0.5 text-[9px] font-bold text-sky-200">خاص</span> : invitation.respondedAt ? <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold text-emerald-200">أجاب</span> : invitation.queuedAt ? <span className="rounded-full bg-sky-400/10 px-2 py-0.5 text-[9px] font-bold text-sky-200">في الطابور</span> : <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[9px] font-bold text-amber-200">لم يُرسل</span>}</div><p className="mt-1 truncate text-[10px] text-slate-500">{invitation.recipientContact || 'لا يوجد رقم جوال'} · {invitation.recipientDetail}</p></div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => void copyInvitation(invitation)} disabled={!canShareExternally || !isSurveyOpen(bundle.survey)} aria-label={`نسخ رابط ${invitation.recipientName}`} className="rounded-lg border border-white/10 p-2 text-slate-300 disabled:opacity-30"><Copy className="h-3.5 w-3.5" /></button>{invitation.recipientContact && canShareExternally && isSurveyOpen(bundle.survey) && <a href={`https://wa.me/${whatsappPhone(invitation.recipientContact)}?text=${encodeURIComponent(invitationMessage(bundle.survey, invitation))}`} target="_blank" rel="noreferrer" aria-label={`إرسال إلى ${invitation.recipientName}`} className="rounded-lg border border-primary-300/20 p-2 text-primary-200"><MessageCircle className="h-3.5 w-3.5" /></a>}</div></div></div>)}
+              </div>
+            </aside>
           </div>
 
           {bundle.responses.length > 0 && <section className={`${panelClass} overflow-hidden`}><div className="border-b border-white/10 p-5"><h3 className="font-black text-white">سجل المشاركات</h3><p className="mt-1 text-xs text-slate-400">وقت الاستلام وهوية المستجيب حسب إعداد الخصوصية.</p></div><div className="overflow-x-auto"><table className="min-w-full text-right text-xs"><thead className="bg-white/[0.025] text-slate-400"><tr><th className="px-5 py-3 font-bold">المستجيب</th><th className="px-5 py-3 font-bold">وقت الإرسال</th><th className="px-5 py-3 font-bold">اكتمال الإجابة</th></tr></thead><tbody className="divide-y divide-white/10">{bundle.responses.map(response => <tr key={response.id}><td className="px-5 py-4 font-bold text-white">{response.respondentName ?? 'مجهول'}</td><td className="px-5 py-4 text-slate-400">{new Date(response.submittedAt).toLocaleString('ar-SA')}</td><td className="px-5 py-4 text-emerald-200">{response.answers.length} من {bundle.survey.questions.length}</td></tr>)}</tbody></table></div></section>}

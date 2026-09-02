@@ -48,6 +48,7 @@ import {
 import { conflictResolver } from './conflictResolver';
 import { fetchAllFromSupabase } from './dbFetchAll';
 import { syncCatalog } from '../modules/sync/catalog';
+import { deleteManagedCloudUser, saveManagedCloudUser } from './surveys';
 
 const TOMBSTONE_TABLE = 'sync_tombstones';
 const TOMBSTONE_MISSING_RETRY_MS = 10 * 60 * 1000;
@@ -914,6 +915,21 @@ export class SyncService {
                 cleanPayload = { ...cleanPayload, id: await resolveSettingsUpsertId() };
             }
 
+            if (table === 'users') {
+                if (operation === 'DELETE') {
+                    const deleteId = typeof payload === 'string' ? payload : payload?.id;
+                    if (!deleteId) throw new Error('Delete requires id');
+                    await deleteManagedCloudUser(deleteId);
+                    this.recentlyDeletedRecords.set(`${table}:${deleteId}`, Date.now());
+                    await recordSyncTombstone(table, deleteId, new Date().toISOString(), false);
+                    return;
+                }
+                const userData = Array.isArray(cleanPayload) ? cleanPayload[0] : cleanPayload;
+                if (!userData) throw new Error('User sync requires a payload');
+                await saveManagedCloudUser(userData);
+                return;
+            }
+
             switch (operation) {
                 case 'INSERT':
                     const insertData = Array.isArray(cleanPayload) ? cleanPayload : [cleanPayload];
@@ -971,22 +987,6 @@ export class SyncService {
                     break;
 
                 case 'UPSERT':
-                    // Special handling for users table - use UPDATE instead of UPSERT
-                    // because password field is required (NOT NULL) and we don't send it
-                    if (table === 'users') {
-                        const userData = Array.isArray(cleanPayload) ? cleanPayload[0] : cleanPayload;
-                        if (userData?.id) {
-                            const { error: userUpdateError } = await supabase
-                                .from('users')
-                                .update(userData)
-                                .eq('id', userData.id);
-                            if (userUpdateError) {
-                                throw userUpdateError;
-                            }
-                        }
-                        break;
-                    }
-
                     if (table === 'settings') {
                         const { error: settingsApplyErr } = await applySettingsRowToCloud(
                             cleanPayload as Record<string, unknown>
@@ -1058,7 +1058,10 @@ export class SyncService {
 
                 // Fresh builder each page — see dbFetchAll `fetchAllFromSupabase` (mutable order stack bug).
                 const buildPullQuery = () => {
-                    let q: any = supabase.from(table).select('*');
+                    const columns = table === 'users'
+                        ? 'id, username, name, role, assigned_classes, assigned_sections, email, phone, is_active, can_use_whatsapp, last_login, created_at, updated_at'
+                        : '*';
+                    let q: any = supabase.from(table).select(columns);
                     if (lastSync) {
                         q = q.gt(timestampColumn, lastSync);
                     }

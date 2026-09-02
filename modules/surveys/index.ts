@@ -14,6 +14,13 @@ export type SurveyQuestion = Readonly<{
   options: readonly string[];
 }>;
 
+export type SurveyRecipient = Readonly<{
+  id: string;
+  name: string;
+  contact: string;
+  detail?: string;
+}>;
+
 export type Survey = Readonly<{
   id: string;
   title: string;
@@ -23,17 +30,11 @@ export type Survey = Readonly<{
   anonymous: boolean;
   closesAt: string | null;
   questions: readonly SurveyQuestion[];
+  draftRecipients: readonly SurveyRecipient[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
   publishedAt: string | null;
-}>;
-
-export type SurveyRecipient = Readonly<{
-  id: string;
-  name: string;
-  contact: string;
-  detail?: string;
 }>;
 
 export type SurveyInvitation = Readonly<{
@@ -44,6 +45,7 @@ export type SurveyInvitation = Readonly<{
   recipientName: string;
   recipientContact: string;
   recipientDetail: string;
+  queuedAt: string | null;
   respondedAt: string | null;
   createdAt: string;
 }>;
@@ -88,11 +90,15 @@ const defaultId = (): string => crypto.randomUUID();
 
 const assertSurveyQuestions = (questions: readonly SurveyQuestion[]): void => {
   if (questions.length === 0) throw new Error('أضف سؤالاً واحداً على الأقل');
+  if (questions.length > 100) throw new Error('الحد الأقصى لأسئلة الاستبيان هو 100 سؤال');
   questions.forEach((question, index) => {
-    if (!normalizeText(question.prompt)) throw new Error(`نص السؤال ${index + 1} مطلوب`);
+    const prompt = normalizeText(question.prompt);
+    if (!prompt) throw new Error(`نص السؤال ${index + 1} مطلوب`);
+    if (prompt.length > 500) throw new Error(`نص السؤال ${index + 1} يتجاوز الحد المسموح`);
     if (['single_choice', 'multiple_choice'].includes(question.type)) {
       const options = question.options.map(normalizeText).filter(Boolean);
       if (options.length < 2) throw new Error(`السؤال ${index + 1} يحتاج خيارين على الأقل`);
+      if (options.length > 50 || options.some(option => option.length > 200)) throw new Error(`خيارات السؤال ${index + 1} تتجاوز الحد المسموح`);
       if (new Set(options.map(option => option.toLocaleLowerCase('ar'))).size !== options.length) {
         throw new Error(`خيارات السؤال ${index + 1} يجب ألا تتكرر`);
       }
@@ -109,12 +115,15 @@ export const createSurveyDraft = (
     anonymous?: boolean;
     closesAt?: string | null;
     questions: readonly SurveyQuestion[];
+    draftRecipients?: readonly SurveyRecipient[];
     createdBy: string;
   }>,
   environment: DomainEnvironment = {}
 ): Survey => {
   const title = normalizeText(input.title);
   if (!title) throw new Error('عنوان الاستبيان مطلوب');
+  if (title.length > 200) throw new Error('عنوان الاستبيان يتجاوز الحد المسموح');
+  if ((input.description ?? '').length > 4000) throw new Error('وصف الاستبيان يتجاوز الحد المسموح');
   if (!normalizeText(input.createdBy)) throw new Error('تعذر تحديد منشئ الاستبيان');
   assertSurveyQuestions(input.questions);
   const now = (environment.now ?? (() => new Date()))().toISOString();
@@ -137,6 +146,7 @@ export const createSurveyDraft = (
     anonymous: input.anonymous ?? false,
     closesAt,
     questions: Object.freeze(questions),
+    draftRecipients: Object.freeze([...(input.draftRecipients ?? [])]),
     createdBy: input.createdBy.trim(),
     createdAt: now,
     updatedAt: now,
@@ -168,7 +178,7 @@ export const publishSurvey = (
   }
 
   return Object.freeze({
-    survey: Object.freeze({ ...survey, status: 'published', publishedAt: now, updatedAt: now }),
+    survey: Object.freeze({ ...survey, status: 'published', draftRecipients: Object.freeze([]), publishedAt: now, updatedAt: now }),
     invitations: Object.freeze(uniqueRecipients.map(recipient => Object.freeze({
       id: createId(),
       surveyId: survey.id,
@@ -177,11 +187,17 @@ export const publishSurvey = (
       recipientName: normalizeText(recipient.name) || 'مستلم',
       recipientContact: normalizeContact(recipient.contact),
       recipientDetail: normalizeText(recipient.detail ?? ''),
+      queuedAt: null,
       respondedAt: null,
       createdAt: now
     })))
   });
 };
+
+export const isSurveyOpen = (survey: Survey, now: Date = new Date()): boolean => (
+  survey.status === 'published'
+  && (!survey.closesAt || new Date(survey.closesAt).getTime() > now.getTime())
+);
 
 const hasAnswer = (answer: SurveyAnswer | undefined): boolean => {
   if (!answer) return false;
@@ -198,7 +214,7 @@ export const createSurveyResponse = (
 ): Readonly<{ response: SurveyResponse; invitation: SurveyInvitation }> => {
   const nowDate = (environment.now ?? (() => new Date()))();
   if (survey.status !== 'published') throw new Error('هذا الاستبيان غير متاح لاستقبال الإجابات');
-  if (survey.closesAt && nowDate.getTime() > new Date(survey.closesAt).getTime()) throw new Error('انتهت مدة الاستبيان');
+  if (survey.closesAt && nowDate.getTime() >= new Date(survey.closesAt).getTime()) throw new Error('انتهت مدة الاستبيان');
   if (invitation.surveyId !== survey.id) throw new Error('رابط الاستبيان غير صالح');
   if (invitation.respondedAt || existingResponse) throw new Error('تم إرسال الإجابة مسبقاً');
   const questionIds = new Set(survey.questions.map(question => question.id));
@@ -210,7 +226,7 @@ export const createSurveyResponse = (
     const answer = answers.find(candidate => candidate.questionId === question.id);
     if (question.required && !hasAnswer(answer)) throw new Error(`السؤال «${question.prompt}» مطلوب`);
     if (!answer) continue;
-    if (question.type === 'rating' && (typeof answer.value !== 'number' || answer.value < 1 || answer.value > 5)) {
+    if (question.type === 'rating' && (typeof answer.value !== 'number' || !Number.isInteger(answer.value) || answer.value < 1 || answer.value > 5)) {
       throw new Error(`تقييم السؤال «${question.prompt}» يجب أن يكون بين 1 و5`);
     }
     if (question.type === 'single_choice' && (typeof answer.value !== 'string' || !question.options.includes(answer.value))) {

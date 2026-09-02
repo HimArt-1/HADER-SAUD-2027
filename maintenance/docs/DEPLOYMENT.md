@@ -15,6 +15,7 @@
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key-here
+VITE_TURNSTILE_SITE_KEY=your-public-turnstile-site-key
 VITE_APP_MODE=cloud
 VITE_ALLOW_LOCAL_FALLBACK=false
 VITE_WHATSAPP_API_KEY=your-secure-key-here
@@ -44,6 +45,8 @@ git push origin main
    - `VITE_APP_MODE` = `cloud`
    - `VITE_ALLOW_LOCAL_FALLBACK` = `false`
 5. اضغط "Deploy"
+
+لتفعيل تسجيل الدخول السحابي وقسم الاستبيانات، أكمل إعداد قاعدة البيانات وTurnstile وSupabase Edge Function حسب `maintenance/docs/SURVEYS_SETUP.md`.
 
 ### 4. إعدادات إضافية
 

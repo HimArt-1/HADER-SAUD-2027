@@ -13,6 +13,7 @@ export interface SecureSessionPayload {
   createdAt: number;
   sessionId?: string;
   surveyAdminToken?: string;
+  surveyAdminExpiresAt?: number;
   guardian?: {
     children: Array<{
       id: string;

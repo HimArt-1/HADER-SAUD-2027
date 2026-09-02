@@ -26,6 +26,7 @@ import { DesktopAppInfo } from './DesktopAppInfo';
 import { isElectron } from '../hooks/useElectron';
 import { PAGE_HELP } from '../constants/pageHelp';
 import { applyDarkMode, getCurrentColorMode, getStoredColorMode } from '../utils/colorMode';
+import { hasSurveyAdminAccess } from '../services/surveys';
 
 export const NotificationContext = createContext<{
   notifications: Notification[];
@@ -772,6 +773,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
 
   const allowedItems = menuItems.filter(item => {
     if (item.path === '/whatsapp') return user.role === Role.SITE_ADMIN || user.can_use_whatsapp;
+    if (item.path === '/surveys') return item.roles.includes(user.role) && hasSurveyAdminAccess();
     return item.roles.includes(user.role);
   });
 

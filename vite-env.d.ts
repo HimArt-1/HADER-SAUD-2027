@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_APP_MODE?: string;
   readonly VITE_ALLOW_LOCAL_FALLBACK?: string;
   readonly VITE_APP_URL?: string;
+  readonly VITE_TURNSTILE_SITE_KEY?: string;
   readonly VITE_ENABLE_TELEMETRY?: string;
   readonly VITE_ENABLE_DEBUG?: string;
   readonly VITE_ENABLE_PWA?: string;
@@ -18,4 +19,3 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
-

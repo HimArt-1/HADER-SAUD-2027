@@ -26,10 +26,13 @@ describe('survey service local adapter', () => {
     });
 
     await service.saveDraft(survey, [{ id: 'g1', name: 'ولي أمر محمد', contact: '0500000000' }]);
-    expect(service.draftRecipients(survey.id)).toHaveLength(1);
+    const savedDraft = (await service.list())[0];
+    expect(savedDraft.draftRecipients).toHaveLength(1);
     const published = await service.publish(survey.id, [{ id: 'g1', name: 'ولي أمر محمد', contact: '0500000000' }]);
     expect(published.invitations).toHaveLength(1);
-    expect(service.draftRecipients(survey.id)).toBeNull();
+    expect(published.survey.draftRecipients).toEqual([]);
+    await service.markQueued([published.invitations[0].id]);
+    expect((await service.bundle(survey.id)).invitations[0].queuedAt).toBeTruthy();
 
     const publicSurvey = await service.getPublic(published.invitations[0].token);
     expect(publicSurvey.survey.title).toBe('جودة التواصل');
@@ -77,8 +80,14 @@ describe('survey service local adapter', () => {
     await service.saveDraft(survey);
     const published = await service.publish(survey.id, [{ id: 't1', name: 'معلم', contact: '' }]);
     await service.submit(published.invitations[0].token, [{ questionId: 'q1', value: 5 }]);
+    expect((await service.getPublic(published.invitations[0].token)).alreadyResponded).toBe(false);
+    await expect(service.submit(published.invitations[0].token, [{ questionId: 'q1', value: 1 }])).resolves.toMatchObject({
+      invitationId: '', respondentName: null, answers: []
+    });
+    await service.markQueued([published.invitations[0].id]);
     const bundle = await service.bundle(survey.id);
     expect(bundle.responses[0]).toMatchObject({ invitationId: '', respondentName: null });
-    expect(bundle.invitations[0].respondedAt).toBe('1970-01-01T00:00:00.000Z');
+    expect(bundle.invitations[0].respondedAt).toBeNull();
+    expect(bundle.invitations[0]).toMatchObject({ recipientName: 'مستلم مجهول', recipientContact: '' });
   });
 });

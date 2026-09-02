@@ -11,7 +11,6 @@ import {
 } from '../modules/surveys';
 
 const STORAGE_KEY = 'hader:surveys:v1';
-const DRAFT_TARGETS_KEY = 'hader:survey-draft-targets:v1';
 
 type SurveyStore = Readonly<{
   surveys: readonly Survey[];
@@ -35,8 +34,8 @@ export type SurveyService = Readonly<{
   storageMode: 'cloud' | 'local';
   list(): Promise<readonly Survey[]>;
   saveDraft(survey: Survey, recipients?: readonly SurveyRecipient[]): Promise<Survey>;
-  draftRecipients(surveyId: string): readonly SurveyRecipient[] | null;
   publish(surveyId: string, recipients: readonly SurveyRecipient[]): Promise<SurveyBundle>;
+  markQueued(invitationIds: readonly string[]): Promise<void>;
   close(surveyId: string): Promise<Survey>;
   remove(surveyId: string): Promise<void>;
   bundle(surveyId: string): Promise<SurveyBundle>;
@@ -64,19 +63,6 @@ const writeStore = (storage: Pick<Storage, 'setItem'>, store: SurveyStore): void
   storage.setItem(STORAGE_KEY, JSON.stringify(store));
 };
 
-const readDraftTargets = (storage: Pick<Storage, 'getItem'>): Record<string, readonly SurveyRecipient[]> => {
-  try {
-    const parsed = JSON.parse(storage.getItem(DRAFT_TARGETS_KEY) || '{}') as Record<string, unknown>;
-    return Object.fromEntries(Object.entries(parsed).map(([surveyId, value]) => [surveyId, Array.isArray(value) ? value : []]));
-  } catch {
-    return {};
-  }
-};
-
-const writeDraftTargets = (storage: Pick<Storage, 'setItem'>, targets: Record<string, readonly SurveyRecipient[]>): void => {
-  storage.setItem(DRAFT_TARGETS_KEY, JSON.stringify(targets));
-};
-
 const toSurvey = (row: any): Survey => Object.freeze({
   id: String(row.id),
   title: String(row.title ?? ''),
@@ -86,6 +72,7 @@ const toSurvey = (row: any): Survey => Object.freeze({
   anonymous: row.anonymous === true,
   closesAt: row.closes_at ?? row.closesAt ?? null,
   questions: Object.freeze(Array.isArray(row.questions) ? row.questions : []),
+  draftRecipients: Object.freeze(Array.isArray(row.draft_recipients ?? row.draftRecipients) ? (row.draft_recipients ?? row.draftRecipients) : []),
   createdBy: String(row.created_by ?? row.createdBy ?? ''),
   createdAt: String(row.created_at ?? row.createdAt ?? ''),
   updatedAt: String(row.updated_at ?? row.updatedAt ?? ''),
@@ -100,6 +87,7 @@ const toInvitation = (row: any): SurveyInvitation => Object.freeze({
   recipientName: String(row.recipient_name ?? row.recipientName ?? 'مستلم'),
   recipientContact: String(row.recipient_contact ?? row.recipientContact ?? ''),
   recipientDetail: String(row.recipient_detail ?? row.recipientDetail ?? ''),
+  queuedAt: row.queued_at ?? row.queuedAt ?? null,
   respondedAt: row.responded_at ?? row.respondedAt ?? null,
   createdAt: String(row.created_at ?? row.createdAt ?? '')
 });
@@ -122,6 +110,7 @@ const surveyRow = (survey: Survey) => ({
   anonymous: survey.anonymous,
   closes_at: survey.closesAt,
   questions: survey.questions,
+  draft_recipients: survey.draftRecipients,
   created_by: survey.createdBy,
   created_at: survey.createdAt,
   updated_at: survey.updatedAt,
@@ -136,6 +125,7 @@ const invitationRow = (invitation: SurveyInvitation) => ({
   recipient_name: invitation.recipientName,
   recipient_contact: invitation.recipientContact,
   recipient_detail: invitation.recipientDetail,
+  queued_at: invitation.queuedAt,
   responded_at: invitation.respondedAt,
   created_at: invitation.createdAt
 });
@@ -146,7 +136,7 @@ const protectAnonymousBundle = (value: SurveyBundle): SurveyBundle => {
     survey: value.survey,
     invitations: Object.freeze(value.invitations.map(invitation => Object.freeze({
       ...invitation,
-      respondedAt: invitation.respondedAt ? '1970-01-01T00:00:00.000Z' : null
+      respondedAt: null
     }))),
     responses: Object.freeze(value.responses.map(response => Object.freeze({
       ...response,
@@ -165,11 +155,40 @@ const throwDataError = (error: any, action: string): never => {
 };
 
 const getSurveyAdminToken = (): string => {
-  const token = secureSessionStorage.get()?.surveyAdminToken;
+  const session = secureSessionStorage.get();
+  const token = session?.surveyAdminToken;
+  if (session?.surveyAdminExpiresAt && session.surveyAdminExpiresAt <= Date.now()) {
+    throw new Error('انتهت جلسة إدارة الاستبيانات. سجّل الخروج ثم ادخل مجدداً.');
+  }
   if (!token) {
     throw new Error('جلسة إدارة الاستبيانات غير متاحة. بعد تطبيق ترحيل Supabase، سجّل الخروج ثم ادخل مجدداً.');
   }
   return token;
+};
+
+export const hasSurveyAdminAccess = (): boolean => {
+  if (!supabaseStatus.isConfigured) return true;
+  const session = secureSessionStorage.get();
+  return Boolean(session?.surveyAdminToken && (!session.surveyAdminExpiresAt || session.surveyAdminExpiresAt > Date.now()));
+};
+
+export const saveManagedCloudUser = async (user: Readonly<Record<string, unknown>>): Promise<Record<string, any>> => {
+  if (!supabaseStatus.isConfigured) throw new Error('الاتصال السحابي غير مهيأ');
+  const { data, error } = await supabase.rpc('save_hader_user', {
+    p_session_token: getSurveyAdminToken(),
+    p_user: user
+  });
+  if (error || !data) throwDataError(error, 'حفظ المستخدم');
+  return data as Record<string, any>;
+};
+
+export const deleteManagedCloudUser = async (userId: string): Promise<void> => {
+  if (!supabaseStatus.isConfigured) throw new Error('الاتصال السحابي غير مهيأ');
+  const { error } = await supabase.rpc('delete_hader_user', {
+    p_session_token: getSurveyAdminToken(),
+    p_user_id: userId
+  });
+  if (error) throwDataError(error, 'حذف المستخدم');
 };
 
 export const createSurveyService = (options: Readonly<{
@@ -183,7 +202,7 @@ export const createSurveyService = (options: Readonly<{
 
   const list = async (): Promise<readonly Survey[]> => {
     if (!useCloud) {
-      return [...readStore(storage).surveys].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return readStore(storage).surveys.map(toSurvey).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
     const { data, error } = await supabase.rpc('list_hader_surveys', { p_session_token: getSurveyAdminToken() });
     if (error) throwDataError(error, 'تحميل الاستبيانات');
@@ -193,11 +212,12 @@ export const createSurveyService = (options: Readonly<{
   const bundle = async (surveyId: string): Promise<SurveyBundle> => {
     if (!useCloud) {
       const store = readStore(storage);
-      const survey = store.surveys.find(candidate => candidate.id === surveyId);
+      const rawSurvey = store.surveys.find(candidate => candidate.id === surveyId);
+      const survey = rawSurvey ? toSurvey(rawSurvey) : undefined;
       if (!survey) throw new Error('الاستبيان غير موجود');
       return protectAnonymousBundle(Object.freeze({
         survey,
-        invitations: Object.freeze(store.invitations.filter(item => item.surveyId === surveyId)),
+        invitations: Object.freeze(store.invitations.filter(item => item.surveyId === surveyId).map(toInvitation)),
         responses: Object.freeze(store.responses.filter(item => item.surveyId === surveyId))
       }));
     }
@@ -219,27 +239,19 @@ export const createSurveyService = (options: Readonly<{
     list,
     async saveDraft(survey, recipients) {
       if (survey.status !== 'draft') throw new Error('لا يمكن تعديل استبيان منشور');
-      if (recipients) {
-        writeDraftTargets(storage, { ...readDraftTargets(storage), [survey.id]: recipients });
-      }
+      const savedDraft = Object.freeze({ ...survey, draftRecipients: Object.freeze([...(recipients ?? survey.draftRecipients ?? [])]) });
       if (!useCloud) {
         const store = readStore(storage);
-        const surveys = [...store.surveys.filter(candidate => candidate.id !== survey.id), survey];
+        const surveys = [...store.surveys.filter(candidate => candidate.id !== survey.id), savedDraft];
         writeStore(storage, { ...store, surveys });
-        return survey;
+        return savedDraft;
       }
       const { data, error } = await supabase.rpc('save_hader_survey_draft', {
         p_session_token: getSurveyAdminToken(),
-        p_survey: surveyRow(survey)
+        p_survey: surveyRow(savedDraft)
       });
       if (error) throwDataError(error, 'حفظ المسودة');
       return toSurvey(data);
-    },
-    draftRecipients(surveyId) {
-      const targets = readDraftTargets(storage);
-      return Object.prototype.hasOwnProperty.call(targets, surveyId)
-        ? Object.freeze([...(targets[surveyId] ?? [])])
-        : null;
     },
     async publish(surveyId, recipients) {
       if (!useCloud && !allowLocalPublishing) {
@@ -254,9 +266,6 @@ export const createSurveyService = (options: Readonly<{
           invitations: [...store.invitations.filter(item => item.surveyId !== surveyId), ...published.invitations],
           responses: store.responses
         });
-        const draftTargets = readDraftTargets(storage);
-        delete draftTargets[surveyId];
-        writeDraftTargets(storage, draftTargets);
         return Object.freeze({ ...published, responses: [] });
       }
       const { error } = await supabase.rpc('publish_hader_survey', {
@@ -266,10 +275,41 @@ export const createSurveyService = (options: Readonly<{
         p_published_at: published.survey.publishedAt
       });
       if (error) throwDataError(error, 'نشر الاستبيان');
-      const draftTargets = readDraftTargets(storage);
-      delete draftTargets[surveyId];
-      writeDraftTargets(storage, draftTargets);
       return bundle(surveyId);
+    },
+    async markQueued(invitationIds) {
+      const uniqueIds = [...new Set(invitationIds.filter(Boolean))];
+      if (uniqueIds.length === 0) return;
+      const queuedAt = new Date().toISOString();
+      if (!useCloud) {
+        const store = readStore(storage);
+        const ids = new Set(uniqueIds);
+        const surveyById = new Map(store.surveys.map(survey => [survey.id, toSurvey(survey)]));
+        writeStore(storage, {
+          ...store,
+          invitations: store.invitations.map(item => {
+            if (!ids.has(item.id)) return item;
+            const anonymous = surveyById.get(item.surveyId)?.anonymous === true;
+            return {
+              ...item,
+              queuedAt,
+              ...(anonymous ? {
+                recipientId: `anonymous:${item.id}`,
+                recipientName: 'مستلم مجهول',
+                recipientContact: '',
+                recipientDetail: ''
+              } : {})
+            };
+          })
+        });
+        return;
+      }
+      const { error } = await supabase.rpc('mark_hader_survey_invitations_queued', {
+        p_session_token: getSurveyAdminToken(),
+        p_invitation_ids: uniqueIds,
+        p_queued_at: queuedAt
+      });
+      if (error) throwDataError(error, 'تسجيل حالة إرسال الدعوات');
     },
     async close(surveyId) {
       const updatedAt = new Date().toISOString();
@@ -297,9 +337,6 @@ export const createSurveyService = (options: Readonly<{
           invitations: store.invitations.filter(item => item.surveyId !== surveyId),
           responses: store.responses.filter(item => item.surveyId !== surveyId)
         });
-        const draftTargets = readDraftTargets(storage);
-        delete draftTargets[surveyId];
-        writeDraftTargets(storage, draftTargets);
         return;
       }
       const { error } = await supabase.rpc('delete_hader_survey_draft', {
@@ -307,9 +344,6 @@ export const createSurveyService = (options: Readonly<{
         p_survey_id: surveyId
       });
       if (error) throwDataError(error, 'حذف الاستبيان');
-      const draftTargets = readDraftTargets(storage);
-      delete draftTargets[surveyId];
-      writeDraftTargets(storage, draftTargets);
     },
     bundle,
     async getPublic(token) {
@@ -319,7 +353,7 @@ export const createSurveyService = (options: Readonly<{
         if (!invitation) throw new Error('رابط الاستبيان غير صالح أو منتهي');
         const survey = store.surveys.find(candidate => candidate.id === invitation.surveyId);
         if (!survey) throw new Error('الاستبيان غير موجود');
-        return Object.freeze({ survey, invitation, alreadyResponded: Boolean(invitation.respondedAt) });
+        return Object.freeze({ survey, invitation, alreadyResponded: survey.anonymous ? false : Boolean(invitation.respondedAt) });
       }
       const { data, error } = await supabase.rpc('get_public_hader_survey', { p_token: token });
       if (error) throwDataError(error, 'فتح الاستبيان');
@@ -335,6 +369,9 @@ export const createSurveyService = (options: Readonly<{
         const survey = store.surveys.find(candidate => candidate.id === invitation.surveyId);
         if (!survey) throw new Error('الاستبيان غير موجود');
         const existing = store.responses.find(candidate => candidate.invitationId === invitation.id) ?? null;
+        if (existing && survey.anonymous) {
+          return Object.freeze({ ...existing, invitationId: '', respondentName: null, answers: Object.freeze([]) });
+        }
         const submitted = createSurveyResponse(survey, invitation, answers, existing);
         writeStore(storage, {
           surveys: store.surveys,

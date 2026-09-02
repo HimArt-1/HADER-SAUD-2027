@@ -218,7 +218,7 @@ describe('HybridProvider queued payloads', () => {
     const users = await provider.getUsers();
 
     expect(supabaseFromMock).toHaveBeenCalledWith('users');
-    expect(selectMock).toHaveBeenCalledWith('*');
+    expect(selectMock).toHaveBeenCalledWith(expect.not.stringContaining('password'));
     expect(localDbMock.users.bulkPut).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 'user-1',

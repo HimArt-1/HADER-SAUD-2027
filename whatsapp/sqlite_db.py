@@ -103,7 +103,7 @@ def append_to_queue(items: List[Dict[str, Any]]) -> bool:
             cursor = conn.cursor()
             for item in items:
                 cursor.execute('''
-                    INSERT OR REPLACE INTO queue 
+                    INSERT OR IGNORE INTO queue
                     (id, phone, message, attachment, student_name, status_label, status, created_at, sent_at, retry_count)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (

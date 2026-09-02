@@ -3,6 +3,7 @@ import {
   buildSurveyRecipients,
   createSurveyDraft,
   createSurveyResponse,
+  isSurveyOpen,
   publishSurvey,
   summarizeSurvey,
   type SurveyQuestion
@@ -51,11 +52,25 @@ describe('surveys domain', () => {
     expect(() => publishSurvey(survey, [{ id: 'g1', name: 'ولي الأمر', contact: '' }], env)).toThrow('المستقبل');
   });
 
+  it('treats expired published surveys as closed to new activity', () => {
+    const draft = createSurveyDraft({
+      title: 'محدد المدة', audience: 'guardians', questions, createdBy: 'admin',
+      closesAt: '2026-09-02T10:00:00.000Z'
+    }, env);
+    const { survey } = publishSurvey(draft, [{ id: 'g1', name: 'ولي الأمر', contact: '' }], env);
+    expect(isSurveyOpen(survey, new Date('2026-09-02T09:30:00.000Z'))).toBe(true);
+    expect(isSurveyOpen(survey, new Date('2026-09-02T10:00:00.000Z'))).toBe(false);
+  });
+
   it('rejects incomplete or duplicate answers and calculates results', () => {
     const draft = createSurveyDraft({ title: 'رضا المستفيدين', audience: 'guardians', questions, createdBy: 'admin' }, env);
     const { survey, invitations } = publishSurvey(draft, [{ id: 'g1', name: 'ولي الأمر', contact: '0500000000' }], env);
 
     expect(() => createSurveyResponse(survey, invitations[0], [], null, env)).toThrow('مطلوب');
+    expect(() => createSurveyResponse(survey, invitations[0], [
+      { questionId: 'q1', value: 2.7 },
+      { questionId: 'q2', value: 'واتساب' }
+    ], null, env)).toThrow('بين 1 و5');
     const submitted = createSurveyResponse(survey, invitations[0], [
       { questionId: 'q1', value: 4 },
       { questionId: 'q2', value: 'واتساب' },

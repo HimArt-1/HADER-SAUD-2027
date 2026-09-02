@@ -61,7 +61,8 @@ const getSupabaseServices = async () => {
   const mod = await import('./supabase');
   return {
     supabase: mod.supabase,
-    supabaseStatus: mod.supabaseStatus
+    supabaseStatus: mod.supabaseStatus,
+    revokeSurveySessionKeepalive: mod.revokeSurveySessionKeepalive
   };
 };
 
@@ -122,7 +123,7 @@ export const auth = {
 
     try {
       const { supabase } = await getSupabaseServices();
-      const { count, error } = await supabase.from('users').select('*', { count: 'exact', head: true });
+      const { count, error } = await supabase.from('users').select('id', { count: 'exact', head: true });
       return !error;
     } catch (e) {
       console.warn("Connection check failed");
@@ -136,7 +137,8 @@ export const auth = {
   async login(
     username: string,
     password: string,
-    type: 'staff' | 'guardian' = 'staff'
+    type: 'staff' | 'guardian' = 'staff',
+    turnstileToken?: string
   ): Promise<{ success: boolean; user?: User; message?: string }> {
     try {
       const db = await getDb();
@@ -159,6 +161,7 @@ export const auth = {
       // ═══════════════════════════════════════════════════════════════
       if (
         type === 'staff' &&
+        mode === 'local' &&
         isBootstrapAdminSecure &&
         username === bootstrapAdminConfig.username &&
         password === bootstrapAdminConfig.password
@@ -262,27 +265,15 @@ export const auth = {
       const { supabase, supabaseStatus } = await getSupabaseServices();
 
       if (type === 'staff') {
-        let { data, error } = await supabase
-          .from('users')
-          .select([
-            'id',
-            'username',
-            'password',
-            'name',
-            'role',
-            'assigned_classes',
-            'assigned_sections',
-            'email',
-            'phone',
-            'is_active',
-            'can_use_whatsapp',
-            'login_attempts',
-            'locked_until'
-          ].join(','))
-          .eq('username', username)
-          .single();
-
-        if (error || !data) {
+        const { data: loginData, error } = await supabase.functions.invoke('hader-auth', {
+          body: {
+            username,
+            password,
+            turnstileToken
+          }
+        });
+        const data = loginData?.user ?? loginData;
+        if (error || !data?.id) {
           const message = supabaseStatus.isConfigured
             ? 'بيانات الدخول غير صحيحة.'
             : 'Supabase غير مهيأ. تأكد من إعدادات الاتصال ثم أعد المحاولة.';
@@ -291,71 +282,6 @@ export const auth = {
             message
           };
         }
-
-        // Check if account is locked
-        if (data.locked_until && new Date(data.locked_until) > new Date()) {
-          const remainingMinutes = Math.ceil(
-            (new Date(data.locked_until).getTime() - Date.now()) / 60000
-          );
-          return {
-            success: false,
-            message: `الحساب مغلق مؤقتاً. حاول بعد ${remainingMinutes} دقيقة`
-          };
-        }
-
-        if (data.is_active === false) {
-          return {
-            success: false,
-            message: 'الحساب غير نشط. راجع إدارة النظام.'
-          };
-        }
-
-        // Verify password
-        const isValid = await this.verifyUserPassword(data.password, password);
-
-        if (!isValid) {
-          // Increment login attempts
-          const attempts = (data.login_attempts || 0) + 1;
-          const updates: any = { login_attempts: attempts };
-
-          // Lock account after 5 failed attempts
-          if (attempts >= 5) {
-            updates.locked_until = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-          }
-
-          await supabase.from('users').update(updates).eq('id', data.id);
-
-          if (attempts >= 5) {
-            return { success: false, message: 'تم إغلاق الحساب مؤقتاً لمدة 30 دقيقة' };
-          }
-
-          return {
-            success: false,
-            message: `كلمة المرور غير صحيحة (${5 - attempts} محاولات متبقية)`
-          };
-        }
-
-        // Migrate password if using old format
-        if (needsHashMigration(data.password)) {
-          const hashedPassword = await hashPassword(password);
-          await supabase
-            .from('users')
-            .update({
-              password: hashedPassword,
-              password_hash_version: 1
-            })
-            .eq('id', data.id);
-        }
-
-        // Reset login attempts and update last login
-        await supabase
-          .from('users')
-          .update({
-            login_attempts: 0,
-            locked_until: null,
-            last_login: new Date().toISOString()
-          })
-          .eq('id', data.id);
 
         const user: User = {
           id: data.id,
@@ -371,18 +297,24 @@ export const auth = {
         };
 
         let surveyAdminToken: string | undefined;
-        if ([Role.SITE_ADMIN, Role.SCHOOL_ADMIN].includes(user.role)) {
-          const sessionResult = await supabase.rpc('create_hader_survey_admin_session', {
-            p_username: username,
-            p_plain_password: password
-          });
-          if (!sessionResult.error && typeof sessionResult.data === 'string') {
-            surveyAdminToken = sessionResult.data;
+        let surveyAdminExpiresAt: number | undefined;
+        if ([Role.SITE_ADMIN, Role.SCHOOL_ADMIN].includes(user.role) && loginData?.surveySession) {
+          const sessionResult = loginData.surveySession;
+          if (typeof sessionResult === 'string') {
+            surveyAdminToken = sessionResult;
+            surveyAdminExpiresAt = Date.now() + SESSION_TIMEOUT;
+          } else if (typeof sessionResult === 'object') {
+            const token = String(sessionResult.token ?? '');
+            const expiresAt = new Date(String(sessionResult.expiresAt ?? '')).getTime();
+            if (token && Number.isFinite(expiresAt)) {
+              surveyAdminToken = token;
+              surveyAdminExpiresAt = expiresAt;
+            }
           }
         }
 
         loginRateLimiter.recordSuccess(identifier);
-        this.setSession(user, undefined, surveyAdminToken);
+        this.setSession(user, undefined, surveyAdminToken, surveyAdminExpiresAt);
         void logAuthEvent({
           action: 'LOGIN',
           user,
@@ -588,14 +520,16 @@ export const auth = {
   /**
    * 💾 Set session with token
    */
-  setSession(user: User, guardian?: SecureSessionPayload['guardian'], surveyAdminToken?: string) {
+  setSession(user: User, guardian?: SecureSessionPayload['guardian'], surveyAdminToken?: string, surveyAdminExpiresAt?: number) {
+    const appExpiry = Date.now() + SESSION_TIMEOUT;
     const session: SecureSessionPayload = {
       user,
       token: generateSessionToken(),
-      expiresAt: Date.now() + SESSION_TIMEOUT,
+      expiresAt: surveyAdminExpiresAt ? Math.min(appExpiry, surveyAdminExpiresAt) : appExpiry,
       createdAt: Date.now(),
       sessionId: createSessionId(),
       surveyAdminToken,
+      surveyAdminExpiresAt,
       guardian
     };
     secureSessionStorage.save(session);
@@ -625,9 +559,12 @@ export const auth = {
     if (!session) return;
     const timeLeft = session.expiresAt - Date.now();
     if (!force && timeLeft > SESSION_RENEW_THRESHOLD) return;
+    const renewedExpiry = Date.now() + SESSION_TIMEOUT;
     secureSessionStorage.save({
       ...session,
-      expiresAt: Date.now() + SESSION_TIMEOUT
+      expiresAt: session.surveyAdminExpiresAt
+        ? Math.min(renewedExpiry, session.surveyAdminExpiresAt)
+        : renewedExpiry
     });
     notifySessionListeners(session.user);
   },
@@ -638,6 +575,19 @@ export const auth = {
   logout(options?: { reason?: 'LOGOUT' | 'SESSION_EXPIRED'; skipLog?: boolean }) {
     const reason = options?.reason ?? 'LOGOUT';
     const session = secureSessionStorage.get();
+    let reloadStarted = false;
+    const reload = () => {
+      if (reloadStarted) return;
+      reloadStarted = true;
+      window.location.reload();
+    };
+    const revocation = session?.surveyAdminToken
+      ? getSupabaseServices().then(({ supabaseStatus, revokeSurveySessionKeepalive }) => (
+          supabaseStatus.isConfigured
+            ? revokeSurveySessionKeepalive(session.surveyAdminToken!)
+            : undefined
+        )).catch(() => undefined)
+      : null;
     if (!options?.skipLog && session?.user) {
       void logAuthEvent({
         action: reason,
@@ -648,7 +598,12 @@ export const auth = {
     secureSessionStorage.clear();
     appCache.clear();
     notifySessionListeners(null);
-    window.location.reload();
+    if (revocation) {
+      void revocation.finally(reload);
+      window.setTimeout(reload, 1000);
+    } else {
+      reload();
+    }
   },
 
   /**

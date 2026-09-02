@@ -732,9 +732,11 @@ def send_list():
         # Logic for Append vs Overwrite
         with file_lock:
             if append_mode:
-                sqlite_db.append_to_queue(formatted_data)
+                persisted = sqlite_db.append_to_queue(formatted_data)
             else:
-                sqlite_db.overwrite_queue(formatted_data)
+                persisted = sqlite_db.overwrite_queue(formatted_data)
+        if not persisted:
+            return jsonify({"message": "تعذر حفظ الرسائل في قائمة الانتظار"}), 500
                 
         logging.info(f"تم تحديث قائمة الإرسال: {len(formatted_data)} جهة اتصال (Append={append_mode}).")
         sse_broadcast('queue_update', {"added": len(formatted_data), "action": "send"})

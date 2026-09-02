@@ -10,6 +10,7 @@ import { lazyWithRetry } from './utils/lazyWithRetry';
 import { accessPolicy, type ProtectedRouteKey } from './modules/access';
 import { applyAdminThemeKeyToDOM, applyAdminThemeToDOM } from './hooks/useAdminTheme';
 import { applyDarkMode, getStoredColorMode } from './utils/colorMode';
+import { hasSurveyAdminAccess } from './services/surveys';
 
 const { canAccessRoute } = accessPolicy;
 
@@ -441,7 +442,7 @@ const App: React.FC = () => {
                         ? <Reports user={user} /> : <Navigate to="/" />
                     } />
                     <Route path="/surveys" element={
-                      canAccessRoute(user, 'surveys')
+                      canAccessRoute(user, 'surveys') && hasSurveyAdminAccess()
                         ? <Surveys /> : <Navigate to="/" />
                     } />
                     <Route path="/diagnostics" element={

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, CheckCircle2, ClipboardList, Loader2, LockKeyhole, Send, ShieldCheck } from 'lucide-react';
 import { useParams } from 'react-router-dom';
-import type { SurveyAnswerValue, SurveyQuestion } from '../modules/surveys';
+import { isSurveyOpen, type SurveyAnswerValue, type SurveyQuestion } from '../modules/surveys';
 import { surveyService, type PublicSurvey as PublicSurveyData } from '../services/surveys';
 
 const PublicSurvey: React.FC = () => {
@@ -67,11 +67,10 @@ const PublicSurvey: React.FC = () => {
   }
 
   if (!data) return null;
-  const expired = Boolean(data.survey.closesAt && Date.now() > new Date(data.survey.closesAt).getTime());
   if (submitted || data.alreadyResponded) {
     return <StateCard icon={CheckCircle2} title={submitted ? 'وصلت إجابتك بنجاح' : 'سبق إرسال إجابتك'} description={submitted ? 'شكراً لمشاركتك. تم حفظ الإجابة ويمكنك الآن إغلاق هذه الصفحة.' : 'يقبل رابط الدعوة إجابة واحدة فقط حفاظاً على دقة النتائج.'} success />;
   }
-  if (data.survey.status !== 'published' || expired) {
+  if (!isSurveyOpen(data.survey)) {
     return <StateCard icon={ClipboardList} title="الاستبيان مغلق" description="توقف هذا الاستبيان عن استقبال إجابات جديدة. نشكرك على اهتمامك." />;
   }
 
