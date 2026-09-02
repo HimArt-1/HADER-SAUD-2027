@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, createContext, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, Shield, Users, Clock, LayoutDashboard, Settings, UserCircle, Activity, X, Bell, Calendar, ChevronLeft, ChevronRight, Headphones, Sun, Moon, MessageSquare, Download, Apple, Monitor, Loader2, CheckCircle2, AlertCircle, ScanLine, FileText, ShieldAlert, Send, DoorOpen, Megaphone, HelpCircle, Info, Cloud, RefreshCw, Sparkles, Globe, Wifi, WifiOff } from 'lucide-react';
+import { LogOut, Menu, Shield, Users, Clock, LayoutDashboard, Settings, UserCircle, Activity, X, Bell, Calendar, ChevronLeft, ChevronRight, Headphones, Sun, Moon, MessageSquare, Download, Apple, Monitor, Loader2, CheckCircle2, AlertCircle, ScanLine, FileText, ShieldAlert, Send, DoorOpen, Megaphone, HelpCircle, Info, Cloud, RefreshCw, Sparkles, Globe, Wifi, WifiOff, ClipboardList } from 'lucide-react';
 import { localDb } from '../services/localDb';
 import { Role, User, STORAGE_KEYS, Notification } from '../types';
 import { db } from '../services/db';
@@ -762,6 +762,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     { label: 'المراقبة اليومية', icon: Activity, path: '/watcher', roles: [Role.SITE_ADMIN, Role.WATCHER, Role.SCHOOL_ADMIN, Role.SUPERVISOR_GLOBAL, Role.SUPERVISOR_CLASS] },
     { label: 'الإشراف', icon: Shield, path: '/supervision', roles: [Role.SITE_ADMIN, Role.SCHOOL_ADMIN, Role.SUPERVISOR_GLOBAL, Role.SUPERVISOR_CLASS] },
     { label: 'التقارير', icon: FileText, path: '/reports', roles: [Role.SITE_ADMIN, Role.SCHOOL_ADMIN, Role.SUPERVISOR_GLOBAL, Role.SUPERVISOR_CLASS] },
+    { label: 'الاستبيانات', icon: ClipboardList, path: '/surveys', roles: [Role.SITE_ADMIN, Role.SCHOOL_ADMIN] },
     { label: 'الدعم الفني', icon: Headphones, path: '/support', roles: [Role.SITE_ADMIN] },
     { label: 'إدارة الرسائل', icon: MessageSquare, path: '/whatsapp', roles: [] },
     { label: 'تحكم تيلجرام', icon: Send, path: '/telegram', roles: [Role.SITE_ADMIN] },

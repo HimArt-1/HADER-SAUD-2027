@@ -72,6 +72,7 @@ const AdminStaffOperationsTab: React.FC<Props> = ({
   const [teacherForm, setTeacherForm] = useState({
     name: '',
     specialty: '',
+    phone: '',
     maxWeeklyWaits: '3'
   });
   const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
@@ -107,12 +108,13 @@ const AdminStaffOperationsTab: React.FC<Props> = ({
         ...(editingTeacherId ? { id: editingTeacherId } : {}),
         name: teacherForm.name,
         specialty: teacherForm.specialty,
+        ...(teacherForm.phone.trim() ? { phone: teacherForm.phone } : {}),
         maxWeeklyWaits: Number(teacherForm.maxWeeklyWaits),
         ...(editingTeacherId ? {
           isActive: dashboard?.teachers.find(teacher => teacher.id === editingTeacherId)?.isActive ?? true
         } : {})
       });
-      setTeacherForm({ name: '', specialty: '', maxWeeklyWaits: '3' });
+      setTeacherForm({ name: '', specialty: '', phone: '', maxWeeklyWaits: '3' });
       setEditingTeacherId(null);
       showToast(editingTeacherId ? 'تم تحديث بيانات المعلم' : 'تم حفظ المعلم مع حدث تدقيق', 'success');
       await loadDashboard();
@@ -284,12 +286,15 @@ const AdminStaffOperationsTab: React.FC<Props> = ({
             <div className="mt-4 space-y-3">
               <input required value={teacherForm.name} onChange={event => setTeacherForm(previous => ({ ...previous, name: event.target.value }))} placeholder="اسم المعلم" className="w-full rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white" />
               <input required value={teacherForm.specialty} onChange={event => setTeacherForm(previous => ({ ...previous, specialty: event.target.value }))} placeholder="التخصص" className="w-full rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white" />
+              <label className="block text-xs text-slate-400">رقم الجوال لإشعارات المعلم
+                <input dir="ltr" inputMode="tel" value={teacherForm.phone} onChange={event => setTeacherForm(previous => ({ ...previous, phone: event.target.value }))} placeholder="05xxxxxxxx" className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-right text-sm text-white" />
+              </label>
               <label className="block text-xs text-slate-400">الحد الأسبوعي للانتظار
                 <input type="number" min="0" max="20" value={teacherForm.maxWeeklyWaits} onChange={event => setTeacherForm(previous => ({ ...previous, maxWeeklyWaits: event.target.value }))} className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white" />
               </label>
               <div className="flex gap-2">
                 <button disabled={busy !== null} className="flex-1 rounded-xl bg-primary-500 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-40">{editingTeacherId ? 'حفظ التعديلات' : 'حفظ المعلم'}</button>
-                {editingTeacherId && <button type="button" onClick={() => { setEditingTeacherId(null); setTeacherForm({ name: '', specialty: '', maxWeeklyWaits: '3' }); }} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-slate-300">إلغاء</button>}
+                {editingTeacherId && <button type="button" onClick={() => { setEditingTeacherId(null); setTeacherForm({ name: '', specialty: '', phone: '', maxWeeklyWaits: '3' }); }} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-slate-300">إلغاء</button>}
               </div>
             </div>
           </form>
@@ -336,7 +341,7 @@ const AdminStaffOperationsTab: React.FC<Props> = ({
                 const currentStatus = attendanceByTeacher.get(teacher.id)?.status;
                 return (
                   <div key={teacher.id} className={`flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${teacher.isActive ? 'border-white/10 bg-white/[0.035]' : 'border-white/5 bg-white/[0.015] opacity-65'}`}>
-                    <div><div className="flex items-center gap-2"><strong className="text-white">{teacher.name}</strong>{!teacher.isActive && <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[10px] text-slate-300">غير نشط</span>}{teacher.isActive && !currentStatus && <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-200">الحضور غير مسجل</span>}</div><p className="text-xs text-slate-400">{teacher.specialty} · نصاب {timetableCountByTeacher.get(teacher.id) ?? 0} حصة · حد الانتظار {teacher.maxWeeklyWaits}</p></div>
+                    <div><div className="flex items-center gap-2"><strong className="text-white">{teacher.name}</strong>{!teacher.isActive && <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[10px] text-slate-300">غير نشط</span>}{teacher.isActive && !currentStatus && <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-200">الحضور غير مسجل</span>}</div><p className="text-xs text-slate-400">{teacher.specialty} · نصاب {timetableCountByTeacher.get(teacher.id) ?? 0} حصة · حد الانتظار {teacher.maxWeeklyWaits}{teacher.phone ? ` · ${teacher.phone}` : ''}</p></div>
                     <div className="flex flex-wrap gap-2">
                       {(['present', 'late', 'absent'] as const).map(status => (
                         <button
@@ -348,7 +353,7 @@ const AdminStaffOperationsTab: React.FC<Props> = ({
                           className={`rounded-lg border px-3 py-2 text-xs font-bold transition disabled:opacity-40 ${currentStatus === status ? statusClasses[status] : 'border-white/10 bg-white/[0.03] text-slate-400'}`}
                         >{statusLabels[status]}</button>
                       ))}
-                      <button type="button" aria-label={`تعديل ${teacher.name}`} onClick={() => { setEditingTeacherId(teacher.id); setTeacherForm({ name: teacher.name, specialty: teacher.specialty, maxWeeklyWaits: String(teacher.maxWeeklyWaits) }); }} disabled={busy !== null} className="rounded-lg border border-primary-300/20 px-3 py-2 text-xs font-bold text-primary-100 disabled:opacity-40">تعديل</button>
+                      <button type="button" aria-label={`تعديل ${teacher.name}`} onClick={() => { setEditingTeacherId(teacher.id); setTeacherForm({ name: teacher.name, specialty: teacher.specialty, phone: teacher.phone ?? '', maxWeeklyWaits: String(teacher.maxWeeklyWaits) }); }} disabled={busy !== null} className="rounded-lg border border-primary-300/20 px-3 py-2 text-xs font-bold text-primary-100 disabled:opacity-40">تعديل</button>
                       <button type="button" aria-label={`${teacher.isActive ? 'تعطيل' : 'تفعيل'} ${teacher.name}`} onClick={() => void handleTeacherStatus(teacher.id)} disabled={busy !== null} className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-slate-400 disabled:opacity-40">{teacher.isActive ? 'تعطيل' : 'تفعيل'}</button>
                     </div>
                   </div>

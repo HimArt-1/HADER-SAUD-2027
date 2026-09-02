@@ -25,6 +25,13 @@ describe('route access policy', () => {
     expect(canAccessRoute(makeUser(Role.WATCHER), 'storage')).toBe(false);
   });
 
+  it('limits survey creation and results to school administrators', () => {
+    expect(canAccessRoute(makeUser(Role.SITE_ADMIN), 'surveys')).toBe(true);
+    expect(canAccessRoute(makeUser(Role.SCHOOL_ADMIN), 'surveys')).toBe(true);
+    expect(canAccessRoute(makeUser(Role.SUPERVISOR_GLOBAL), 'surveys')).toBe(false);
+    expect(canAccessRoute(makeUser(Role.GUARDIAN), 'surveys')).toBe(false);
+  });
+
   it('allows dismissal display workflows only for operational staff roles', () => {
     expect(canAccessRoute(makeUser(Role.KIOSK), 'dismissalKiosk')).toBe(true);
     expect(canAccessRoute(makeUser(Role.SUPERVISOR_CLASS), 'callBoard')).toBe(true);

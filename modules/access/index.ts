@@ -42,6 +42,7 @@ const ROUTE_ROLES = {
   telegram: [Role.SITE_ADMIN],
   storage: [Role.SITE_ADMIN, Role.SCHOOL_ADMIN],
   reports: [Role.SITE_ADMIN, Role.SCHOOL_ADMIN, Role.SUPERVISOR_GLOBAL, Role.SUPERVISOR_CLASS],
+  surveys: [Role.SITE_ADMIN, Role.SCHOOL_ADMIN],
   diagnostics: [Role.SITE_ADMIN]
 } as const satisfies Record<string, readonly Role[]>;
 

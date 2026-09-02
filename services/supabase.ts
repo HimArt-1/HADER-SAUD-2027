@@ -44,6 +44,7 @@ const createFallbackRealtimeChannel = () => {
 
 const createFallbackClient = () => ({
   from: () => createFallbackTable(),
+  rpc: () => createFallbackResponse('Supabase client not configured'),
   storage: {
     from: () => createFallbackStorage(),
     listBuckets: () => createFallbackResponse('Supabase storage not configured'),

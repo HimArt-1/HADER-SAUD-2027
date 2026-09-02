@@ -31,6 +31,8 @@ const StorageCenter = lazyWithRetry(() => import('./pages/StorageCenter'));
 const MobileScanner = lazyWithRetry(() => import('./pages/MobileScanner'));
 const Diagnostics = lazyWithRetry(() => import('./pages/Diagnostics'));
 const Reports = lazyWithRetry(() => import('./pages/Reports'));
+const Surveys = lazyWithRetry(() => import('./pages/Surveys'));
+const PublicSurvey = lazyWithRetry(() => import('./pages/PublicSurvey'));
 
 const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
 const DismissalKiosk = lazyWithRetry(() => import('./pages/DismissalKiosk'));
@@ -348,12 +350,14 @@ const App: React.FC = () => {
               <Route path="/landing" element={<Landing />} />
               <Route path="/demo" element={<Demo />} />
               <Route path="/login" element={<Login onLogin={handleLogin} />} />
+              <Route path="/survey/:token" element={<PublicSurvey />} />
               <Route path="/" element={<Landing />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           ) : (
             <Routes>
               <Route path="/demo" element={<Demo />} />
+              <Route path="/survey/:token" element={<PublicSurvey />} />
 
               {/* Kiosk - Full Screen without Layout */}
               <Route path="/kiosk" element={
@@ -435,6 +439,10 @@ const App: React.FC = () => {
                     <Route path="/reports" element={
                       canAccessRoute(user, 'reports')
                         ? <Reports user={user} /> : <Navigate to="/" />
+                    } />
+                    <Route path="/surveys" element={
+                      canAccessRoute(user, 'surveys')
+                        ? <Surveys /> : <Navigate to="/" />
                     } />
                     <Route path="/diagnostics" element={
                       canAccessRoute(user, 'diagnostics')

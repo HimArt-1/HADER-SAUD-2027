@@ -5,6 +5,7 @@ export type StaffTeacher = Readonly<{
   id: string;
   name: string;
   specialty: string;
+  phone?: string;
   maxWeeklyWaits: number;
   isActive: boolean;
 }>;
@@ -104,6 +105,7 @@ export type StaffOperationsModule = Readonly<{
     id?: string;
     name: string;
     specialty: string;
+    phone?: string;
     maxWeeklyWaits: number;
     isActive?: boolean;
   }>): Promise<StaffTeacher>;
@@ -382,6 +384,7 @@ export const createStaffOperationsModule = (
         id,
         name,
         specialty,
+        phone: input.phone?.replace(/\s+/g, '').trim() || undefined,
         maxWeeklyWaits: input.maxWeeklyWaits,
         isActive: input.isActive ?? true
       });
