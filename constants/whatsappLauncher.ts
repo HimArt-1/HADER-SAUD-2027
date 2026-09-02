@@ -28,3 +28,8 @@ export function getWhatsAppWindowsZipHref(): string {
   return `${_base()}/downloads/whatsapp/${WHATSAPP_LAUNCHER_WINDOWS_FILENAME}`;
 }
 
+/** Standalone individual file href. */
+export function getWhatsAppFileHref(filename: string): string {
+  return `${_base()}/downloads/whatsapp/${filename}`;
+}
+

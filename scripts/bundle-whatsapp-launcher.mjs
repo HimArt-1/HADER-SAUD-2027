@@ -127,6 +127,16 @@ async function main() {
       ` (${added} files, ${(buf.length / 1024).toFixed(1)} KB)`
     );
   }
+
+  // ── Standalone individual files ──────────────────────────────────
+  for (const filename of allFiles) {
+    const src = path.join(WA, filename);
+    const dest = path.join(OUT, filename);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, dest);
+      console.log(`[bundle:whatsapp] 📄 copied standalone: ${filename}`);
+    }
+  }
 }
 
 main().catch((e) => {

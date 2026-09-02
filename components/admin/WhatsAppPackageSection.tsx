@@ -19,13 +19,14 @@ import {
   Sparkles,
   Layers,
   AlertCircle,
-  Wifi,
-  WifiOff
+  FileDown,
+  ArrowDownToLine
 } from 'lucide-react';
 import {
   getWhatsAppMacZipHref,
   getWhatsAppWindowsZipHref,
   getWhatsAppLauncherZipHref,
+  getWhatsAppFileHref,
   WHATSAPP_LAUNCHER_MAC_FILENAME,
   WHATSAPP_LAUNCHER_WINDOWS_FILENAME,
   WHATSAPP_LAUNCHER_ZIP_FILENAME
@@ -102,26 +103,32 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
     }, 2500);
   };
 
+  const handleIndividualDownload = (fileName: string) => {
+    if (showToast) {
+      showToast(`جاري تحميل الملف: ${fileName}`, 'success');
+    }
+  };
+
   const macFilesList = [
-    { name: 'server.py', desc: 'خادم API المحلي (Flask Engine)', tag: 'خادم رئيسي' },
-    { name: 'whatsapp_pro_tool.py', desc: 'محرك الأتمتة والتحكم بمتصفح Chrome', tag: 'محرك الأتمتة' },
-    { name: 'sqlite_db.py', desc: 'قاعدة بيانات الطابور وسجلات الإرسال', tag: 'قاعدة البيانات' },
-    { name: 'requirements.txt', desc: 'حزمة المكتبات والاعتماديات البرمجية', tag: 'المكتبات' },
-    { name: 'run_mac.sh', desc: 'سكربت التشغيل والإصلاح الذاتي لماك ولينكس', tag: 'مشغل الماك' },
-    { name: 'bridge.py', desc: 'جسر نقل الوسائط والأوسمة والشهادات', tag: 'جسر وسائط' },
-    { name: 'contacts.csv', desc: 'ملف جهات الاتصال النموذجي', tag: 'ملف اختياري' },
-    { name: 'INSTRUCTIONS.md', desc: 'دليل التشغيل وحل المشكلات الشامل', tag: 'دليل إرشادي' }
+    { name: 'server.py', desc: 'خادم API المحلي (Flask Engine)', tag: 'خادم رئيسي', size: '35 KB' },
+    { name: 'whatsapp_pro_tool.py', desc: 'محرك الأتمتة والتحكم بمتصفح Chrome', tag: 'محرك الأتمتة', size: '51 KB' },
+    { name: 'sqlite_db.py', desc: 'قاعدة بيانات الطابور وسجلات الإرسال', tag: 'قاعدة البيانات', size: '8 KB' },
+    { name: 'requirements.txt', desc: 'حزمة المكتبات والاعتماديات البرمجية', tag: 'المكتبات', size: '1 KB' },
+    { name: 'run_mac.sh', desc: 'سكربت التشغيل والإصلاح الذاتي لماك ولينكس', tag: 'مشغل الماك', size: '7 KB' },
+    { name: 'bridge.py', desc: 'جسر نقل الوسائط والأوسمة والشهادات', tag: 'جسر وسائط', size: '5 KB' },
+    { name: 'contacts.csv', desc: 'ملف جهات الاتصال النموذجي', tag: 'نموذج بيانات', size: '1 KB' },
+    { name: 'INSTRUCTIONS.md', desc: 'دليل التشغيل وحل المشكلات الشامل', tag: 'دليل إرشادي', size: '4 KB' }
   ];
 
   const winFilesList = [
-    { name: 'server.py', desc: 'خادم API المحلي (Flask Engine)', tag: 'خادم رئيسي' },
-    { name: 'whatsapp_pro_tool.py', desc: 'محرك الأتمتة والتحكم بمتصفح Chrome', tag: 'محرك الأتمتة' },
-    { name: 'sqlite_db.py', desc: 'قاعدة بيانات الطابور وسجلات الإرسال', tag: 'قاعدة البيانات' },
-    { name: 'requirements.txt', desc: 'حزمة المكتبات والاعتماديات البرمجية', tag: 'المكتبات' },
-    { name: 'run_windows.bat', desc: 'مشغل ويندوز التلقائي (Double-Click)', tag: 'مشغل ويندوز' },
-    { name: 'bridge.py', desc: 'جسر نقل الوسائط والأوسمة والشهادات', tag: 'جسر وسائط' },
-    { name: 'contacts.csv', desc: 'ملف جهات الاتصال النموذجي', tag: 'ملف اختياري' },
-    { name: 'INSTRUCTIONS.md', desc: 'دليل التشغيل وحل المشكلات الشامل', tag: 'دليل إرشادي' }
+    { name: 'server.py', desc: 'خادم API المحلي (Flask Engine)', tag: 'خادم رئيسي', size: '35 KB' },
+    { name: 'whatsapp_pro_tool.py', desc: 'محرك الأتمتة والتحكم بمتصفح Chrome', tag: 'محرك الأتمتة', size: '51 KB' },
+    { name: 'sqlite_db.py', desc: 'قاعدة بيانات الطابور وسجلات الإرسال', tag: 'قاعدة البيانات', size: '8 KB' },
+    { name: 'requirements.txt', desc: 'حزمة المكتبات والاعتماديات البرمجية', tag: 'المكتبات', size: '1 KB' },
+    { name: 'run_windows.bat', desc: 'مشغل ويندوز التلقائي (Double-Click)', tag: 'مشغل ويندوز', size: '6 KB' },
+    { name: 'bridge.py', desc: 'جسر نقل الوسائط والأوسمة والشهادات', tag: 'جسر وسائط', size: '5 KB' },
+    { name: 'contacts.csv', desc: 'ملف جهات الاتصال النموذجي', tag: 'نموذج بيانات', size: '1 KB' },
+    { name: 'INSTRUCTIONS.md', desc: 'دليل التشغيل وحل المشكلات الشامل', tag: 'دليل إرشادي', size: '4 KB' }
   ];
 
   return (
@@ -143,7 +150,7 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
               <span>حزم تشغيل خادم أتمتة الواتساب</span>
             </h3>
             <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
-              قم بتحميل حزمة التشغيل المناسبة لنظامك لتشغيل محرك أتمتة الواتساب محلياً على جهازك. تحتوي كل حزمة على خادم بايثون الكامل، وقاعدة البيانات، ومحرك الأتمتة وسكربتات التشغيل الذاتي بنقرة واحدة.
+              قم بتحميل حزمة التشغيل الكاملة كملف ZIP، أو <strong>انقر على أي ملف بالأسفل لتحميله منفرداً مباشرة</strong>. تحتوي الحزم على خادم بايثون الكامل، وقاعدة البيانات، ومحرك الأتمتة وسكربتات التشغيل الذاتي بنقرة واحدة.
             </p>
           </div>
 
@@ -216,7 +223,7 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
             </span>
           </div>
 
-          {/* Download Action Button */}
+          {/* Download Action Button for Entire ZIP */}
           <div className="mb-6">
             <a
               href={getWhatsAppMacZipHref()}
@@ -224,33 +231,51 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
               className="flex w-full items-center justify-center gap-3 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-base shadow-[0_10px_30px_rgba(14,165,233,0.3)] active:scale-[0.98] transition-all"
             >
               <Download className="w-5 h-5" />
-              <span>تحميل حزمة ماك (hader_whatsapp_mac.zip)</span>
+              <span>تحميل الحزمة كاملة (hader_whatsapp_mac.zip)</span>
             </a>
           </div>
 
-          {/* Included Files in Package */}
+          {/* Included Files in Package - Individual Downloadable Links */}
           <div className="space-y-3 mb-6">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
               <span className="flex items-center gap-1.5">
                 <Layers className="w-4 h-4 text-sky-400" />
-                محتويات الحزمة المكتملة (8 ملفات):
+                تحميل ملفات ماك منفرداً (اضغط على أي ملف لتحميله):
               </span>
-              <span className="text-emerald-400 text-[11px]">مكتملة 100%</span>
+              <span className="text-sky-300 text-[11px] bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20">
+                📥 تحميل فردي
+              </span>
             </div>
+            
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {macFilesList.map((file) => (
-                <div
+                <a
                   key={file.name}
-                  className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 hover:border-sky-500/20 transition-all flex flex-col justify-between"
+                  href={getWhatsAppFileHref(file.name)}
+                  download={file.name}
+                  onClick={() => handleIndividualDownload(file.name)}
+                  title={`انقر لتحميل ملف ${file.name} منفرداً`}
+                  className="group/file p-2.5 rounded-xl bg-white/[0.03] border border-white/5 hover:border-sky-400/50 hover:bg-sky-500/10 hover:shadow-[0_4px_20px_rgba(56,189,248,0.15)] transition-all duration-200 flex flex-col justify-between cursor-pointer active:scale-[0.97]"
                 >
                   <div className="flex items-center justify-between gap-1 mb-1">
-                    <span className="font-mono text-xs font-bold text-sky-200 truncate">{file.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20 shrink-0">
-                      {file.tag}
-                    </span>
+                    <div className="flex items-center gap-1.5 truncate">
+                      <FileCode className="w-3.5 h-3.5 text-sky-400 shrink-0 group-hover/file:text-sky-300" />
+                      <span className="font-mono text-xs font-bold text-sky-200 group-hover/file:text-white truncate">
+                        {file.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                        {file.tag}
+                      </span>
+                      <ArrowDownToLine className="w-3.5 h-3.5 text-sky-400 opacity-60 group-hover/file:opacity-100 group-hover/file:translate-y-0.5 transition-all" />
+                    </div>
                   </div>
-                  <span className="text-[11px] text-slate-400 leading-tight">{file.desc}</span>
-                </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 leading-tight pt-1">
+                    <span className="truncate">{file.desc}</span>
+                    <span className="font-mono text-[10px] text-slate-500 shrink-0 ml-1">{file.size}</span>
+                  </div>
+                </a>
               ))}
             </div>
           </div>
@@ -313,7 +338,7 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
             </span>
           </div>
 
-          {/* Download Action Button */}
+          {/* Download Action Button for Entire ZIP */}
           <div className="mb-6">
             <a
               href={getWhatsAppWindowsZipHref()}
@@ -321,33 +346,51 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
               className="flex w-full items-center justify-center gap-3 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-base shadow-[0_10px_30px_rgba(16,185,129,0.3)] active:scale-[0.98] transition-all"
             >
               <Download className="w-5 h-5" />
-              <span>تحميل حزمة ويندوز (hader_whatsapp_windows.zip)</span>
+              <span>تحميل الحزمة كاملة (hader_whatsapp_windows.zip)</span>
             </a>
           </div>
 
-          {/* Included Files in Package */}
+          {/* Included Files in Package - Individual Downloadable Links */}
           <div className="space-y-3 mb-6">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
               <span className="flex items-center gap-1.5">
                 <Layers className="w-4 h-4 text-emerald-400" />
-                محتويات الحزمة المكتملة (8 ملفات):
+                تحميل ملفات ويندوز منفرداً (اضغط على أي ملف لتحميله):
               </span>
-              <span className="text-emerald-400 text-[11px]">مكتملة 100%</span>
+              <span className="text-emerald-300 text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                📥 تحميل فردي
+              </span>
             </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {winFilesList.map((file) => (
-                <div
+                <a
                   key={file.name}
-                  className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 hover:border-emerald-500/20 transition-all flex flex-col justify-between"
+                  href={getWhatsAppFileHref(file.name)}
+                  download={file.name}
+                  onClick={() => handleIndividualDownload(file.name)}
+                  title={`انقر لتحميل ملف ${file.name} منفرداً`}
+                  className="group/file p-2.5 rounded-xl bg-white/[0.03] border border-white/5 hover:border-emerald-400/50 hover:bg-emerald-500/10 hover:shadow-[0_4px_20px_rgba(16,185,129,0.15)] transition-all duration-200 flex flex-col justify-between cursor-pointer active:scale-[0.97]"
                 >
                   <div className="flex items-center justify-between gap-1 mb-1">
-                    <span className="font-mono text-xs font-bold text-emerald-200 truncate">{file.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 shrink-0">
-                      {file.tag}
-                    </span>
+                    <div className="flex items-center gap-1.5 truncate">
+                      <FileCode className="w-3.5 h-3.5 text-emerald-400 shrink-0 group-hover/file:text-emerald-300" />
+                      <span className="font-mono text-xs font-bold text-emerald-200 group-hover/file:text-white truncate">
+                        {file.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                        {file.tag}
+                      </span>
+                      <ArrowDownToLine className="w-3.5 h-3.5 text-emerald-400 opacity-60 group-hover/file:opacity-100 group-hover/file:translate-y-0.5 transition-all" />
+                    </div>
                   </div>
-                  <span className="text-[11px] text-slate-400 leading-tight">{file.desc}</span>
-                </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 leading-tight pt-1">
+                    <span className="truncate">{file.desc}</span>
+                    <span className="font-mono text-[10px] text-slate-500 shrink-0 ml-1">{file.size}</span>
+                  </div>
+                </a>
               ))}
             </div>
           </div>

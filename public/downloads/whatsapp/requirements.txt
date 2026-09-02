@@ -1,0 +1,22 @@
+# ================================================
+# Hader WhatsApp Pro Server — Python Dependencies
+# Install: pip install -r requirements.txt
+# ================================================
+
+# Web Framework
+flask>=3.0.0
+flask-cors>=4.0.0
+werkzeug>=3.0.0
+
+# Browser Automation
+selenium>=4.20.0
+webdriver-manager>=4.0.0
+
+# Data Processing
+pandas>=2.0.0
+
+# Image Processing (certificate generation)
+Pillow>=10.0.0
+
+# Environment
+python-dotenv>=1.0.0
