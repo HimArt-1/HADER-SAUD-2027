@@ -254,14 +254,17 @@ Type: Guardian
 
 ## 💻 تطبيق سطح المكتب (Mac & Windows)
 
-تتوفر نسخة مكتبية متزامنة لحظيًا مع النسخة السحابية عبر زرّي
-**macOS / Windows** أسفل الشريط الجانبي. النسخة الافتراضية مشغّل ذكي
-خفيف يفتح التطبيق في نافذة Chrome/Edge App Mode دون أي تثبيت لمكتبات.
-اضبط `VITE_APP_URL` عند التطوير المحلي حتى تفتح الحزمة رابط الإنتاج بدل
-`localhost`. يمكن تفعيل قناة Native (مثبّتات `.dmg` و `.exe` بـ
-`electron-builder`) عبر متغيّر البيئة `VITE_DESKTOP_RELEASE_URL`.
+يوفّر زرّا **macOS / Windows** أسفل الشريط الجانبي مثبّت Electron الأصلي
+من أحدث إصدار GitHub منشور. النسخة الأصلية هي المطلوبة لجلسة نور الآمنة؛
+أما مشغّل Chrome/Edge الخفيف فهو بديل احتياطي فقط ولا يوفّر تكامل نور.
+
+عند دفع وسم إصدار مثل `v1.0.0`، يبني GitHub Actions ملف DMG موحّداً
+لأجهزة Intel وApple Silicon ومثبّت EXE لويندوز x64، ثم ينشرهما مع
+`desktop-manifest.json`. يكتشف تطبيق حاضر هذا الملف تلقائياً عبر
+`VITE_DESKTOP_RELEASE_URL`.
 
 - الدليل الكامل: `maintenance/docs/DESKTOP_APP_GUIDE.md`
+- دليل النشر: `maintenance/docs/NATIVE_DESKTOP_RELEASE.md`
 
 #### 2. لوحة الإدارة (Admin)
 - إدارة الطلاب والفصول

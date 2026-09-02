@@ -47,10 +47,10 @@ export type Platform = 'mac' | 'windows';
 
 export interface NativeReleaseAsset {
   url: string;
-  size?: number;
-  sha256?: string;
+  size: number;
+  sha256: string;
   arch?: string[];
-  format?: 'dmg' | 'zip' | 'nsis' | 'msi' | 'portable' | 'AppImage' | 'deb' | string;
+  format: 'dmg' | 'nsis';
 }
 
 export interface NativeReleaseManifest {
@@ -88,6 +88,10 @@ function readCachedManifest(): CachedManifest | null {
     const parsed = JSON.parse(raw) as CachedManifest;
     if (!parsed?.manifest || !parsed.fetchedAt) return null;
     if (Date.now() - parsed.fetchedAt > MANIFEST_CACHE_TTL) return null;
+    if (!isValidManifest(parsed.manifest)) {
+      localStorage.removeItem(MANIFEST_CACHE_KEY);
+      return null;
+    }
     return parsed;
   } catch {
     return null;
@@ -105,11 +109,40 @@ function writeCachedManifest(manifest: NativeReleaseManifest): void {
   }
 }
 
+function isValidAsset(platform: Platform, value: unknown): value is NativeReleaseAsset {
+  if (!value || typeof value !== 'object') return false;
+  const asset = value as Partial<NativeReleaseAsset>;
+  if (typeof asset.url !== 'string') return false;
+
+  try {
+    const assetUrl = new URL(asset.url);
+    const manifestOrigin = new URL(DESKTOP_RELEASE_MANIFEST_URL).origin;
+    if (assetUrl.protocol !== 'https:' || assetUrl.origin !== manifestOrigin) return false;
+    const expectedExtension = platform === 'mac' ? '.dmg' : '.exe';
+    if (!assetUrl.pathname.toLowerCase().endsWith(expectedExtension)) return false;
+  } catch {
+    return false;
+  }
+
+  if (!Number.isSafeInteger(asset.size) || asset.size <= 0) return false;
+  if (typeof asset.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(asset.sha256)) return false;
+  if (asset.arch !== undefined && (!Array.isArray(asset.arch) || asset.arch.some(item => typeof item !== 'string'))) {
+    return false;
+  }
+  const expectedFormat = platform === 'mac' ? 'dmg' : 'nsis';
+  if (asset.format !== expectedFormat) return false;
+  return true;
+}
+
 function isValidManifest(value: unknown): value is NativeReleaseManifest {
   if (!value || typeof value !== 'object') return false;
   const m = value as Partial<NativeReleaseManifest>;
   if (typeof m.version !== 'string' || m.version.length === 0) return false;
   if (!m.platforms || typeof m.platforms !== 'object') return false;
+  for (const platform of ['mac', 'windows'] as const) {
+    const asset = m.platforms[platform];
+    if (asset !== undefined && !isValidAsset(platform, asset)) return false;
+  }
   return true;
 }
 

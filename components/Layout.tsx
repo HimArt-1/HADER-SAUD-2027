@@ -11,6 +11,7 @@ import {
   hasValidLauncherTarget,
   getLauncherTargetInfo,
   getMaskedCredentials,
+  NativeReleaseUnavailableError,
   probeNativeRelease,
   type DownloadChannel,
   type DownloadResult,
@@ -97,6 +98,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     message: string;
     channel?: DownloadChannel;
     nativeAvailable?: boolean;
+    canUseLightweight?: boolean;
     result?: DownloadResult;
     isOnline?: boolean;
   }>({ open: false, platform: null, status: 'idle', progress: 0, message: '' });
@@ -305,7 +307,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   };
 
   // Download handler
-  const handleDownload = async (platform: Platform) => {
+  const handleDownload = async (platform: Platform, preferredChannel?: DownloadChannel) => {
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
     setDownloadModal({
@@ -315,20 +317,24 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
       progress: 0,
       message: 'جاري التحضير…',
       isOnline,
+      channel: preferredChannel,
+      nativeAvailable: preferredChannel === 'lightweight' ? false : undefined,
     });
 
-    // Fire the native-release probe in the background — genuinely non-blocking.
-    // We don't await it here; it updates the modal state whenever it resolves.
-    probeNativeRelease(platform)
-      .then(probe => {
-        setDownloadModal(prev => ({ ...prev, nativeAvailable: probe.available }));
-      })
-      .catch(() => {
-        setDownloadModal(prev => ({ ...prev, nativeAvailable: false }));
-      });
+    if (preferredChannel !== 'lightweight') {
+      // Fire the native-release probe in the background — genuinely non-blocking.
+      probeNativeRelease(platform)
+        .then(probe => {
+          setDownloadModal(prev => ({ ...prev, nativeAvailable: probe.available }));
+        })
+        .catch(() => {
+          setDownloadModal(prev => ({ ...prev, nativeAvailable: false }));
+        });
+    }
 
     try {
       const result = await downloadDesktopApp(platform, {
+        preferredChannel,
         onProgress: (progress) => {
           setDownloadModal(prev => ({
             ...prev,
@@ -358,7 +364,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
       setDownloadModal(prev => ({
         ...prev,
         status: 'error',
-        message: error instanceof Error ? error.message : 'حدث خطأ أثناء التنزيل'
+        message: error instanceof Error ? error.message : 'حدث خطأ أثناء التنزيل',
+        canUseLightweight: error instanceof NativeReleaseUnavailableError,
       }));
     }
   };
@@ -367,7 +374,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   const DownloadModal = downloadModal.open && (() => {
     const platform = downloadModal.platform;
     const platformLabel = platform === 'mac' ? 'macOS' : 'Windows';
-    const channel = downloadModal.channel ?? 'lightweight';
+    const channel = downloadModal.channel ?? 'native';
     const masked = getMaskedCredentials();
     const closeable = downloadModal.status !== 'downloading';
     const closeModal = () => closeable && setDownloadModal({ open: false, platform: null, status: 'idle', progress: 0, message: '' });
@@ -458,13 +465,13 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               {downloadModal.nativeAvailable === false && channel !== 'native' && (
                 <p className="text-[10px] text-amber-400/80 leading-relaxed flex items-start gap-1.5">
                   <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                  لا توجد نسخة مكتبية رسمية مثبّتة على الخادم بعد — تم استخدام المشغّل الذكي الذي يفتح التطبيق في نافذة سطح مكتب مستقلة عبر متصفح Chrome/Edge.
+                  لا توجد نسخة Electron رسمية على الخادم بعد — سيُستخدم مشغّل Chrome/Edge الخفيف، وهو لا يدعم جلسة نور الآمنة.
                 </p>
               )}
               {downloadModal.nativeAvailable === true && (
                 <p className="text-[10px] text-secondary-300/90 leading-relaxed flex items-start gap-1.5">
                   <Sparkles className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                  تم اكتشاف نسخة مكتبية رسمية مبنية مسبقًا — سيبدأ التنزيل من الخادم الرسمي مباشرة.
+                  تم اكتشاف نسخة Electron أصلية تدعم جلسة نور الآمنة — سيبدأ تنزيل المثبّت الرسمي مباشرة.
                 </p>
               )}
             </div>
@@ -500,7 +507,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               <p className="text-red-200 font-bold">تعذّر إكمال العملية</p>
               <p className="text-red-200/80 leading-relaxed">
                 إذا استمرّ الخطأ: تأكد من اتصال الإنترنت، ومن أن المتصفح يسمح بتنزيل الملفات،
-                ثم أعد المحاولة. النسخة الخفيفة تتطلّب فقط فتح موقع التطبيق المنشور.
+                ثم أعد المحاولة. النسخة الخفيفة متاحة باختيار صريح، لكنها لا تدعم جلسة نور الآمنة.
               </p>
             </div>
           )}
@@ -520,6 +527,14 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                   className="flex-1 py-3 rounded-xl bg-primary-500/20 text-primary-100 hover:bg-primary-500/30 transition-all font-medium border border-primary-500/30 flex items-center justify-center gap-2"
                 >
                   <Download className="w-4 h-4" /> إعادة التنزيل
+                </button>
+              )}
+              {downloadModal.status === 'error' && downloadModal.canUseLightweight && (
+                <button
+                  onClick={() => platform && handleDownload(platform, 'lightweight')}
+                  className="flex-1 py-3 rounded-xl bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 transition-all font-medium border border-amber-500/30 flex items-center justify-center gap-2"
+                >
+                  <Cloud className="w-4 h-4" /> تنزيل النسخة الخفيفة
                 </button>
               )}
             </div>

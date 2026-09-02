@@ -103,12 +103,12 @@ describe('Desktop download — native release lookup', () => {
     localStorage.clear();
   });
 
-  it('reports `not-configured` when no release manifest URL is set', async () => {
+  it('uses the official GitHub latest-release manifest when no override is configured', async () => {
     vi.resetModules();
-    const { lookupNativeRelease } = await import('../services/desktopReleaseChecker');
-    const result = await lookupNativeRelease('mac');
-    expect(result.available).toBe(false);
-    expect(result.reason).toBe('not-configured');
+    const { DESKTOP_RELEASE_MANIFEST_URL } = await import('../services/desktopBuildInfo');
+    expect(DESKTOP_RELEASE_MANIFEST_URL).toBe(
+      'https://github.com/HimArt-1/HADER-SAUD-2027/releases/latest/download/desktop-manifest.json'
+    );
   });
 
   it('caches manifest fetches in localStorage with a TTL', async () => {
@@ -117,8 +117,8 @@ describe('Desktop download — native release lookup', () => {
       version: '2.0.0',
       releasedAt: '2026-01-01T00:00:00Z',
       platforms: {
-        mac: { url: 'https://cdn.example.com/Hader-2.0.0.dmg', size: 100, format: 'dmg' },
-        windows: { url: 'https://cdn.example.com/Hader-2.0.0-Setup.exe', size: 100, format: 'nsis' },
+        mac: { url: 'https://cdn.example.com/Hader-2.0.0.dmg', size: 100, sha256: 'a'.repeat(64), format: 'dmg' },
+        windows: { url: 'https://cdn.example.com/Hader-2.0.0-Setup.exe', size: 100, sha256: 'b'.repeat(64), format: 'nsis' },
       },
     };
     const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => manifest }));
@@ -134,6 +134,81 @@ describe('Desktop download — native release lookup', () => {
     const second = await lookupNativeRelease('windows');
     expect(second.available).toBe(true);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+
+  it('downloads the native installer directly when the manifest exposes one', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_DESKTOP_RELEASE_URL', 'https://cdn.example.com/desktop/manifest.json');
+    const manifest = {
+      version: '2.0.0',
+      platforms: { mac: { url: 'https://cdn.example.com/Hader-2.0.0.dmg', size: 100, sha256: 'a'.repeat(64), format: 'dmg' } }
+    };
+    (globalThis as any).fetch = vi.fn(async () => ({ ok: true, json: async () => manifest }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    const { downloadDesktopApp } = await import('../services/downloadService');
+    const result = await downloadDesktopApp('mac');
+
+    expect(result).toMatchObject({ channel: 'native', filename: 'Hader-2.0.0.dmg', releaseManifestUsed: true });
+    expect(click).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+
+  it('rejects non-HTTPS installer URLs from a release manifest', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_DESKTOP_RELEASE_URL', 'https://cdn.example.com/desktop/manifest.json');
+    const manifest = {
+      version: '2.0.0',
+      platforms: { mac: { url: 'javascript:alert(1)', size: 100, sha256: 'a'.repeat(64), format: 'dmg' } }
+    };
+    (globalThis as any).fetch = vi.fn(async () => ({ ok: true, json: async () => manifest }));
+
+    const { lookupNativeRelease } = await import('../services/desktopReleaseChecker');
+    await expect(lookupNativeRelease('mac')).resolves.toMatchObject({ available: false });
+    vi.unstubAllEnvs();
+  });
+
+  it('discards an unsafe cached manifest before resolving a native installer', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_DESKTOP_RELEASE_URL', 'https://cdn.example.com/desktop/manifest.json');
+    localStorage.setItem('hader:desktop-release-manifest', JSON.stringify({
+      fetchedAt: Date.now(),
+      manifest: {
+        version: '1.0.0',
+        platforms: { mac: { url: 'javascript:alert(1)', size: 100, sha256: 'a'.repeat(64), format: 'dmg' } }
+      }
+    }));
+    const safeManifest = {
+      version: '2.0.0',
+      platforms: {
+        mac: {
+          url: 'https://cdn.example.com/Hader-2.0.0.dmg',
+          size: 100,
+          sha256: 'b'.repeat(64),
+          format: 'dmg'
+        }
+      }
+    };
+    const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => safeManifest }));
+    (globalThis as any).fetch = fetchSpy;
+
+    const { lookupNativeRelease } = await import('../services/desktopReleaseChecker');
+    await expect(lookupNativeRelease('mac')).resolves.toMatchObject({
+      available: true,
+      asset: { url: safeManifest.platforms.mac.url }
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+
+  it('does not silently replace a missing native installer with the Noor-incompatible wrapper', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_DESKTOP_RELEASE_URL', 'https://cdn.example.com/desktop/manifest.json');
+    (globalThis as any).fetch = vi.fn(async () => ({ ok: false, status: 404 }));
+
+    const { downloadDesktopApp } = await import('../services/downloadService');
+    await expect(downloadDesktopApp('mac')).rejects.toThrow('Electron');
     vi.unstubAllEnvs();
   });
 });

@@ -61,7 +61,8 @@ export const APP_LAUNCH_PATH = '/';
  * endpoint that follows the schema in `desktopReleaseChecker.ts`.
  */
 export const DESKTOP_RELEASE_MANIFEST_URL: string =
-  (import.meta.env.VITE_DESKTOP_RELEASE_URL as string | undefined) || '';
+  (import.meta.env.VITE_DESKTOP_RELEASE_URL as string | undefined)
+  || 'https://github.com/HimArt-1/HADER-SAUD-2027/releases/latest/download/desktop-manifest.json';
 
 /** FNV-1a 32-bit hash, deterministic across browsers. */
 export function fnv1a(input: string): string {

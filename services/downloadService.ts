@@ -10,7 +10,7 @@
  *     user is sent straight to the prebuilt `.dmg` / `.exe` produced by
  *     CI. No ZIP is generated locally.
  *
- *  2) **Lightweight wrapper** (default, always available):
+ *  2) **Lightweight wrapper** (explicit fallback only):
  *     A small ZIP containing:
  *       • macOS  → a fully-formed `Hader.app` bundle (Info.plist +
  *         POSIX-executable launcher + multi-resolution `.icns` icon)
@@ -77,7 +77,7 @@ export interface DownloadResult {
 export type ProgressCallback = (progress: DownloadProgress) => void;
 
 export interface DownloadOptions {
-  /** Force a particular channel; otherwise native is preferred when available. */
+  /** Force a particular channel; otherwise a native installer is required. */
   preferredChannel?: DownloadChannel;
   /** Optional callback invoked on every progress update. */
   onProgress?: ProgressCallback;
@@ -86,6 +86,16 @@ export interface DownloadOptions {
 const PRODUCT_NAME = 'نظام حاضر';
 const BUNDLE_IDENTIFIER = 'sa.hader.lightweight';
 const ICON_SOURCE_URL = '/logo512.png'; // resolved from APP_URL at runtime
+
+export class NativeReleaseUnavailableError extends Error {
+  readonly reason: ReleaseLookupResult['reason'];
+
+  constructor(reason: ReleaseLookupResult['reason']) {
+    super('لا تتوفر نسخة Electron الأصلية حالياً. يمكنك اختيار النسخة الخفيفة يدوياً، لكنها لا تدعم تكامل نور.');
+    this.name = 'NativeReleaseUnavailableError';
+    this.reason = reason;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public helpers exposed for the sidebar UI
@@ -464,10 +474,11 @@ export const downloadDesktopApp = async (
         return result;
       }
       // Fall through to lightweight bundle.
-      logger.info('Download', 'native release unavailable, using lightweight wrapper', {
+      logger.info('Download', 'native release unavailable; explicit lightweight choice required', {
         platform,
         reason: release.reason,
       });
+      throw new NativeReleaseUnavailableError(release.reason);
     }
 
     const result = await buildLightweightBundle(platform, {

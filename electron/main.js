@@ -207,13 +207,12 @@ async function openNoorSessionWindow() {
 // =============================================================================
 
 function getIconPath() {
+  if (app.isPackaged) {
+    return path.join(app.getAppPath(), 'dist', 'logo512.png');
+  }
   const iconName = process.platform === 'win32' ? 'icon.ico' : 
                    process.platform === 'darwin' ? 'icon.icns' : 'icon.png';
-  
-  if (isDev) {
-    return path.join(__dirname, '../build', iconName);
-  }
-  return path.join(process.resourcesPath, iconName);
+  return path.join(__dirname, '../build', iconName);
 }
 
 function sanitizeFilters(filters) {

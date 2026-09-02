@@ -19,9 +19,9 @@
     "test:run": "vitest --run",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "cross-env ELECTRON=true npm run build && electron-builder",
-    "electron:build:mac": "cross-env ELECTRON=true npm run build && electron-builder --mac",
-    "electron:build:win": "cross-env ELECTRON=true npm run build && electron-builder --win",
-    "electron:build:linux": "cross-env ELECTRON=true npm run build && electron-builder --linux",
+    "electron:build:mac": "npm run electron:icons && cross-env ELECTRON=true npm run build && electron-builder --mac",
+    "electron:build:win": "npm run electron:icons && cross-env ELECTRON=true npm run build && electron-builder --win",
+    "electron:build:linux": "npm run electron:icons && cross-env ELECTRON=true npm run build && electron-builder --linux",
     "electron:build:all": "cross-env ELECTRON=true npm run build && electron-builder --mac --win --linux",
     "electron:icons": "node scripts/generate-icons.cjs",
     "postinstall": "electron-builder install-app-deps"
@@ -90,26 +90,18 @@
     "mac": {
       "category": "public.app-category.education",
       "icon": "build/icon.icns",
+      "artifactName": "Hader-${version}-mac-universal.${ext}",
       "target": [
         {
           "target": "dmg",
           "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64",
-            "arm64"
+            "universal"
           ]
         }
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "notarize": true
     },
     "dmg": {
       "title": "نظام حاضر",
@@ -133,15 +125,10 @@
     },
     "win": {
       "icon": "build/icon.png",
+      "artifactName": "Hader-${version}-windows-x64-Setup.${ext}",
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
           "arch": [
             "x64"
           ]
@@ -153,13 +140,9 @@
       "oneClick": false,
       "perMachine": true,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico",
-      "installerHeaderIcon": "build/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "نظام حاضر",
-      "include": "build/installer.nsh"
+      "shortcutName": "نظام حاضر"
     },
     "linux": {
       "icon": "build/icons",
