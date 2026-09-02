@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { auth } from '../services/auth';
 import { db } from '../services/db';
+import { APP_URL } from '../services/desktopBuildInfo';
 import { createStaffOperationsController } from '../services/staffOperations';
 import { surveyService, type SurveyBundle } from '../services/surveys';
 import { whatsappGateway } from '../services/whatsappGateway';
@@ -41,6 +42,7 @@ import {
   type SurveyQuestionType,
   type SurveyRecipient
 } from '../modules/surveys';
+import { Role } from '../types';
 
 const questionTypeLabels: Record<SurveyQuestionType, string> = {
   single_choice: 'اختيار واحد',
@@ -74,8 +76,24 @@ const newQuestion = (type: SurveyQuestionType = 'single_choice'): SurveyQuestion
 });
 
 const surveyUrl = (token: string): string => {
-  const base = `${window.location.origin}${window.location.pathname}`;
-  return `${base}#/survey/${encodeURIComponent(token)}`;
+  const base = APP_URL || `${window.location.origin}${window.location.pathname}`;
+  return `${base.replace(/\/$/, '')}/#/survey/${encodeURIComponent(token)}`;
+};
+
+const hasSecureSurveyBase = (): boolean => {
+  try {
+    return new URL(APP_URL).protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const toLocalDateTimeValue = (value: string | null): string => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 };
 
 const whatsappPhone = (value: string): string => {
@@ -120,6 +138,7 @@ const Surveys: React.FC = () => {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [distributionProgress, setDistributionProgress] = useState('');
   const [editingSurvey, setEditingSurvey] = useState<Survey | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -127,6 +146,9 @@ const Surveys: React.FC = () => {
   const [anonymous, setAnonymous] = useState(false);
   const [closesAt, setClosesAt] = useState('');
   const [questions, setQuestions] = useState<readonly SurveyQuestion[]>([newQuestion()]);
+  const currentUser = auth.getSession();
+  const canUseWhatsApp = currentUser?.role === Role.SITE_ADMIN || currentUser?.can_use_whatsapp === true;
+  const canShareExternally = surveyService.storageMode === 'cloud' && hasSecureSurveyBase();
 
   const notify = (message: string) => {
     setNotice(message);
@@ -178,11 +200,15 @@ const Surveys: React.FC = () => {
     setDescription(survey?.description ?? '');
     setAudience(survey?.audience ?? 'guardians');
     setAnonymous(survey?.anonymous ?? false);
-    setClosesAt(survey?.closesAt ? survey.closesAt.slice(0, 16) : '');
+    setClosesAt(toLocalDateTimeValue(survey?.closesAt ?? null));
     setQuestions(survey?.questions ?? [newQuestion()]);
-    setManualRecipients([]);
     const nextAudience = survey?.audience ?? 'guardians';
-    setSelectedRecipients(new Set(directory[nextAudience].map(recipient => recipient.id)));
+    const savedTargets = survey ? surveyService.draftRecipients(survey.id) : [];
+    const directoryIds = new Set(directory[nextAudience].map(recipient => recipient.id));
+    setManualRecipients((savedTargets ?? []).filter(recipient => !directoryIds.has(recipient.id)));
+    setSelectedRecipients(new Set(savedTargets !== null
+      ? savedTargets.map(recipient => recipient.id)
+      : directory[nextAudience].map(recipient => recipient.id)));
     setRecipientSearch('');
     setError('');
     setView('builder');
@@ -232,7 +258,7 @@ const Surveys: React.FC = () => {
       description,
       audience,
       anonymous,
-      closesAt: closesAt || null,
+      closesAt: closesAt ? new Date(closesAt).toISOString() : null,
       questions,
       createdBy: currentUser?.id ?? 'admin'
     });
@@ -240,17 +266,21 @@ const Surveys: React.FC = () => {
   };
 
   const handleSave = async (publishNow: boolean) => {
+    if (publishNow && !canShareExternally) {
+      setError('يتطلب النشر رابط HTTPS وتخزين Supabase مشتركاً. يمكنك حفظ الاستبيان كمسودة حتى يكتمل الإعداد السحابي.');
+      return;
+    }
     setBusy(publishNow ? 'publish' : 'save');
     setError('');
     try {
-      const draft = await surveyService.saveDraft(buildDraft());
+      const targets = recipients.filter(recipient => selectedRecipients.has(recipient.id));
+      const draft = await surveyService.saveDraft(buildDraft(), targets);
       if (!publishNow) {
         notify('حُفظت المسودة بنجاح');
         await load();
         setView('overview');
         return;
       }
-      const targets = recipients.filter(recipient => selectedRecipients.has(recipient.id));
       const published = await surveyService.publish(draft.id, targets);
       notify(`نُشر الاستبيان وأُنشئت ${published.invitations.length} دعوة`);
       setBundle(published);
@@ -306,12 +336,24 @@ const Surveys: React.FC = () => {
   };
 
   const copyInvitation = async (invitation: SurveyInvitation) => {
+    if (!canShareExternally) {
+      setError('لا يمكن توزيع رابط محلي؛ فعّل التخزين السحابي ورابط HTTPS أولاً.');
+      return;
+    }
     await navigator.clipboard.writeText(invitationMessage(bundle!.survey, invitation));
     notify('نُسخت رسالة الدعوة');
   };
 
   const queueWhatsApp = async () => {
     if (!bundle) return;
+    if (!canShareExternally) {
+      setError('الإرسال الخارجي معطّل لأن الاستبيان غير متصل بتخزين سحابي مشترك ورابط HTTPS.');
+      return;
+    }
+    if (!canUseWhatsApp) {
+      setError('حسابك لا يملك صلاحية استخدام إرسال واتساب. يمكنك تصدير الروابط وتسليمها للمخول بالإرسال.');
+      return;
+    }
     const pending = bundle.invitations.filter(invitation => !invitation.respondedAt && invitation.recipientContact);
     if (pending.length === 0) {
       setError('لا توجد دعوات معلقة بأرقام جوال صالحة');
@@ -319,24 +361,38 @@ const Surveys: React.FC = () => {
     }
     setBusy('whatsapp');
     setError('');
+    setDistributionProgress(`تجهيز ${pending.length} دعوة...`);
+    let queued = 0;
     try {
-      await whatsappGateway.enqueue(pending.map(invitation => ({
+      const messages = pending.map(invitation => ({
         id: `survey-${invitation.id}`,
         phone: invitation.recipientContact,
         student_name: invitation.recipientName,
         message: invitationMessage(bundle.survey, invitation),
         status_label: 'دعوة استبيان'
-      })));
+      }));
+      for (let index = 0; index < messages.length; index += 500) {
+        const batch = messages.slice(index, index + 500);
+        await whatsappGateway.enqueue(batch);
+        queued += batch.length;
+        setDistributionProgress(`أضيفت ${queued} من ${messages.length} دعوة إلى الطابور`);
+      }
       notify(`أضيفت ${pending.length} دعوة إلى طابور واتساب`);
     } catch (whatsappError) {
-      setError(whatsappError instanceof Error ? `${whatsappError.message}. يمكنك نسخ الروابط أو تصديرها.` : 'تعذر الاتصال بخدمة واتساب');
+      const prefix = queued > 0 ? `أضيفت ${queued} من ${pending.length} دعوة قبل توقف الإرسال. ` : '';
+      setError(whatsappError instanceof Error ? `${prefix}${whatsappError.message}. يمكنك نسخ الروابط أو تصديرها.` : `${prefix}تعذر الاتصال بخدمة واتساب`);
     } finally {
       setBusy(null);
+      window.setTimeout(() => setDistributionProgress(''), 2500);
     }
   };
 
   const exportInvitations = () => {
     if (!bundle) return;
+    if (!canShareExternally) {
+      setError('لا يمكن تصدير روابط توزيع قبل تفعيل التخزين السحابي ورابط HTTPS.');
+      return;
+    }
     downloadCsv(`survey-invitations-${bundle.survey.id}.csv`, [
       ['المستلم', 'الجوال', 'الحالة', 'الرابط'],
       ...bundle.invitations.map(invitation => [
@@ -392,6 +448,8 @@ const Surveys: React.FC = () => {
       </header>
 
       {error && <div role="alert" className="flex items-start justify-between gap-4 rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] p-4 text-sm text-rose-100"><span>{error}</span><button type="button" onClick={() => setError('')} aria-label="إغلاق التنبيه"><X className="h-4 w-4" /></button></div>}
+
+      {!canShareExternally && <div className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] p-4 text-sm leading-7 text-amber-100"><strong className="block">التوزيع الخارجي غير مفعّل</strong><span className="text-amber-100/75">احفظ مسوداتك الآن. للنشر إلى أجهزة أولياء الأمور والمعلمين، اضبط <span dir="ltr">VITE_APP_URL</span> على رابط HTTPS وطبّق ترحيل Supabase الخاص بالاستبيانات.</span></div>}
 
       {view === 'overview' && (
         <>
@@ -471,7 +529,7 @@ const Surveys: React.FC = () => {
               </div>
               <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-3"><p className="text-xs font-black text-white">إضافة مستلم يدوياً</p><label className="mt-3 block text-[10px] font-bold text-slate-400">الاسم<input value={manualName} onChange={event => setManualName(event.target.value)} className={`${inputClass} mt-1 py-2.5`} /></label><label className="mt-2 block text-[10px] font-bold text-slate-400">الجوال (اختياري)<input dir="ltr" inputMode="tel" value={manualContact} onChange={event => setManualContact(event.target.value)} className={`${inputClass} mt-1 py-2.5 text-right`} /></label><button type="button" onClick={addManualRecipient} className="mt-3 w-full rounded-lg border border-primary-300/20 px-3 py-2.5 text-xs font-bold text-primary-100">إضافة للقائمة</button></div>
             </section>
-            <section className={`${panelClass} p-5`}><div className="flex items-start gap-3"><Eye className="mt-0.5 h-5 w-5 text-primary-200" /><div><h3 className="font-black text-white">قبل النشر</h3><p className="mt-1 text-xs leading-6 text-slate-400">يمكن تعديل المسودة فقط. بعد النشر تبقى الأسئلة ثابتة حفاظاً على اتساق النتائج.</p></div></div><div className="mt-5 grid gap-2"><button type="button" onClick={() => void handleSave(false)} disabled={busy !== null} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-slate-200 disabled:opacity-40">{busy === 'save' ? 'جاري الحفظ...' : 'حفظ كمسودة'}</button><button type="button" onClick={() => void handleSave(true)} disabled={busy !== null} className="flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-40">{busy === 'publish' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}نشر وإنشاء الروابط</button></div></section>
+            <section className={`${panelClass} p-5`}><div className="flex items-start gap-3"><Eye className="mt-0.5 h-5 w-5 text-primary-200" /><div><h3 className="font-black text-white">قبل النشر</h3><p className="mt-1 text-xs leading-6 text-slate-400">يمكن تعديل المسودة فقط. بعد النشر تبقى الأسئلة ثابتة حفاظاً على اتساق النتائج.</p></div></div><div className="mt-5 grid gap-2"><button type="button" onClick={() => void handleSave(false)} disabled={busy !== null} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-slate-200 disabled:opacity-40">{busy === 'save' ? 'جاري الحفظ...' : 'حفظ كمسودة'}</button><button type="button" onClick={() => void handleSave(true)} disabled={busy !== null || !canShareExternally} title={!canShareExternally ? 'فعّل Supabase ورابط HTTPS للنشر' : undefined} className="flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-40">{busy === 'publish' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}نشر وإنشاء الروابط</button></div></section>
           </aside>
         </div>
       )}
@@ -491,7 +549,7 @@ const Surveys: React.FC = () => {
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
             <section className={`${panelClass} p-5 sm:p-6`}><div className="flex items-center justify-between"><div><h3 className="font-black text-white">تحليل الإجابات</h3><p className="mt-1 text-xs text-slate-400">تتحدث المؤشرات عند إعادة فتح هذا الاستبيان.</p></div><BarChart3 className="h-5 w-5 text-primary-200" /></div><div className="mt-6 space-y-5">{summary.questionResults.map((result, index) => <article key={result.question.id} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><div className="flex items-start justify-between gap-3"><div><span className="text-[10px] font-bold text-primary-200">السؤال {index + 1}</span><h4 className="mt-1 text-sm font-black text-white">{result.question.prompt}</h4></div><span className="shrink-0 text-[10px] text-slate-500">{result.answered} إجابة</span></div>{result.question.type === 'text' ? <div className="mt-4 space-y-2">{result.textAnswers.length ? result.textAnswers.map((answer, answerIndex) => <p key={`${answer}-${answerIndex}`} className="rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs leading-6 text-slate-300">{answer}</p>) : <p className="py-4 text-center text-xs text-slate-500">لا توجد إجابات نصية بعد.</p>}</div> : <div className="mt-4 space-y-3">{result.average !== null && <div className="mb-4 flex items-center justify-between rounded-xl bg-primary-400/[0.07] p-3"><span className="text-xs text-primary-100">متوسط التقييم</span><strong className="text-xl text-white">{result.average}<span className="text-xs text-slate-400"> / 5</span></strong></div>}{result.values.map(value => <div key={value.label}><div className="mb-1.5 flex justify-between text-xs"><span className="text-slate-300">{value.label}</span><span className="text-slate-500">{value.count} · {value.percentage}%</span></div><div className="h-2 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-primary-500 transition-all" style={{ width: `${value.percentage}%` }} /></div></div>)}</div>}</article>)}</div></section>
 
-            <aside className={`${panelClass} self-start overflow-hidden xl:sticky xl:top-6`}><div className="border-b border-white/10 p-5"><div className="flex items-center justify-between"><div><h3 className="font-black text-white">التوزيع والمتابعة</h3><p className="mt-1 text-xs text-slate-400">إرسال الدعوات ومراجعة حالتها.</p></div><MessageCircle className="h-5 w-5 text-primary-200" /></div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => void queueWhatsApp()} disabled={busy !== null || bundle.survey.status !== 'published'} className="flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-3 py-3 text-xs font-black text-slate-950 disabled:opacity-35">{busy === 'whatsapp' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}إرسال عبر واتساب</button><button type="button" onClick={exportInvitations} className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-3 text-xs font-bold text-slate-200"><Download className="h-4 w-4" />تصدير الروابط</button></div></div><div className="max-h-[560px] divide-y divide-white/10 overflow-y-auto">{bundle.invitations.map(invitation => <div key={invitation.id} className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-xs text-white">{invitation.recipientName}</strong>{invitation.respondedAt ? <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold text-emerald-200">أجاب</span> : <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[9px] font-bold text-amber-200">معلّق</span>}</div><p className="mt-1 truncate text-[10px] text-slate-500">{invitation.recipientContact || 'لا يوجد رقم جوال'} · {invitation.recipientDetail}</p></div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => void copyInvitation(invitation)} aria-label={`نسخ رابط ${invitation.recipientName}`} className="rounded-lg border border-white/10 p-2 text-slate-300"><Copy className="h-3.5 w-3.5" /></button>{invitation.recipientContact && <a href={`https://wa.me/${whatsappPhone(invitation.recipientContact)}?text=${encodeURIComponent(invitationMessage(bundle.survey, invitation))}`} target="_blank" rel="noreferrer" aria-label={`إرسال إلى ${invitation.recipientName}`} className="rounded-lg border border-primary-300/20 p-2 text-primary-200"><MessageCircle className="h-3.5 w-3.5" /></a>}</div></div></div>)}</div></aside>
+            <aside className={`${panelClass} self-start overflow-hidden xl:sticky xl:top-6`}><div className="border-b border-white/10 p-5"><div className="flex items-center justify-between"><div><h3 className="font-black text-white">التوزيع والمتابعة</h3><p className="mt-1 text-xs text-slate-400">إرسال الدعوات ومراجعة حالتها.</p></div><MessageCircle className="h-5 w-5 text-primary-200" /></div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => void queueWhatsApp()} disabled={busy !== null || bundle.survey.status !== 'published' || !canUseWhatsApp || !canShareExternally} title={!canUseWhatsApp ? 'يتطلب صلاحية واتساب' : undefined} className="flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-3 py-3 text-xs font-black text-slate-950 disabled:opacity-35">{busy === 'whatsapp' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}إرسال عبر واتساب</button><button type="button" onClick={exportInvitations} disabled={!canShareExternally} className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-3 text-xs font-bold text-slate-200 disabled:opacity-35"><Download className="h-4 w-4" />تصدير الروابط</button></div>{distributionProgress && <p role="status" className="mt-3 text-center text-[10px] font-bold text-primary-200">{distributionProgress}</p>}</div><div className="max-h-[560px] divide-y divide-white/10 overflow-y-auto">{bundle.invitations.map(invitation => <div key={invitation.id} className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-xs text-white">{invitation.recipientName}</strong>{invitation.respondedAt ? <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold text-emerald-200">أجاب</span> : <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[9px] font-bold text-amber-200">معلّق</span>}</div><p className="mt-1 truncate text-[10px] text-slate-500">{invitation.recipientContact || 'لا يوجد رقم جوال'} · {invitation.recipientDetail}</p></div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => void copyInvitation(invitation)} disabled={!canShareExternally} aria-label={`نسخ رابط ${invitation.recipientName}`} className="rounded-lg border border-white/10 p-2 text-slate-300 disabled:opacity-30"><Copy className="h-3.5 w-3.5" /></button>{invitation.recipientContact && canShareExternally && <a href={`https://wa.me/${whatsappPhone(invitation.recipientContact)}?text=${encodeURIComponent(invitationMessage(bundle.survey, invitation))}`} target="_blank" rel="noreferrer" aria-label={`إرسال إلى ${invitation.recipientName}`} className="rounded-lg border border-primary-300/20 p-2 text-primary-200"><MessageCircle className="h-3.5 w-3.5" /></a>}</div></div></div>)}</div></aside>
           </div>
 
           {bundle.responses.length > 0 && <section className={`${panelClass} overflow-hidden`}><div className="border-b border-white/10 p-5"><h3 className="font-black text-white">سجل المشاركات</h3><p className="mt-1 text-xs text-slate-400">وقت الاستلام وهوية المستجيب حسب إعداد الخصوصية.</p></div><div className="overflow-x-auto"><table className="min-w-full text-right text-xs"><thead className="bg-white/[0.025] text-slate-400"><tr><th className="px-5 py-3 font-bold">المستجيب</th><th className="px-5 py-3 font-bold">وقت الإرسال</th><th className="px-5 py-3 font-bold">اكتمال الإجابة</th></tr></thead><tbody className="divide-y divide-white/10">{bundle.responses.map(response => <tr key={response.id}><td className="px-5 py-4 font-bold text-white">{response.respondentName ?? 'مجهول'}</td><td className="px-5 py-4 text-slate-400">{new Date(response.submittedAt).toLocaleString('ar-SA')}</td><td className="px-5 py-4 text-emerald-200">{response.answers.length} من {bundle.survey.questions.length}</td></tr>)}</tbody></table></div></section>}

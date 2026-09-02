@@ -15,9 +15,14 @@ const PublicSurvey: React.FC = () => {
 
   useEffect(() => {
     let active = true;
+    const requestedToken = token;
+    setData(null);
+    setError('');
+    setAnswers({});
+    setSubmitted(false);
     setLoading(true);
-    surveyService.getPublic(token)
-      .then(result => { if (active) setData(result); })
+    surveyService.getPublic(requestedToken)
+      .then(result => { if (active && requestedToken === token) setData(result); })
       .catch(loadError => { if (active) setError(loadError instanceof Error ? loadError.message : 'تعذر فتح الاستبيان'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };

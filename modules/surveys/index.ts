@@ -203,6 +203,7 @@ export const createSurveyResponse = (
   if (invitation.respondedAt || existingResponse) throw new Error('تم إرسال الإجابة مسبقاً');
   const questionIds = new Set(survey.questions.map(question => question.id));
   if (answers.some(answer => !questionIds.has(answer.questionId))) throw new Error('تحتوي الإجابة سؤالاً غير صالح');
+  if (answers.length > survey.questions.length) throw new Error('عدد الإجابات يتجاوز عدد الأسئلة');
   const duplicateIds = answers.map(answer => answer.questionId);
   if (new Set(duplicateIds).size !== duplicateIds.length) throw new Error('توجد إجابة مكررة للسؤال نفسه');
   for (const question of survey.questions) {
@@ -218,8 +219,16 @@ export const createSurveyResponse = (
     if (question.type === 'multiple_choice' && (!Array.isArray(answer.value) || answer.value.some(value => !question.options.includes(value)))) {
       throw new Error(`إجابة السؤال «${question.prompt}» غير صالحة`);
     }
+    if (question.type === 'multiple_choice' && Array.isArray(answer.value) && (
+      answer.value.length > question.options.length || new Set(answer.value).size !== answer.value.length
+    )) {
+      throw new Error(`إجابة السؤال «${question.prompt}» تحتوي اختيارات مكررة`);
+    }
     if (question.type === 'yes_no' && typeof answer.value !== 'boolean') {
       throw new Error(`إجابة السؤال «${question.prompt}» غير صالحة`);
+    }
+    if (question.type === 'text' && (typeof answer.value !== 'string' || answer.value.length > 4000)) {
+      throw new Error(`إجابة السؤال «${question.prompt}» طويلة أو غير صالحة`);
     }
   }
   const submittedAt = nowDate.toISOString();
@@ -262,9 +271,10 @@ export const summarizeSurvey = (
           ? ['نعم', 'لا']
           : [...question.options];
       const normalizedValues = flatValues.map(value => typeof value === 'boolean' ? (value ? 'نعم' : 'لا') : String(value));
+      const percentageBase = question.type === 'multiple_choice' ? rawValues.length : flatValues.length;
       const values = labels.map(label => {
         const count = normalizedValues.filter(value => value === label).length;
-        return Object.freeze({ label, count, percentage: flatValues.length === 0 ? 0 : Math.round((count / flatValues.length) * 100) });
+        return Object.freeze({ label, count, percentage: percentageBase === 0 ? 0 : Math.round((count / percentageBase) * 100) });
       });
       const numeric = rawValues.filter((value): value is number => typeof value === 'number');
       return Object.freeze({

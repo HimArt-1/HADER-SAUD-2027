@@ -1,4 +1,5 @@
 import { supabase, supabaseStatus } from './supabase';
+import { secureSessionStorage } from './secureStorage';
 import {
   createSurveyResponse,
   publishSurvey as publishSurveyDomain,
@@ -10,6 +11,7 @@ import {
 } from '../modules/surveys';
 
 const STORAGE_KEY = 'hader:surveys:v1';
+const DRAFT_TARGETS_KEY = 'hader:survey-draft-targets:v1';
 
 type SurveyStore = Readonly<{
   surveys: readonly Survey[];
@@ -32,7 +34,8 @@ export type PublicSurvey = Readonly<{
 export type SurveyService = Readonly<{
   storageMode: 'cloud' | 'local';
   list(): Promise<readonly Survey[]>;
-  saveDraft(survey: Survey): Promise<Survey>;
+  saveDraft(survey: Survey, recipients?: readonly SurveyRecipient[]): Promise<Survey>;
+  draftRecipients(surveyId: string): readonly SurveyRecipient[] | null;
   publish(surveyId: string, recipients: readonly SurveyRecipient[]): Promise<SurveyBundle>;
   close(surveyId: string): Promise<Survey>;
   remove(surveyId: string): Promise<void>;
@@ -59,6 +62,19 @@ const readStore = (storage: Pick<Storage, 'getItem'>): SurveyStore => {
 
 const writeStore = (storage: Pick<Storage, 'setItem'>, store: SurveyStore): void => {
   storage.setItem(STORAGE_KEY, JSON.stringify(store));
+};
+
+const readDraftTargets = (storage: Pick<Storage, 'getItem'>): Record<string, readonly SurveyRecipient[]> => {
+  try {
+    const parsed = JSON.parse(storage.getItem(DRAFT_TARGETS_KEY) || '{}') as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(parsed).map(([surveyId, value]) => [surveyId, Array.isArray(value) ? value : []]));
+  } catch {
+    return {};
+  }
+};
+
+const writeDraftTargets = (storage: Pick<Storage, 'setItem'>, targets: Record<string, readonly SurveyRecipient[]>): void => {
+  storage.setItem(DRAFT_TARGETS_KEY, JSON.stringify(targets));
 };
 
 const toSurvey = (row: any): Survey => Object.freeze({
@@ -124,6 +140,23 @@ const invitationRow = (invitation: SurveyInvitation) => ({
   created_at: invitation.createdAt
 });
 
+const protectAnonymousBundle = (value: SurveyBundle): SurveyBundle => {
+  if (!value.survey.anonymous) return value;
+  return Object.freeze({
+    survey: value.survey,
+    invitations: Object.freeze(value.invitations.map(invitation => Object.freeze({
+      ...invitation,
+      respondedAt: invitation.respondedAt ? '1970-01-01T00:00:00.000Z' : null
+    }))),
+    responses: Object.freeze(value.responses.map(response => Object.freeze({
+      ...response,
+      invitationId: '',
+      respondentName: null,
+      submittedAt: `${response.submittedAt.slice(0, 10)}T00:00:00.000Z`
+    })))
+  });
+};
+
 const throwDataError = (error: any, action: string): never => {
   const missingSchema = error?.code === '42P01' || /does not exist|schema cache/i.test(String(error?.message));
   throw new Error(missingSchema
@@ -131,18 +164,28 @@ const throwDataError = (error: any, action: string): never => {
     : `تعذر ${action}: ${String(error?.message || 'خطأ غير معروف')}`);
 };
 
+const getSurveyAdminToken = (): string => {
+  const token = secureSessionStorage.get()?.surveyAdminToken;
+  if (!token) {
+    throw new Error('جلسة إدارة الاستبيانات غير متاحة. بعد تطبيق ترحيل Supabase، سجّل الخروج ثم ادخل مجدداً.');
+  }
+  return token;
+};
+
 export const createSurveyService = (options: Readonly<{
   storage?: Storage;
   useCloud?: boolean;
+  allowLocalPublishing?: boolean;
 }> = {}): SurveyService => {
   const storage = options.storage ?? globalThis.localStorage;
   const useCloud = options.useCloud ?? supabaseStatus.isConfigured;
+  const allowLocalPublishing = options.allowLocalPublishing ?? false;
 
   const list = async (): Promise<readonly Survey[]> => {
     if (!useCloud) {
       return [...readStore(storage).surveys].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
-    const { data, error } = await supabase.from('hader_surveys').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabase.rpc('list_hader_surveys', { p_session_token: getSurveyAdminToken() });
     if (error) throwDataError(error, 'تحميل الاستبيانات');
     return Object.freeze((data ?? []).map(toSurvey));
   };
@@ -152,38 +195,56 @@ export const createSurveyService = (options: Readonly<{
       const store = readStore(storage);
       const survey = store.surveys.find(candidate => candidate.id === surveyId);
       if (!survey) throw new Error('الاستبيان غير موجود');
-      return Object.freeze({
+      return protectAnonymousBundle(Object.freeze({
         survey,
         invitations: Object.freeze(store.invitations.filter(item => item.surveyId === surveyId)),
         responses: Object.freeze(store.responses.filter(item => item.surveyId === surveyId))
-      });
+      }));
     }
-    const { data, error } = await supabase.rpc('get_hader_survey_bundle', { p_survey_id: surveyId });
+    const { data, error } = await supabase.rpc('get_hader_survey_bundle', {
+      p_session_token: getSurveyAdminToken(),
+      p_survey_id: surveyId
+    });
     if (error) throwDataError(error, 'تحميل الاستبيان ونتائجه');
     if (!data?.survey) throw new Error('الاستبيان غير موجود');
-    return Object.freeze({
+    return protectAnonymousBundle(Object.freeze({
       survey: toSurvey(data.survey),
       invitations: Object.freeze((data.invitations ?? []).map(toInvitation)),
       responses: Object.freeze((data.responses ?? []).map(toResponse))
-    });
+    }));
   };
 
   return Object.freeze({
     storageMode: useCloud ? 'cloud' : 'local',
     list,
-    async saveDraft(survey) {
+    async saveDraft(survey, recipients) {
       if (survey.status !== 'draft') throw new Error('لا يمكن تعديل استبيان منشور');
+      if (recipients) {
+        writeDraftTargets(storage, { ...readDraftTargets(storage), [survey.id]: recipients });
+      }
       if (!useCloud) {
         const store = readStore(storage);
         const surveys = [...store.surveys.filter(candidate => candidate.id !== survey.id), survey];
         writeStore(storage, { ...store, surveys });
         return survey;
       }
-      const { data, error } = await supabase.from('hader_surveys').upsert(surveyRow(survey)).select('*').single();
+      const { data, error } = await supabase.rpc('save_hader_survey_draft', {
+        p_session_token: getSurveyAdminToken(),
+        p_survey: surveyRow(survey)
+      });
       if (error) throwDataError(error, 'حفظ المسودة');
       return toSurvey(data);
     },
+    draftRecipients(surveyId) {
+      const targets = readDraftTargets(storage);
+      return Object.prototype.hasOwnProperty.call(targets, surveyId)
+        ? Object.freeze([...(targets[surveyId] ?? [])])
+        : null;
+    },
     async publish(surveyId, recipients) {
+      if (!useCloud && !allowLocalPublishing) {
+        throw new Error('يتطلب نشر الاستبيان تخزين Supabase مشتركاً حتى تعمل الروابط على أجهزة المستلمين');
+      }
       const current = await bundle(surveyId);
       const published = publishSurveyDomain(current.survey, recipients);
       if (!useCloud) {
@@ -193,14 +254,21 @@ export const createSurveyService = (options: Readonly<{
           invitations: [...store.invitations.filter(item => item.surveyId !== surveyId), ...published.invitations],
           responses: store.responses
         });
+        const draftTargets = readDraftTargets(storage);
+        delete draftTargets[surveyId];
+        writeDraftTargets(storage, draftTargets);
         return Object.freeze({ ...published, responses: [] });
       }
       const { error } = await supabase.rpc('publish_hader_survey', {
+        p_session_token: getSurveyAdminToken(),
         p_survey_id: surveyId,
         p_invitations: published.invitations.map(invitationRow),
         p_published_at: published.survey.publishedAt
       });
       if (error) throwDataError(error, 'نشر الاستبيان');
+      const draftTargets = readDraftTargets(storage);
+      delete draftTargets[surveyId];
+      writeDraftTargets(storage, draftTargets);
       return bundle(surveyId);
     },
     async close(surveyId) {
@@ -213,7 +281,11 @@ export const createSurveyService = (options: Readonly<{
         writeStore(storage, { ...store, surveys: [...store.surveys.filter(candidate => candidate.id !== surveyId), closed] });
         return closed;
       }
-      const { data, error } = await supabase.from('hader_surveys').update({ status: 'closed', updated_at: updatedAt }).eq('id', surveyId).select('*').single();
+      const { data, error } = await supabase.rpc('close_hader_survey', {
+        p_session_token: getSurveyAdminToken(),
+        p_survey_id: surveyId,
+        p_updated_at: updatedAt
+      });
       if (error) throwDataError(error, 'إغلاق الاستبيان');
       return toSurvey(data);
     },
@@ -225,10 +297,19 @@ export const createSurveyService = (options: Readonly<{
           invitations: store.invitations.filter(item => item.surveyId !== surveyId),
           responses: store.responses.filter(item => item.surveyId !== surveyId)
         });
+        const draftTargets = readDraftTargets(storage);
+        delete draftTargets[surveyId];
+        writeDraftTargets(storage, draftTargets);
         return;
       }
-      const { error } = await supabase.from('hader_surveys').delete().eq('id', surveyId);
+      const { error } = await supabase.rpc('delete_hader_survey_draft', {
+        p_session_token: getSurveyAdminToken(),
+        p_survey_id: surveyId
+      });
       if (error) throwDataError(error, 'حذف الاستبيان');
+      const draftTargets = readDraftTargets(storage);
+      delete draftTargets[surveyId];
+      writeDraftTargets(storage, draftTargets);
     },
     bundle,
     async getPublic(token) {

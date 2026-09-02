@@ -85,4 +85,23 @@ describe('surveys domain', () => {
     ]);
     expect(teachers).toEqual([{ id: 't1', name: 'أحمد', contact: '0550000000', detail: 'رياضيات' }]);
   });
+
+  it('counts each multiple-choice option against respondents and rejects duplicate selections', () => {
+    const multiQuestion: SurveyQuestion = {
+      id: 'multi', prompt: 'اختر القنوات', type: 'multiple_choice', required: true, options: ['واتساب', 'هاتف']
+    };
+    const draft = createSurveyDraft({ title: 'القنوات', audience: 'guardians', questions: [multiQuestion], createdBy: 'admin' }, env);
+    const { survey, invitations } = publishSurvey(draft, [
+      { id: 'g1', name: 'الأول', contact: '0500000001' },
+      { id: 'g2', name: 'الثاني', contact: '0500000002' }
+    ], env);
+    expect(() => createSurveyResponse(survey, invitations[0], [{ questionId: 'multi', value: ['واتساب', 'واتساب'] }], null, env)).toThrow('مكررة');
+    const first = createSurveyResponse(survey, invitations[0], [{ questionId: 'multi', value: ['واتساب', 'هاتف'] }], null, env);
+    const second = createSurveyResponse(survey, invitations[1], [{ questionId: 'multi', value: ['واتساب'] }], null, env);
+    const results = summarizeSurvey(survey, invitations, [first.response, second.response]).questionResults[0];
+    expect(results.values).toEqual([
+      { label: 'واتساب', count: 2, percentage: 100 },
+      { label: 'هاتف', count: 1, percentage: 50 }
+    ]);
+  });
 });

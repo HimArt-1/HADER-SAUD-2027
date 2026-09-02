@@ -370,8 +370,19 @@ export const auth = {
           can_use_whatsapp: data.can_use_whatsapp === true
         };
 
+        let surveyAdminToken: string | undefined;
+        if ([Role.SITE_ADMIN, Role.SCHOOL_ADMIN].includes(user.role)) {
+          const sessionResult = await supabase.rpc('create_hader_survey_admin_session', {
+            p_username: username,
+            p_plain_password: password
+          });
+          if (!sessionResult.error && typeof sessionResult.data === 'string') {
+            surveyAdminToken = sessionResult.data;
+          }
+        }
+
         loginRateLimiter.recordSuccess(identifier);
-        this.setSession(user);
+        this.setSession(user, undefined, surveyAdminToken);
         void logAuthEvent({
           action: 'LOGIN',
           user,
@@ -577,13 +588,14 @@ export const auth = {
   /**
    * 💾 Set session with token
    */
-  setSession(user: User, guardian?: SecureSessionPayload['guardian']) {
+  setSession(user: User, guardian?: SecureSessionPayload['guardian'], surveyAdminToken?: string) {
     const session: SecureSessionPayload = {
       user,
       token: generateSessionToken(),
       expiresAt: Date.now() + SESSION_TIMEOUT,
       createdAt: Date.now(),
       sessionId: createSessionId(),
+      surveyAdminToken,
       guardian
     };
     secureSessionStorage.save(session);
