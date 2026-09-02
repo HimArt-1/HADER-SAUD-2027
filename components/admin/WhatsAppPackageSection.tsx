@@ -27,6 +27,7 @@ import {
   getWhatsAppWindowsZipHref,
   getWhatsAppLauncherZipHref,
   getWhatsAppFileHref,
+  downloadWhatsAppFileLocally,
   WHATSAPP_LAUNCHER_MAC_FILENAME,
   WHATSAPP_LAUNCHER_WINDOWS_FILENAME,
   WHATSAPP_LAUNCHER_ZIP_FILENAME
@@ -103,9 +104,12 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
     }, 2500);
   };
 
-  const handleIndividualDownload = (fileName: string) => {
+  const handleIndividualDownload = (e: React.MouseEvent, fileName: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const success = downloadWhatsAppFileLocally(fileName);
     if (showToast) {
-      showToast(`جاري تحميل الملف: ${fileName}`, 'success');
+      showToast(`تم تنزيل الملف: ${fileName}`, 'success');
     }
   };
 
@@ -253,7 +257,7 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
                   key={file.name}
                   href={getWhatsAppFileHref(file.name)}
                   download={file.name}
-                  onClick={() => handleIndividualDownload(file.name)}
+                  onClick={(e) => handleIndividualDownload(e, file.name)}
                   title={`انقر لتحميل ملف ${file.name} منفرداً`}
                   className="group/file p-2.5 rounded-xl bg-white/[0.03] border border-white/5 hover:border-sky-400/50 hover:bg-sky-500/10 hover:shadow-[0_4px_20px_rgba(56,189,248,0.15)] transition-all duration-200 flex flex-col justify-between cursor-pointer active:scale-[0.97]"
                 >
@@ -368,7 +372,7 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
                   key={file.name}
                   href={getWhatsAppFileHref(file.name)}
                   download={file.name}
-                  onClick={() => handleIndividualDownload(file.name)}
+                  onClick={(e) => handleIndividualDownload(e, file.name)}
                   title={`انقر لتحميل ملف ${file.name} منفرداً`}
                   className="group/file p-2.5 rounded-xl bg-white/[0.03] border border-white/5 hover:border-emerald-400/50 hover:bg-emerald-500/10 hover:shadow-[0_4px_20px_rgba(16,185,129,0.15)] transition-all duration-200 flex flex-col justify-between cursor-pointer active:scale-[0.97]"
                 >
