@@ -13,14 +13,17 @@
 إن تعذّر الوصول إلى إصدار أصلي، يعرض التطبيق البديل الخفيف بوضوح. هذا البديل
 يفتح حاضر عبر Chrome أو Edge، لكنه لا يدعم نافذة جلسة نور المعزولة.
 
+تفتح نسخة Electron الأصلية نشر حاضر الحي على
+`https://hader-saud-2027.vercel.app` داخل نافذة موثوقة، لذلك تستخدم إعداد
+Supabase الموجود في نشر Vercel ولا تُضمَّن أسرار قاعدة البيانات في المثبّت.
+تبقى ملفات `dist` داخل الحزمة شاشة طوارئ عند تعذّر الوصول إلى رابط الإنتاج.
+
 ## إعداد مستودع GitHub
 
 أضف القيم التالية من **Settings → Secrets and variables → Actions** قبل النشر:
 
 ### Secrets
 
-- `VITE_SUPABASE_URL`: رابط مشروع Supabase.
-- `VITE_SUPABASE_ANON_KEY`: مفتاح Supabase العام `anon` فقط. لا تضع `service_role` مطلقاً.
 - `MAC_CSC_LINK`: شهادة Apple Developer ID Application بصيغة P12 مشفّرة Base64.
 - `MAC_CSC_KEY_PASSWORD`: كلمة مرور شهادة Apple.
 - `APPLE_ID`: بريد حساب Apple Developer المستخدم للتوثيق.

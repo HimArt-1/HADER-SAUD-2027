@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "description": "نظام حاضر - نظام متكامل لإدارة حضور الطلاب",
+  "homepage": "https://hader-saud-2027.vercel.app",
   "author": "Hader Team",
   "license": "MIT",
   "type": "module",

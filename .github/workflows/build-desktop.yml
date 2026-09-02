@@ -5,9 +5,7 @@ on:
 
 env:
   VITE_APP_MODE: ${{ vars.VITE_APP_MODE || 'hybrid' }}
-  VITE_APP_URL: ${{ vars.VITE_APP_URL }}
-  VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-  VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+  VITE_APP_URL: ${{ vars.VITE_APP_URL || 'https://hader-saud-2027.vercel.app' }}
   VITE_ALLOW_LOCAL_FALLBACK: ${{ vars.VITE_ALLOW_LOCAL_FALLBACK || 'false' }}
   VITE_ENABLE_BOOTSTRAP_ADMIN: 'false'
   VITE_DESKTOP_RELEASE_URL: https://github.com/HimArt-1/HADER-SAUD-2027/releases/latest/download/desktop-manifest.json

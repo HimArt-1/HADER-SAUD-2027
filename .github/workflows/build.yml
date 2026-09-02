@@ -14,9 +14,7 @@ concurrency:
 
 env:
   VITE_APP_MODE: ${{ vars.VITE_APP_MODE || 'hybrid' }}
-  VITE_APP_URL: ${{ vars.VITE_APP_URL }}
-  VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-  VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+  VITE_APP_URL: ${{ vars.VITE_APP_URL || 'https://hader-saud-2027.vercel.app' }}
   VITE_ALLOW_LOCAL_FALLBACK: ${{ vars.VITE_ALLOW_LOCAL_FALLBACK || 'false' }}
   VITE_ENABLE_BOOTSTRAP_ADMIN: 'false'
   VITE_DESKTOP_RELEASE_URL: https://github.com/HimArt-1/HADER-SAUD-2027/releases/latest/download/desktop-manifest.json
@@ -30,7 +28,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Require cloud configuration
+      - name: Require signing configuration
         env:
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
@@ -41,10 +39,6 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         shell: bash
         run: |
-          if [[ -z "$VITE_SUPABASE_URL" || -z "$VITE_SUPABASE_ANON_KEY" ]]; then
-            echo "::error::Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY as GitHub Actions secrets before publishing."
-            exit 1
-          fi
           REQUIRED_SIGNING_VALUES=(
             MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_ID
             APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID

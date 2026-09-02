@@ -50,7 +50,7 @@ const runtimeAppUrl = normalizeHttpOrigin(
 );
 
 /** The URL the desktop launcher will open. `VITE_APP_URL` wins over localhost/dev origins. */
-export const APP_URL: string = configuredAppUrl || runtimeAppUrl || (hasBrowserWindow ? '' : 'https://hader.sa');
+export const APP_URL: string = configuredAppUrl || runtimeAppUrl || (hasBrowserWindow ? '' : 'https://hader-saud-2027.vercel.app');
 
 /** Optional deep-link path appended after origin (kept blank by default). */
 export const APP_LAUNCH_PATH = '/';

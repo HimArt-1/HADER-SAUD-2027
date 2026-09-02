@@ -5,7 +5,8 @@
 const { app, BrowserWindow, Menu, shell, ipcMain, dialog, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { fileURLToPath } = require('url');
+const { homepage: APP_PRODUCTION_URL } = require('../package.json');
+const { isTrustedAppNavigation } = require('./appNavigationPolicy.cjs');
 const {
   assertSafeCapturePolicy,
   isAllowedNoorResourceUrl,
@@ -16,6 +17,7 @@ const MAX_NOOR_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 const NOOR_LOGIN_URL = 'https://noor.moe.gov.sa/Noor/Login.aspx';
 const NOOR_CAPTURE_HOST = 'noor.moe.gov.sa';
 const APP_DEVELOPMENT_ORIGIN = 'http://localhost:5173';
+const APP_PRODUCTION_ORIGIN = new URL(APP_PRODUCTION_URL).origin;
 const APP_ENTRY_FILE = path.resolve(__dirname, '../dist/index.html');
 
 // Keep a global reference of the window object
@@ -60,9 +62,15 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    // In production, load from built files
-    // Use hash-based routing for file:// protocol compatibility
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    // Load the deployed app so desktop sessions share the production build and Supabase config.
+    // The bundled dist remains an offline/error fallback only.
+    mainWindow.loadURL(APP_PRODUCTION_URL);
+    let localFallbackLoaded = false;
+    mainWindow.webContents.on('did-fail-load', (_event, _code, _description, _url, isMainFrame) => {
+      if (!isMainFrame || localFallbackLoaded) return;
+      localFallbackLoaded = true;
+      void mainWindow?.loadFile(APP_ENTRY_FILE);
+    });
   }
 
   // Show window when ready
@@ -96,13 +104,12 @@ function closeNoorSessionWindow() {
 }
 
 function isTrustedAppUrl(rawUrl) {
-  try {
-    const parsedUrl = new URL(rawUrl);
-    if (isDev) return parsedUrl.origin === APP_DEVELOPMENT_ORIGIN;
-    return parsedUrl.protocol === 'file:' && path.resolve(fileURLToPath(parsedUrl)) === APP_ENTRY_FILE;
-  } catch {
-    return false;
-  }
+  return isTrustedAppNavigation(rawUrl, {
+    isDevelopment: isDev,
+    developmentOrigin: APP_DEVELOPMENT_ORIGIN,
+    productionOrigin: APP_PRODUCTION_ORIGIN,
+    localEntryFile: APP_ENTRY_FILE
+  });
 }
 
 function openExternalSafely(rawUrl) {
@@ -616,17 +623,17 @@ app.on('certificate-error', (event, webContents, url, error, certificate, callba
 // =============================================================================
 
 app.on('web-contents-created', (event, contents) => {
-  contents.on('will-navigate', (event, navigationUrl) => {
+  const enforceNavigationPolicy = (navigationEvent, navigationUrl, openBlockedExternally) => {
     try {
       new URL(navigationUrl);
     } catch {
-      event.preventDefault();
+      navigationEvent.preventDefault();
       return;
     }
 
     if (isNoorWebContents(contents)) {
       if (!isAllowedNoorSessionUrl(navigationUrl)) {
-        event.preventDefault();
+        navigationEvent.preventDefault();
       }
       return;
     }
@@ -635,7 +642,16 @@ app.on('web-contents-created', (event, contents) => {
       return;
     }
 
-    event.preventDefault();
-    if (contents === mainWindow?.webContents) openExternalSafely(navigationUrl);
+    navigationEvent.preventDefault();
+    if (openBlockedExternally && contents === mainWindow?.webContents) {
+      openExternalSafely(navigationUrl);
+    }
+  };
+
+  contents.on('will-navigate', (navigationEvent, navigationUrl) => {
+    enforceNavigationPolicy(navigationEvent, navigationUrl, true);
+  });
+  contents.on('will-redirect', (navigationEvent, navigationUrl) => {
+    enforceNavigationPolicy(navigationEvent, navigationUrl, false);
   });
 });
