@@ -6,6 +6,11 @@
   <meta name="theme-color" content="#0B5361">
   <title id="pageTitle">حاضر | HADER — المنظومة التقنية للحرم المدرسي الذكي والعمليات اللانقدية</title>
   <meta name="description" id="pageDesc" content="حاضر: منظومة سحابية متقدمة تعتمد على الذكاء الاصطناعي لإدارة الحضور البيومتري، المدفوعات اللانقدية، والعمليات المدرسية المتكاملة.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="حاضر — تشغيل مدرسي أذكى من البوابة إلى المنزل">
+  <meta property="og:description" content="منظومة موحدة للحضور، الانصراف، التواصل والعمليات اليومية في المدارس السعودية.">
+  <meta property="og:image" content="https://hader-saud-2027.vercel.app/landing/assets/img/hader-smart-campus.webp">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/png" href="assets/img/logo.png">
   <link rel="preload" href="assets/fonts/arsenica-medium.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="preload" href="assets/fonts/arsenica-extrabold.ttf" as="font" type="font/ttf" crossorigin>
@@ -35,7 +40,10 @@
       <button class="lang-btn" id="langEnBtn" onclick="switchLanguage('en')">EN</button>
       <button class="lang-btn active" id="langArBtn" onclick="switchLanguage('ar')">AR</button>
     </div>
-    <button class="theme-toggle" id="themeToggle" aria-label="تبديل الوضع">🌙</button>
+    <button class="theme-toggle" id="themeToggle" aria-label="تبديل الوضع" aria-pressed="false">
+      <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
+    </button>
     <a class="nav-cta app-route-link" href="../index.html#/login" data-app-route="/login" data-i18n="nav_login">دخول النظام</a>
   </div>
 </nav>
@@ -53,37 +61,37 @@
     <div class="hero-text">
       <div class="hero-badge">
         <span class="hero-badge-dot"></span>
-        <span data-i18n="hero_badge">نحو تحوّل رقمي مدرسي أكثر كفاءة وذكاء</span>
+        <span data-i18n="hero_badge">تشغيل مدرسي موحّد • صُمم للمملكة</span>
       </div>
       <h1 class="hero-h1" data-i18n="hero_h1">
-        أعد ابتكار<br>
-        التجربة اليومية في<br>
-        <span class="gradient-text">حرمك المدرسي</span>.
+        من بوابة المدرسة<br>
+        إلى وليّ الأمر.<br>
+        <span class="gradient-text">كل شيء حاضر.</span>
       </h1>
       <p class="hero-desc" data-i18n="hero_desc">
-        منظومة حاضر توحد عمليات تسجيل الحضور الذكي، إدارة المقاصف، والنداء الآمن في بيئة رقمية متكاملة تمنح الإدارة وأولياء الأمور تحكماً شاملاً وسلساً.
+        يسجل حاضر الوصول والانصراف، ينظم النداء والمقصف، ويصل الأسرة والإدارة ببيانات دقيقة لحظة بلحظة—حتى عند انقطاع الإنترنت.
       </p>
       <div class="hero-ctas">
-        <a class="btn-primary app-route-link" href="../index.html#/login" data-app-route="/login">
-          <span data-i18n="hero_login">دخول النظام</span>
+        <a class="btn-primary" href="#contact">
+          <span data-i18n="hero_request">اطلب عرضاً مخصصاً</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
         </a>
-        <a class="btn-secondary" href="#tech-pillars">
-          <span data-i18n="hero_btn_explore">استكشف البنية التقنية</span>
+        <a class="btn-secondary app-route-link" href="../index.html#/login" data-app-route="/login">
+          <span data-i18n="hero_login">دخول النظام</span>
         </a>
       </div>
       <div class="hero-stats">
         <div class="hero-stat">
-          <div class="hero-stat-num" data-count="0.2" data-decimal="1" data-prefix="< " data-suffix="s">0</div>
-          <div class="hero-stat-label" data-i18n="stat_latency">زمن استجابة التعرف الحيوي</div>
+          <div class="hero-stat-num" data-i18n="stat_value_1">فوري</div>
+          <div class="hero-stat-label" data-i18n="stat_latency">تسجيل الوصول والانصراف</div>
         </div>
         <div class="hero-stat">
-          <div class="hero-stat-num" data-count="100" data-suffix="%">0</div>
-          <div class="hero-stat-label" data-i18n="stat_offline">جاهزية دون اتصال (Offline)</div>
+          <div class="hero-stat-num" data-i18n="stat_value_2">دون اتصال</div>
+          <div class="hero-stat-label" data-i18n="stat_offline">استمرارية التشغيل الميداني</div>
         </div>
         <div class="hero-stat">
-          <div class="hero-stat-num" data-count="99.99" data-suffix="%" data-decimal="2">0</div>
-          <div class="hero-stat-label" data-i18n="stat_uptime">استقرار البنية الموزعة</div>
+          <div class="hero-stat-num" data-i18n="stat_value_3">موحّد</div>
+          <div class="hero-stat-label" data-i18n="stat_uptime">الإدارة والأسرة والميدان</div>
         </div>
       </div>
     </div>
@@ -176,6 +184,54 @@
         </div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ CONNECTED CAMPUS VISUAL ═══════════════════ -->
+<section class="campus-showcase" id="campus" aria-labelledby="campusTitle">
+  <div class="campus-showcase-glow" aria-hidden="true"></div>
+  <div class="sec-wrap">
+    <div class="campus-copy reveal">
+      <div>
+        <div class="eyebrow" data-i18n="campus_eyebrow">مدرسة واحدة. منظومة واحدة.</div>
+        <h2 class="sec-title" id="campusTitle" data-i18n="campus_title">كل لحظة مدرسية <span class="hl">متصلة وآمنة</span></h2>
+      </div>
+      <p class="sec-sub" data-i18n="campus_sub">من بوابة الحضور إلى الفصل والمقصف ثم الانصراف؛ يوحّد حاضر رحلة الطالب في تدفق رقمي واضح يمنح الإدارة رؤية فورية ويطمئن الأسرة.</p>
+    </div>
+
+    <figure class="campus-figure reveal">
+      <div class="campus-visual-shell">
+        <div class="campus-live-badge">
+          <span class="campus-live-dot" aria-hidden="true"></span>
+          <span data-i18n="campus_live">بيانات متصلة لحظياً</span>
+        </div>
+        <img
+          class="campus-image"
+          src="assets/img/hader-smart-campus.webp"
+          width="1672"
+          height="941"
+          loading="lazy"
+          decoding="async"
+          alt="تصور ثلاثي الأبعاد لحرم مدرسي سعودي ذكي متصل بمنظومة حاضر"
+          data-i18n-alt="campus_image_alt"
+        >
+        <div class="campus-image-sheen" aria-hidden="true"></div>
+      </div>
+      <figcaption class="campus-journey">
+        <div class="campus-journey-item">
+          <span class="campus-journey-index">01</span>
+          <span data-i18n="campus_step_1">دخول موثّق في ثوانٍ</span>
+        </div>
+        <div class="campus-journey-item">
+          <span class="campus-journey-index">02</span>
+          <span data-i18n="campus_step_2">متابعة تشغيلية موحّدة</span>
+        </div>
+        <div class="campus-journey-item">
+          <span class="campus-journey-index">03</span>
+          <span data-i18n="campus_step_3">انصراف آمن بإشعار فوري</span>
+        </div>
+      </figcaption>
+    </figure>
   </div>
 </section>
 
@@ -398,7 +454,7 @@
 </section>
 
 <!-- ═══════════════════ ECOSYSTEM & INTEGRATION ═══════════════════ -->
-<section class="how-section" id="ecosystem" style="background:var(--white)">
+<section class="how-section ecosystem-section" id="ecosystem">
   <div class="sec-wrap">
     <div class="how-head reveal">
       <div class="eyebrow" data-i18n="eco_eyebrow">المنظومة والربط</div>
@@ -712,7 +768,7 @@
     <!-- Contact Form Card -->
     <div class="contact-card-wrap reveal">
       <div class="contact-card-head">
-        <div class="eyebrow" style="margin-bottom:12px" data-i18n="form_eyebrow">تواصل معنا</div>
+        <div class="eyebrow" data-i18n="form_eyebrow">تواصل معنا</div>
         <h3 data-i18n="form_title">أخبرنا عن مدرستك أو عملك</h3>
         <p data-i18n="form_subtitle">املأ النموذج أدناه وسيقوم مستشارنا بالرد عليك خلال أقل من ٢٤ ساعة.</p>
       </div>
@@ -753,7 +809,7 @@
               <option value="+973">+973 🇧🇭</option>
               <option value="+968">+968 🇴🇲</option>
             </select>
-            <input class="form-input" type="tel" id="phone" name="phone" required placeholder="05XXXXXXXX" dir="ltr" style="text-align:inherit">
+            <input class="form-input" type="tel" id="phone" name="phone" required placeholder="05XXXXXXXX" dir="ltr">
           </div>
         </div>
 
@@ -783,7 +839,7 @@
   <div class="sec-wrap">
     <div class="footer-grid">
       <div class="footer-brand">
-        <img src="assets/img/logo.png" alt="حاضر" style="height:38px;width:auto;margin-bottom:12px;filter:brightness(0) invert(1);">
+        <img src="assets/img/logo.png" alt="حاضر" class="footer-logo">
         <p data-i18n="footer_bio">منظومة متقدمة تدعم التحوّل الرقمي وتوفر حلول تقنية متقدمة في المملكة العربية السعودية.</p>
       </div>
       <div class="footer-col">
@@ -817,7 +873,7 @@
 
 <!-- ═══════════════════ WhatsApp Widget ═══════════════════ -->
 <a class="wa-float" href="https://wa.me/966541399911" target="_blank" rel="noopener" aria-label="تواصل عبر واتساب">
-  💬
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3.5A11.8 11.8 0 0 0 12.1 0C5.5 0 .2 5.3.2 11.9c0 2.1.5 4.2 1.6 6L0 24l6.3-1.7a12 12 0 0 0 5.8 1.5h.1c6.5 0 11.8-5.3 11.8-11.9 0-3.2-1.2-6.2-3.5-8.4Zm-8.4 18.3c-1.8 0-3.5-.5-5-1.4l-.4-.2-3.7 1 1-3.6-.2-.4a9.8 9.8 0 1 1 8.3 4.6Zm5.4-7.3c-.3-.2-1.8-.9-2.1-1-.3-.1-.5-.2-.7.2l-1 1.2c-.2.2-.4.2-.7.1-1.8-.9-3-1.7-4.2-3.8-.3-.5.3-.5.9-1.7.1-.2 0-.4 0-.6l-.9-2.1c-.2-.5-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4-.3.4-1.2 1.2-1.2 2.9s1.3 3.4 1.5 3.6c.2.2 2.5 3.8 6 5.3 2.2 1 3 .9 4.1.8 1.3-.2 1.8-.9 2.1-1.7.2-.8.2-1.4.1-1.6-.2-.2-.4-.3-.7-.4Z"/></svg>
 </a>
 
 <!-- ═══════════════════ JAVASCRIPT & I18N ENGINE ═══════════════════ -->
@@ -835,15 +891,19 @@ const i18n = {
     nav_faq: "الأسئلة الشائعة",
     nav_cta: "اتصل بنا",
     nav_login: "دخول النظام",
-    hero_badge: "نحو تحوّل رقمي مدرسي أكثر كفاءة وذكاء",
-    hero_h1: 'أعد ابتكار<br>التجربة اليومية في<br><span class="gradient-text">حرمك المدرسي</span>.',
-    hero_desc: "منظومة حاضر توحد عمليات تسجيل الحضور الذكي، إدارة المقاصف، والنداء الآمن في بيئة رقمية متكاملة تمنح الإدارة وأولياء الأمور تحكماً شاملاً وسلساً.",
+    hero_badge: "تشغيل مدرسي موحّد • صُمم للمملكة",
+    hero_h1: 'من بوابة المدرسة<br>إلى وليّ الأمر.<br><span class="gradient-text">كل شيء حاضر.</span>',
+    hero_desc: "يسجل حاضر الوصول والانصراف، ينظم النداء والمقصف، ويصل الأسرة والإدارة ببيانات دقيقة لحظة بلحظة—حتى عند انقطاع الإنترنت.",
+    hero_request: "اطلب عرضاً مخصصاً",
     hero_btn_call: "اتصل بنا",
     hero_login: "دخول النظام",
     hero_btn_explore: "استكشف البنية التقنية",
-    stat_latency: "زمن استجابة التعرف الحيوي",
-    stat_offline: "جاهزية دون اتصال (Offline Engine)",
-    stat_uptime: "استقرار البنية الموزعة (SLA)",
+    stat_value_1: "فوري",
+    stat_value_2: "دون اتصال",
+    stat_value_3: "موحّد",
+    stat_latency: "تسجيل الوصول والانصراف",
+    stat_offline: "استمرارية التشغيل الميداني",
+    stat_uptime: "الإدارة والأسرة والميدان",
     phone_app_name: "تطبيق ولي الأمر",
     phone_live_badge: "مباشر • Live",
     notif_1_sender: "مدرسة الإبداع الأهلية",
@@ -865,6 +925,14 @@ const i18n = {
     float_1_d: "وصل (سعود) للمدرسة في ٠٧:١٥ ص",
     float_2_t: "إشعار نداء وانصراف",
     float_2_d: "جاري خروج الطالب للبوابة رقم (٢)",
+    campus_eyebrow: "مدرسة واحدة. منظومة واحدة.",
+    campus_title: 'كل لحظة مدرسية <span class="hl">متصلة وآمنة</span>',
+    campus_sub: "من بوابة الحضور إلى الفصل والمقصف ثم الانصراف؛ يوحّد حاضر رحلة الطالب في تدفق رقمي واضح يمنح الإدارة رؤية فورية ويطمئن الأسرة.",
+    campus_live: "بيانات متصلة لحظياً",
+    campus_step_1: "دخول موثّق في ثوانٍ",
+    campus_step_2: "متابعة تشغيلية موحّدة",
+    campus_step_3: "انصراف آمن بإشعار فوري",
+    campus_image_alt: "تصور ثلاثي الأبعاد لحرم مدرسي سعودي ذكي متصل بمنظومة حاضر",
     tech_banner_title: "المعايير الهندسية والبروتوكولات المعتمدة في منظومة حاضر",
     tech_pills: [
       "خوارزميات Edge AI الحيوية",
@@ -1049,15 +1117,19 @@ const i18n = {
     nav_faq: "FAQ",
     nav_cta: "Contact Us",
     nav_login: "Sign in",
-    hero_badge: "Advanced Edge-AI Biometric & Operations Engine — Architecture",
-    hero_h1: 'Reinvent The Daily<br>Experience In Your<br><span class="gradient-text">School Campus</span>.',
-    hero_desc: "HADER unifies cashless digital payments, biometric check-in, smart canteens, and dismissal dispatch in one secure, seamless ecosystem.",
+    hero_badge: "Unified school operations • Built for Saudi Arabia",
+    hero_h1: 'From the school gate<br>to every family.<br><span class="gradient-text">Everything is HADER.</span>',
+    hero_desc: "HADER records arrivals and dismissals, coordinates canteen and pickup operations, and keeps schools and families informed—even when the internet is unavailable.",
+    hero_request: "Request a tailored demo",
     hero_btn_call: "Contact Us",
     hero_login: "Sign in",
     hero_btn_explore: "Explore Architecture",
-    stat_latency: "Biometric Inference Latency",
-    stat_offline: "Offline Edge Resilience",
-    stat_uptime: "Distributed Infrastructure SLA",
+    stat_value_1: "Instant",
+    stat_value_2: "Offline",
+    stat_value_3: "Unified",
+    stat_latency: "Arrival and dismissal records",
+    stat_offline: "On-campus operational continuity",
+    stat_uptime: "School, family, and field teams",
     phone_app_name: "Parent Portal App",
     phone_live_badge: "Live Status",
     notif_1_sender: "Al-Ebdaa Academy",
@@ -1079,6 +1151,14 @@ const i18n = {
     float_1_d: "Saud checked-in at 07:15 AM",
     float_2_t: "Smart Gate Dismissal",
     float_2_d: "Student heading to Gate #2",
+    campus_eyebrow: "One campus. One ecosystem.",
+    campus_title: 'Every school moment, <span class="hl">connected and secure</span>',
+    campus_sub: "From arrival and class time to the canteen and safe dismissal, HADER turns the student journey into one clear digital flow for schools and families.",
+    campus_live: "Live connected operations",
+    campus_step_1: "Verified check-in in seconds",
+    campus_step_2: "Unified operational visibility",
+    campus_step_3: "Safe dismissal with instant alerts",
+    campus_image_alt: "Isometric visualization of a smart Saudi school campus connected by the HADER ecosystem",
     tech_banner_title: "Engineering Standards & Certified Protocols in HADER",
     tech_pills: [
       "Edge-AI Facial Inference Engine",
@@ -1333,6 +1413,13 @@ function switchLanguage(lang) {
     }
   });
 
+  document.querySelectorAll('[data-i18n-alt]').forEach(el => {
+    const key = el.getAttribute('data-i18n-alt');
+    if (i18n[lang][key]) {
+      el.setAttribute('alt', i18n[lang][key]);
+    }
+  });
+
   renderTechBanner(lang);
   updateDemoPortal();
   localizePageDigits(lang);
@@ -1376,19 +1463,36 @@ document.getElementById('demoResetBtn').addEventListener('click', () => {
 const themeToggle = document.getElementById('themeToggle');
 const savedTheme = localStorage.getItem('waki-theme');
 if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+themeToggle.setAttribute('aria-pressed', String(savedTheme === 'dark'));
 themeToggle.addEventListener('click', () => {
   const current = document.documentElement.getAttribute('data-theme');
   const next = current === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('waki-theme', next);
-  themeToggle.textContent = next === 'dark' ? '☀️' : '🌙';
+  themeToggle.setAttribute('aria-pressed', String(next === 'dark'));
 });
-if (savedTheme === 'dark') themeToggle.textContent = '☀️';
 
 /* ── Nav scroll effect ── */
 const nav = document.getElementById('nav');
 window.addEventListener('scroll', () => {
   nav.classList.toggle('scrolled', window.scrollY > 50);
+});
+
+const navLinks = [...document.querySelectorAll('.nav-link[href^="#"]')];
+const navSectionObserver = new IntersectionObserver((entries) => {
+  const visibleSection = entries.find(entry => entry.isIntersecting);
+  if (!visibleSection) return;
+  navLinks.forEach(link => {
+    const isActive = link.getAttribute('href') === `#${visibleSection.target.id}`;
+    link.classList.toggle('active', isActive);
+    if (isActive) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
+  });
+}, { rootMargin: '-28% 0px -62% 0px', threshold: 0 });
+
+navLinks.forEach(link => {
+  const section = document.querySelector(link.getAttribute('href'));
+  if (section) navSectionObserver.observe(section);
 });
 
 /* ── Mobile navigation ── */
