@@ -25,6 +25,7 @@ import { ToastProvider } from './Toast';
 import { DesktopAppInfo } from './DesktopAppInfo';
 import { isElectron } from '../hooks/useElectron';
 import { PAGE_HELP } from '../constants/pageHelp';
+import { applyDarkMode, getCurrentColorMode, getStoredColorMode } from '../utils/colorMode';
 
 export const NotificationContext = createContext<{
   notifications: Notification[];
@@ -87,7 +88,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showToast, setShowToast] = useState<{ notif: Notification, visible: boolean } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [dark_mode, setDarkMode] = useState(true); // Default dark mode
+  const [dark_mode, setDarkMode] = useState(() => getCurrentColorMode() === 'dark');
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [backupInProgress, setBackupInProgress] = useState(false);
   const [downloadModal, setDownloadModal] = useState<{
@@ -129,7 +130,10 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   useEffect(() => {
     const applySettingsState = (settings: { dark_mode?: boolean }) => {
       if (settings.dark_mode !== undefined) {
-        setDarkMode(settings.dark_mode);
+        const savedMode = getStoredColorMode();
+        const shouldUseDark = savedMode ? savedMode === 'dark' : settings.dark_mode !== false;
+        setDarkMode(shouldUseDark);
+        applyDarkMode(shouldUseDark, false);
       }
     };
     const unsubscribe = appSettings.subscribe(applySettingsState);
@@ -164,11 +168,13 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   const toggleDarkMode = async () => {
     const newMode = !dark_mode;
     setDarkMode(newMode);
+    applyDarkMode(newMode);
 
     try {
       await appSettings.execute({ type: 'patch', changes: { dark_mode: newMode } });
     } catch (e) {
       setDarkMode(!newMode);
+      applyDarkMode(!newMode);
       console.error('Failed to save dark mode setting', e);
     }
   };
@@ -382,7 +388,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
 
     return (
       <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closeModal} />
+        <button type="button" aria-label="إغلاق نافذة التنزيل" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closeModal} />
         <div className="relative glass-card rounded-3xl border border-primary-500/30 p-7 max-w-lg w-full animate-fade-in-up shadow-[0_30px_80px_rgb(var(--color-primary-600)_/_0.25)]">
           {/* Header */}
           <div className="flex items-start gap-4 mb-5">
@@ -655,7 +661,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     >
       <div className="flex items-center justify-between px-6 py-4 border-b border-primary-500/20">
         <span className="font-bold text-lg text-white">الإشعارات</span>
-        <button onClick={() => setBellOpen(false)} className="p-1 hover:bg-primary-500/10 rounded-full text-slate-400 hover:text-primary-400 transition-colors"><X className="w-5 h-5" /></button>
+        <button onClick={() => setBellOpen(false)} aria-label="إغلاق الإشعارات" className="p-1 hover:bg-primary-500/10 rounded-full text-slate-400 hover:text-primary-400 transition-colors"><X className="w-5 h-5" /></button>
       </div>
       <ul className="divide-y divide-primary-500/10 py-1 px-2">
         {notifications.length === 0 && (<li className="text-center text-slate-400 py-8">لا توجد إشعارات حالياً</li>)}
@@ -777,6 +783,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
         : 'bg-black/5 border-black/10 text-indigo-600 hover:bg-indigo-500/10 hover:border-indigo-500/30'
         }`}
       title={dark_mode ? 'تبديل للوضع الفاتح' : 'تبديل للوضع الداكن'}
+      aria-label={dark_mode ? 'تبديل للوضع الفاتح' : 'تبديل للوضع الداكن'}
     >
       {dark_mode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
     </button>
@@ -791,6 +798,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
         : 'bg-secondary-50 border-secondary-100 text-secondary-600 hover:bg-secondary-100 hover:border-secondary-200'
         }`}
       title="المساعد الذكي / المساعدة"
+      aria-label="فتح المساعد الذكي"
     >
       <HelpCircle className="w-5 h-5" />
     </button>
@@ -799,7 +807,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   return (
     <ToastProvider>
       <NotificationContext.Provider value={{ notifications, unreadCount, markAllRead }}>
-        <div className={`min-h-[100dvh] w-full max-w-full overflow-x-hidden flex flex-col md:flex-row ${dark_mode ? 'text-gray-100' : 'text-gray-800'}`}>
+        <div className={`app-shell min-h-[100dvh] w-full max-w-full overflow-x-hidden flex flex-col md:flex-row ${dark_mode ? 'text-gray-100' : 'text-gray-800'}`}>
           {/* Topbar for mobile */}
           <div className={`md:hidden safe-top ${dark_mode ? 'glass' : 'bg-white/80 backdrop-blur-lg'} px-4 pb-3 pt-4 flex justify-between items-center z-20 border-b ${dark_mode ? 'border-white/10' : 'border-gray-200'} sticky top-0`}>
             <img
@@ -831,6 +839,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               <button
                 onClick={() => setShowHelpModal(true)}
                 className={`p-2 rounded-lg ${dark_mode ? 'bg-primary-500/20 border-primary-500/30 text-primary-400' : 'bg-secondary-50 border-secondary-100 text-secondary-600'} border`}
+                aria-label="فتح المساعد الذكي"
               >
                 <HelpCircle className="w-6 h-6" />
               </button>
@@ -855,6 +864,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               <button
                 onClick={(e) => { e.stopPropagation(); setSidebarOpen(false); }}
                 className="md:hidden absolute top-4 left-4 p-2 rounded-full bg-white/5 text-slate-400 hover:text-primary-400 transition-colors"
+                aria-label="إغلاق القائمة"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -987,7 +997,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
           {/* Logout Confirmation Modal */}
           {showLogoutModal && (
             <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => !backupInProgress && setShowLogoutModal(false)} />
+              <button type="button" aria-label="إغلاق نافذة تسجيل الخروج" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => !backupInProgress && setShowLogoutModal(false)} />
               <div className="relative glass-card rounded-3xl border border-red-500/30 p-8 max-w-md w-full animate-fade-in-up">
                 <div className="text-center mb-6">
                   <div className="w-20 h-20 mx-auto rounded-full bg-red-500/20 flex items-center justify-center mb-4">
@@ -1040,7 +1050,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
             
             return (
               <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setShowHelpModal(false)} />
+                <button type="button" aria-label="إغلاق نافذة المساعدة" className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setShowHelpModal(false)} />
                 <div className="relative glass-card rounded-[2rem] border border-primary-500/30 p-8 max-w-2xl w-full animate-fade-in-up overflow-hidden" dir="rtl">
                   {/* Background Glow */}
                   <div className="absolute -top-24 -left-24 w-48 h-48 bg-primary-500/20 rounded-full blur-[80px] pointer-events-none"></div>
@@ -1058,6 +1068,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                     <button 
                       onClick={() => setShowHelpModal(false)}
                       className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors"
+                      aria-label="إغلاق نافذة المساعدة"
                     >
                       <X className="w-6 h-6" />
                     </button>

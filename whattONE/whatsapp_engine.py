@@ -141,42 +141,59 @@ class WhatsAppEngine:
         """Get current statistics"""
         return {**self.stats}
 
-    def _human_typing(self, element, text):
-        """Simulate natural human typing with bursts and pauses"""
+    def _human_typing(self, element, text: str):
+        """
+        Simulate natural typing with bursts, pauses, and language-aware speeds.
+        """
         try:
             element.click()
-            time.sleep(random.uniform(0.5, 1.2)) # Pause to show "typing..." indicator
-            
+            time.sleep(random.uniform(0.5, 1.2))
+
             # If message is very long, paste it to save time, but act human
             if len(text) > 150:
                 self._paste_message(element, text)
                 return
 
+            speed_factor = random.uniform(0.7, 1.3)
             words = text.split(' ')
             for i, word in enumerate(words):
                 for char in word:
                     element.send_keys(char)
-                    time.sleep(random.uniform(0.01, 0.08)) # Quick keystrokes
-                    if random.random() < 0.005: # Occasional typo
+                    # Arabic characters are typed slower than digits/English
+                    if '\u0600' <= char <= '\u06FF' or '\u0750' <= char <= '\u077F':
+                        delay = random.uniform(0.02, 0.10) * speed_factor
+                    elif char.isdigit():
+                        delay = random.uniform(0.01, 0.05) * speed_factor
+                    else:
+                        delay = random.uniform(0.01, 0.08) * speed_factor
+                    time.sleep(delay)
+
+                    if random.random() < 0.005:  # Occasional typo
                         element.send_keys(Keys.BACKSPACE)
-                        time.sleep(random.uniform(0.1, 0.2))
+                        time.sleep(random.uniform(0.15, 0.35))
                         element.send_keys(char)
-                
+
                 if i < len(words) - 1:
                     element.send_keys(' ')
-                    time.sleep(random.uniform(0.03, 0.1))
-                
-                if word.endswith('.') or word.endswith('!') or word.endswith('؟'):
-                    time.sleep(random.uniform(0.2, 0.5))
+                    time.sleep(random.uniform(0.03, 0.12))
+
+                if word and word[-1] in '.!؟?،,:':
+                    time.sleep(random.uniform(0.2, 0.6))
+
+                if random.random() < 0.03:
+                    time.sleep(random.uniform(0.4, 1.0))
         except Exception as e:
             logger.warning(f"Typing error, falling back: {e}")
-            element.send_keys(text)
+            try:
+                element.send_keys(text)
+            except Exception:
+                pass
 
     def _paste_message(self, input_box, text):
         """Paste full message using JavaScript to preserve formatting and look human-ish"""
         try:
             input_box.click()
-            time.sleep(0.3)
+            time.sleep(random.uniform(0.3, 0.8))
             escaped = text.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
             self.driver.execute_script(f"""
                 const text = `{escaped}`;
@@ -189,23 +206,80 @@ class WhatsAppEngine:
                 }});
                 arguments[0].dispatchEvent(pasteEvent);
             """, input_box)
-            time.sleep(0.5)
+            time.sleep(random.uniform(0.5, 1.0))
         except Exception:
             self._human_typing(input_box, text)
 
-    def _simulate_human_activity(self):
-        """Random movements and scrolls"""
+    @staticmethod
+    def _bezier_point(t: float, p0, p1, p2, p3):
+        """Calculate cubic Bezier curve point at parameter t."""
+        u = 1 - t
+        return (
+            u**3 * p0[0] + 3 * u**2 * t * p1[0] + 3 * u * t**2 * p2[0] + t**3 * p3[0],
+            u**3 * p0[1] + 3 * u**2 * t * p1[1] + 3 * u * t**2 * p2[1] + t**3 * p3[1],
+        )
+
+    def _move_mouse_bezier(self, target_x: int, target_y: int, steps: int = 0):
+        """Move mouse along an organic Bezier curve."""
         if not self.driver: return
         try:
+            if steps == 0:
+                steps = random.randint(12, 25)
+            p0 = (0, 0)
+            p3 = (target_x, target_y)
+            p1 = (random.randint(-30, target_x + 30), random.randint(-30, target_y + 30))
+            p2 = (random.randint(-30, target_x + 30), random.randint(-30, target_y + 30))
+
             actions = ActionChains(self.driver)
-            actions.move_by_offset(random.randint(-30, 30), random.randint(-30, 30)).perform()
-            time.sleep(random.uniform(0.5, 1.2))
-            scroll = random.randint(50, 200)
+            prev = (0, 0)
+            for i in range(1, steps + 1):
+                t = i / steps
+                point = self._bezier_point(t, p0, p1, p2, p3)
+                dx = int(point[0] - prev[0])
+                dy = int(point[1] - prev[1])
+                if dx != 0 or dy != 0:
+                    actions.move_by_offset(dx, dy)
+                    actions.pause(random.uniform(0.005, 0.025))
+                prev = (prev[0] + dx, prev[1] + dy)
+            actions.perform()
+        except Exception:
+            pass
+
+    def _simulate_human_activity(self):
+        """Natural Bezier movements and subtle scrolls"""
+        if not self.driver: return
+        try:
+            dx = random.randint(-60, 60)
+            dy = random.randint(-60, 60)
+            self._move_mouse_bezier(dx, dy)
+            time.sleep(random.uniform(0.3, 0.8))
+
+            scroll = random.randint(50, 250)
             self.driver.execute_script(f"window.scrollBy(0, {scroll});")
-            time.sleep(random.uniform(0.3, 0.7))
+            time.sleep(random.uniform(0.2, 0.6))
             self.driver.execute_script(f"window.scrollBy(0, -{scroll});")
         except Exception:
             pass
+
+    def _idle_browsing(self):
+        """Casual idle browsing between message batches"""
+        if not self.driver: return
+        try:
+            logger.info("👀 Casual idle browsing simulation...")
+            chats = self.driver.find_elements(By.XPATH, '//div[@data-testid="cell-frame-container"]')
+            if chats and len(chats) > 2:
+                random_chat = random.choice(chats[:min(8, len(chats))])
+                random_chat.click()
+                time.sleep(random.uniform(2, 4))
+                self._move_mouse_bezier(random.randint(-40, 40), random.randint(-40, 40))
+                time.sleep(random.uniform(1, 2))
+        except Exception:
+            pass
+
+    def _is_within_session_window(self) -> bool:
+        """Check if current time is within normal active hours (avoids 1 AM - 6 AM)"""
+        hour = datetime.now().hour
+        return not (1 <= hour < 6)
 
     def _cleanup_session_locks(self):
         """Clean up session locks to prevent 'Profile in use' errors"""
@@ -238,6 +312,43 @@ class WhatsAppEngine:
         options.add_argument(f"--user-agent={_get_user_agent()}")
         return options
 
+    def _get_stealth_js(self) -> str:
+        """Return comprehensive stealth JS injection."""
+        return """
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        const fakePluginData = [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', mimeTypes: [{type: 'application/x-google-chrome-pdf', suffixes: 'pdf', description: 'Portable Document Format'}] },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', mimeTypes: [{type: 'application/pdf', suffixes: 'pdf', description: ''}] },
+            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', mimeTypes: [{type: 'application/x-nacl', suffixes: '', description: 'Native Client Executable'}, {type: 'application/x-pnacl', suffixes: '', description: 'Portable Native Client Executable'}] }
+        ];
+        const fakePluginArray = fakePluginData.map(p => {
+            const plugin = Object.create(Plugin.prototype);
+            Object.defineProperties(plugin, { name: { value: p.name, enumerable: true }, filename: { value: p.filename, enumerable: true }, description: { value: p.description, enumerable: true }, length: { value: p.mimeTypes.length, enumerable: true } });
+            p.mimeTypes.forEach((mt, i) => {
+                const mimeType = Object.create(MimeType.prototype);
+                Object.defineProperties(mimeType, { type: { value: mt.type, enumerable: true }, suffixes: { value: mt.suffixes, enumerable: true }, description: { value: mt.description, enumerable: true }, enabledPlugin: { value: plugin, enumerable: true } });
+                Object.defineProperty(plugin, i, { value: mimeType, enumerable: true });
+            });
+            return plugin;
+        });
+        const fakePlugins = Object.create(PluginArray.prototype);
+        fakePluginArray.forEach((p, i) => { Object.defineProperty(fakePlugins, i, { value: p, enumerable: true }); Object.defineProperty(fakePlugins, p.name, { value: p }); });
+        Object.defineProperty(fakePlugins, 'length', { value: fakePluginArray.length, enumerable: true });
+        fakePlugins.item = function(i) { return this[i] || null; };
+        fakePlugins.namedItem = function(name) { return this[name] || null; };
+        fakePlugins.refresh = function() {};
+        Object.defineProperty(navigator, 'plugins', { get: () => fakePlugins });
+        Object.defineProperty(navigator, 'languages', { get: () => ['ar', 'ar-SA', 'en-US', 'en'] });
+        window.chrome = {
+            app: { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
+            runtime: { OnInstalledReason: {}, PlatformArch: { X86_64: 'x86-64' }, PlatformOs: { MAC: 'mac', WIN: 'win' } }
+        };
+        const origPermQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (params) => params.name === 'notifications' ? Promise.resolve({ state: Notification.permission }) : origPermQuery.call(navigator.permissions, params);
+        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+        for (const key of Object.keys(window)) { if (/^cdc_/.test(key)) { delete window[key]; } }
+        """
+
     def init_browser(self):
         """Initialize browser with robust logic"""
         logger.info("🔧 Initializing whattONE Engine...")
@@ -248,28 +359,10 @@ class WhatsAppEngine:
                 options = self._build_chrome_options()
                 service = Service(ChromeDriverManager().install())
                 self.driver = webdriver.Chrome(service=service, options=options)
-                # Hide navigator.webdriver PERMANENTLY (survives page navigations)
+                # Inject comprehensive stealth fingerprints
                 self.driver.execute_cdp_cmd(
                     "Page.addScriptToEvaluateOnNewDocument",
-                    {"source": "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"}
-                )
-                # Hide additional automation fingerprints
-                self.driver.execute_cdp_cmd(
-                    "Page.addScriptToEvaluateOnNewDocument",
-                    {"source": """
-                        Object.defineProperty(navigator, 'plugins', {
-                            get: () => [1, 2, 3, 4, 5]
-                        });
-                        Object.defineProperty(navigator, 'languages', {
-                            get: () => ['ar', 'ar-SA', 'en-US', 'en']
-                        });
-                        window.chrome = { runtime: {} };
-                        const origQuery = window.navigator.permissions.query;
-                        window.navigator.permissions.query = (params) =>
-                            params.name === 'notifications'
-                                ? Promise.resolve({state: Notification.permission})
-                                : origQuery(params);
-                    """}
+                    {"source": self._get_stealth_js()}
                 )
                 self.wait = WebDriverWait(self.driver, 60)
                 logger.info("✅ Engine ready.")

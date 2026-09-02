@@ -11,20 +11,20 @@ export const HIDDEN_ADMIN_USERNAMES = new Set(['adminhim', 'admin']);
 export const PRIVACY_ADD_KEY = 'hader_privacy_add_student_ack';
 export const PRIVACY_IMPORT_KEY = 'hader_privacy_import_students_ack';
 
-// Theme configurations - Professional Gradient Themes
+// Theme configurations - HADER brand is the canonical system theme.
 export const THEME_CONFIG: Record<string, ThemeConfig> = {
   default: {
-    name: 'نيون سايبر',
-    nameEn: 'Cyber Neon',
-    emoji: '⚡',
-    gradient: 'from-primary-500 via-secondary-500 to-secondary-600',
-    colors: ['bg-primary-500', 'bg-secondary-600'],
-    primary_400: '34 211 238',
-    primary_500: '6 182 212',
-    primary_600: '8 145 178',
-    secondary_400: '96 165 250',
-    secondary_500: '37 99 235',
-    secondary_600: '29 78 216'
+    name: 'هوية حاضر',
+    nameEn: 'HADER Brand',
+    emoji: 'ح',
+    gradient: 'from-primary-600 via-primary-500 to-secondary-500',
+    colors: ['bg-primary-600', 'bg-secondary-500'],
+    primary_400: '69 171 161',
+    primary_500: '43 156 146',
+    primary_600: '10 85 93',
+    secondary_400: '84 188 169',
+    secondary_500: '19 114 122',
+    secondary_600: '6 47 53'
   },
   ocean: {
     name: 'أزرق محيطي',

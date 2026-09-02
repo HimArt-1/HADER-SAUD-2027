@@ -4,8 +4,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f172a" />
-  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e9eff8" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#06191e" />
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f8f7" />
   <meta name="application-name" content="حاضر" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -14,6 +14,21 @@
   <meta name="format-detection" content="telephone=no" />
   <meta name="description" content="نظام حاضر الذكي لتسجيل حضور الطلاب - Hader Smart Attendance System" />
   <title>نظام حاضر - Hader</title>
+
+  <script>
+    (() => {
+      try {
+        const mode = localStorage.getItem('hader:color-mode') === 'light' ? 'light' : 'dark';
+        document.documentElement.classList.add(mode === 'dark' ? 'dark' : 'light-mode');
+        document.documentElement.dataset.colorMode = mode;
+        document.documentElement.style.colorScheme = mode;
+      } catch {
+        document.documentElement.classList.add('dark');
+        document.documentElement.dataset.colorMode = 'dark';
+        document.documentElement.style.colorScheme = 'dark';
+      }
+    })();
+  </script>
 
   <!-- Google Fonts - Cairo for Futuristic Arabic Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -28,22 +43,22 @@
   <link rel="manifest" href="/manifest.json" />
 </head>
 
-<body class="font-sans antialiased selection:bg-cyan-500/30 selection:text-white">
+<body class="font-sans antialiased selection:bg-primary-500/30 selection:text-white">
   <!-- ═══════════════════════════════════════════════════════════════
          ✨ Ambient Background - Floating Neon Blobs
          ═══════════════════════════════════════════════════════════════ -->
   <div class="fixed inset-0 w-full h-full pointer-events-none z-[-1] overflow-hidden ambient-bg">
     <!-- Primary Cyan Blob - Top Left -->
     <div
-      class="absolute top-[-15%] left-[15%] w-[600px] h-[600px] bg-cyan-500 rounded-full mix-blend-screen filter blur-[160px] opacity-25 animate-blob">
+      class="absolute top-[-15%] left-[15%] w-[600px] h-[600px] bg-primary-500 rounded-full mix-blend-screen filter blur-[160px] opacity-20 animate-blob">
     </div>
     <!-- Secondary Blue Blob - Top Right -->
     <div
-      class="absolute top-[5%] right-[15%] w-[500px] h-[500px] bg-blue-600 rounded-full mix-blend-screen filter blur-[140px] opacity-20 animate-blob animation-delay-2000">
+      class="absolute top-[5%] right-[15%] w-[500px] h-[500px] bg-secondary-500 rounded-full mix-blend-screen filter blur-[140px] opacity-16 animate-blob animation-delay-2000">
     </div>
     <!-- Tertiary Violet Blob - Bottom -->
     <div
-      class="absolute bottom-[-15%] left-[25%] w-[700px] h-[700px] bg-violet-600 rounded-full mix-blend-screen filter blur-[180px] opacity-15 animate-blob animation-delay-4000">
+      class="absolute bottom-[-15%] left-[25%] w-[700px] h-[700px] bg-primary-600 rounded-full mix-blend-screen filter blur-[180px] opacity-12 animate-blob animation-delay-4000">
     </div>
   </div>
 

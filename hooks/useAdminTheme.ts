@@ -57,8 +57,8 @@ const triggerThemeTransition = () => {
 export const applyAdminThemeToDOM = (theme: AppTheme, animate = false) => {
   const root = document.documentElement;
 
-  const [p300r, p300g, p300b] = parseThemeRgb(theme.primary_400, [103, 232, 249]);
-  const [s300r, s300g, s300b] = parseThemeRgb(theme.secondary_400, [147, 197, 253]);
+  const [p300r, p300g, p300b] = parseThemeRgb(theme.primary_400, [69, 171, 161]);
+  const [s300r, s300g, s300b] = parseThemeRgb(theme.secondary_400, [84, 188, 169]);
   const primary300: [number, number, number] = [
     Math.round(p300r * 0.7 + 255 * 0.3),
     Math.round(p300g * 0.7 + 255 * 0.3),
@@ -104,21 +104,21 @@ export const applyAdminThemeToDOM = (theme: AppTheme, animate = false) => {
   root.style.setProperty('--color-primary-100', primary100.join(' '));
   root.style.setProperty('--color-primary-200', primary200.join(' '));
   root.style.setProperty('--color-primary-300', primary300.join(' '));
-  root.style.setProperty('--color-primary-400', theme.primary_400 || '34 211 238');
-  root.style.setProperty('--color-primary-500', theme.primary_500 || '6 182 212');
-  root.style.setProperty('--color-primary-600', theme.primary_600 || '8 145 178');
+  root.style.setProperty('--color-primary-400', theme.primary_400 || '69 171 161');
+  root.style.setProperty('--color-primary-500', theme.primary_500 || '43 156 146');
+  root.style.setProperty('--color-primary-600', theme.primary_600 || '10 85 93');
 
   root.style.setProperty('--color-secondary-50', secondary50.join(' '));
   root.style.setProperty('--color-secondary-100', secondary100.join(' '));
   root.style.setProperty('--color-secondary-200', secondary200.join(' '));
   root.style.setProperty('--color-secondary-300', secondary300.join(' '));
-  root.style.setProperty('--color-secondary-400', theme.secondary_400 || '96 165 250');
-  root.style.setProperty('--color-secondary-500', theme.secondary_500 || '37 99 235');
-  root.style.setProperty('--color-secondary-600', theme.secondary_600 || '29 78 216');
+  root.style.setProperty('--color-secondary-400', theme.secondary_400 || '84 188 169');
+  root.style.setProperty('--color-secondary-500', theme.secondary_500 || '19 114 122');
+  root.style.setProperty('--color-secondary-600', theme.secondary_600 || '6 47 53');
 
-  const [r, g, b] = parseThemeRgb(theme.primary_500, [6, 182, 212]);
-  const [r2, g2, b2] = parseThemeRgb(theme.secondary_500, [37, 99, 235]);
-  const [r3, g3, b3] = parseThemeRgb(theme.primary_600, [8, 145, 178]);
+  const [r, g, b] = parseThemeRgb(theme.primary_500, [43, 156, 146]);
+  const [r2, g2, b2] = parseThemeRgb(theme.secondary_500, [19, 114, 122]);
+  const [r3, g3, b3] = parseThemeRgb(theme.primary_600, [10, 85, 93]);
 
   root.style.setProperty('--color-primary-700', `${Math.round(r3 * 0.82)} ${Math.round(g3 * 0.82)} ${Math.round(b3 * 0.82)}`);
   root.style.setProperty('--color-primary-800', `${Math.round(r3 * 0.68)} ${Math.round(g3 * 0.68)} ${Math.round(b3 * 0.68)}`);
@@ -132,9 +132,9 @@ export const applyAdminThemeToDOM = (theme: AppTheme, animate = false) => {
   root.style.setProperty('--secondary-rgb', `${r2}, ${g2}, ${b2}`);
   root.style.setProperty('--primary-dark-rgb', `${r3}, ${g3}, ${b3}`);
 
-  root.style.setProperty('--glow-cyan', `rgba(${r}, ${g}, ${b}, 0.5)`);
-  root.style.setProperty('--glass-border-hover', `rgba(${r}, ${g}, ${b}, 0.4)`);
-  root.style.setProperty('--glass-shadow-glow', `0 0 40px rgba(${r}, ${g}, ${b}, 0.15)`);
+  root.style.setProperty('--glow-cyan', `rgba(${r}, ${g}, ${b}, 0.24)`);
+  root.style.setProperty('--glass-border-hover', `rgba(${r}, ${g}, ${b}, 0.3)`);
+  root.style.setProperty('--glass-shadow-glow', `0 20px 46px -34px rgba(${r3}, ${g3}, ${b3}, 0.45)`);
   root.style.setProperty('--input-focus-border', `rgba(${r}, ${g}, ${b}, 0.6)`);
   root.style.setProperty('--glow-blue', `rgba(${r2}, ${g2}, ${b2}, 0.5)`);
   root.style.setProperty('--glow-pink', `rgba(${r2}, ${g2}, ${b2}, 0.5)`);
@@ -155,10 +155,10 @@ export const applyAdminThemeToDOM = (theme: AppTheme, animate = false) => {
   root.style.setProperty('--scrollbar-thumb-hover-end', `rgba(${r2}, ${g2}, ${b2}, 0.6)`);
   root.style.setProperty('--selection-bg', `rgba(${r}, ${g}, ${b}, 0.3)`);
 
-  root.style.setProperty('--button-gradient-start', `rgb(${r}, ${g}, ${b})`);
-  root.style.setProperty('--button-gradient-end', `rgb(${r2}, ${g2}, ${b2})`);
-  root.style.setProperty('--button-shadow', `0 4px 20px rgba(${r}, ${g}, ${b}, 0.35)`);
-  root.style.setProperty('--hover-glow', `0 0 25px rgba(${r}, ${g}, ${b}, 0.4)`);
+  root.style.setProperty('--button-gradient-start', `rgb(${r3}, ${g3}, ${b3})`);
+  root.style.setProperty('--button-gradient-end', `rgb(${r}, ${g}, ${b})`);
+  root.style.setProperty('--button-shadow', `0 12px 28px -16px rgba(${r3}, ${g3}, ${b3}, 0.7)`);
+  root.style.setProperty('--hover-glow', `0 16px 34px -24px rgba(${r}, ${g}, ${b}, 0.6)`);
   root.style.setProperty('--hover-border', `rgba(${r}, ${g}, ${b}, 0.5)`);
   root.style.setProperty('--focus-ring', `rgba(${r}, ${g}, ${b}, 0.5)`);
 
@@ -180,17 +180,17 @@ export const applyAdminThemeToDOM = (theme: AppTheme, animate = false) => {
   root.style.setProperty('--theme-tint-g', g.toString());
   root.style.setProperty('--theme-tint-b', b.toString());
 
-  const bgR = Math.floor(r * 0.15 + 15);
-  const bgG = Math.floor(g * 0.15 + 23);
-  const bgB = Math.floor(b * 0.15 + 42);
-  const bgR2 = Math.floor(r * 0.18 + 30);
-  const bgG2 = Math.floor(g * 0.18 + 41);
-  const bgB2 = Math.floor(b * 0.18 + 59);
+  const bgR = Math.floor(r * 0.05 + 4);
+  const bgG = Math.floor(g * 0.09 + 8);
+  const bgB = Math.floor(b * 0.1 + 9);
+  const bgR2 = Math.floor(r * 0.07 + 8);
+  const bgG2 = Math.floor(g * 0.12 + 13);
+  const bgB2 = Math.floor(b * 0.13 + 15);
 
   root.style.setProperty('--bg-app', `rgb(${bgR}, ${bgG}, ${bgB})`);
   root.style.setProperty('--bg-app-secondary', `rgb(${bgR2}, ${bgG2}, ${bgB2})`);
-  root.style.setProperty('--glass-bg', `rgba(${bgR}, ${bgG}, ${bgB}, 0.6)`);
-  root.style.setProperty('--glass-bg-light', `rgba(${r}, ${g}, ${b}, 0.05)`);
+  root.style.setProperty('--glass-bg', `rgba(${bgR2}, ${bgG2}, ${bgB2}, 0.82)`);
+  root.style.setProperty('--glass-bg-light', `rgba(${r}, ${g}, ${b}, 0.045)`);
 
   if (animate) triggerThemeTransition();
 };

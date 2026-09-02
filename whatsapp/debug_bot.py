@@ -1,6 +1,6 @@
 import os
 import sys
-from whatsapp_pro_tool import WhatsAppOffensiveTool
+from whatsapp_pro_tool import WhatsAppProTool
 import logging
 
 # Setup basic logging to stdout
@@ -17,7 +17,7 @@ def debug_run():
         return
 
     print("Initializing Bot Tool...")
-    tool = WhatsAppOffensiveTool(TARGET_CSV)
+    tool = WhatsAppProTool(TARGET_CSV)
     
     print("Launching Browser...")
     tool.init_browser()

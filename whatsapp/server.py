@@ -30,7 +30,15 @@ HOST = os.environ.get('WHATSAPP_SERVER_HOST', '0.0.0.0').strip() or '0.0.0.0'
 # 🔐 إعدادات الأمان
 # ═══════════════════════════════════════════════════════════════
 
-CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "X-API-Key", "Cache-Control"]}})
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "https://hader-saud-2027.vercel.app",
+]
+CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS, "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "X-API-Key", "Cache-Control"]}})
 
 # إنشاء Blueprint للتعامل مع بادئة /api
 api_bp = Blueprint('api', __name__)
@@ -622,6 +630,17 @@ def get_queue():
             return jsonify(items)
     except Exception as e:
         return jsonify([])
+
+@api_bp.route('/stats', methods=['GET'])
+@require_api_key
+def get_stats():
+    """إحصائيات طابور الرسائل"""
+    try:
+        stats = sqlite_db.get_stats()
+        return jsonify(stats)
+    except Exception as e:
+        logging.error(f"خطأ في استرجاع الإحصائيات: {e}")
+        return jsonify({"total": 0, "sent": 0, "failed": 0, "pending": 0, "skipped": 0})
 
 @api_bp.route('/delete/<id>', methods=['DELETE'])
 @require_api_key

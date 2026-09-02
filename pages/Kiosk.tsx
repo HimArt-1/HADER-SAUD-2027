@@ -82,19 +82,19 @@ const KIOSK_THEMES: Record<KioskTheme, {
   isDark: boolean;
 }> = {
   // ═══════════════════════════════════════════════════════════════
-  // 🌟 DEFAULT THEME: Futuristic Glass & Dark Neon (Techno-Glassmorphism)
+  // DEFAULT THEME: HADER dark brand
   // ═══════════════════════════════════════════════════════════════
   'dark-neon': {
-    bg: 'bg-[#0f172a]', // Deep Slate/Navy - High contrast canvas
-    blob1: 'bg-cyan-500/30', // Ambient glow - Cyan (Increased opacity)
-    blob2: 'bg-blue-600/25', // Ambient glow - Blue (Increased opacity)
-    accent: 'text-cyan-400', // Primary accent - Cyan
-    text: 'text-white', // Pure white for headings
-    subText: 'text-slate-300', // Light gray for body text
-    inputBg: 'bg-slate-900/80', // Darker input background
-    inputBorder: 'border-cyan-500/50', // Neon border
-    glowFrom: 'from-cyan-400', // Gradient start - Cyan
-    glowTo: 'to-blue-600', // Gradient end - Blue
+    bg: 'bg-[#06191e]',
+    blob1: 'bg-primary-500/20',
+    blob2: 'bg-secondary-500/15',
+    accent: 'text-primary-300',
+    text: 'text-white',
+    subText: 'text-slate-300',
+    inputBg: 'bg-[#0b272d]/85',
+    inputBorder: 'border-primary-400/35',
+    glowFrom: 'from-primary-400',
+    glowTo: 'to-secondary-500',
     isDark: true
   },
   'dark-gradient': {
@@ -111,16 +111,16 @@ const KIOSK_THEMES: Record<KioskTheme, {
     isDark: true
   },
   'light-clean': {
-    bg: 'bg-gradient-to-br from-gray-100 via-white to-blue-50',
-    blob1: 'bg-blue-400/20',
-    blob2: 'bg-indigo-400/20',
-    accent: 'text-blue-600',
-    text: 'text-gray-800',
-    subText: 'text-blue-500',
+    bg: 'bg-gradient-to-br from-[#f4f8f7] via-white to-primary-50',
+    blob1: 'bg-primary-400/15',
+    blob2: 'bg-secondary-400/10',
+    accent: 'text-primary-600',
+    text: 'text-[#10272b]',
+    subText: 'text-[#587075]',
     inputBg: 'bg-white/90',
-    inputBorder: 'border-blue-300',
-    glowFrom: 'from-blue-400',
-    glowTo: 'to-indigo-400',
+    inputBorder: 'border-primary-300',
+    glowFrom: 'from-primary-400',
+    glowTo: 'to-secondary-500',
     isDark: false
   },
   'light-soft': {

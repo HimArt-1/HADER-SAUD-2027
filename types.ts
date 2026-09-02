@@ -32,6 +32,7 @@ export const STORAGE_KEYS = {
   TELEMETRY_ERROR_QUEUE: 'hader:telemetry:queue_errors',
   TELEMETRY_SESSION_RESTORE: 'hader:telemetry:session_restore',
   ADMIN_THEME: 'hader:admin:theme',
+  COLOR_MODE: 'hader:color-mode',
   SUPPORT_THEME: 'hader:support:theme',
   KIOSK_THEME: 'hader:kiosk:theme',
   EMERGENCY_QUEUE: 'hader:emergency:queue',

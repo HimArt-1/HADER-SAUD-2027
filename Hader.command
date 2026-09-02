@@ -158,7 +158,7 @@ case $choice in
         echo ""
         echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
         echo -e "${GREEN}║${NC}  🌐 الواجهة: ${CYAN}http://localhost:5173${NC}               ${GREEN}║${NC}"
-        echo -e "${GREEN}║${NC}  📱 الواتساب: ${CYAN}http://localhost:5050${NC}              ${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}  📱 الواتساب: ${CYAN}http://localhost:5001${NC}              ${GREEN}║${NC}"
         echo -e "${GREEN}║${NC}  📝 للإيقاف: اضغط ${WHITE}Ctrl+C${NC}                         ${GREEN}║${NC}"
         echo -e "${GREEN}╚════════════════════════════════════════════════════╝${NC}"
         echo ""
@@ -200,7 +200,7 @@ case $choice in
         
         echo ""
         echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
-        echo -e "${GREEN}║${NC}  📱 الخادم: ${CYAN}http://localhost:5050${NC}                 ${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}  📱 الخادم: ${CYAN}http://localhost:5001${NC}                 ${GREEN}║${NC}"
         echo -e "${GREEN}╚════════════════════════════════════════════════════╝${NC}"
         echo ""
         

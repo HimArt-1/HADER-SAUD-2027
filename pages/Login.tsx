@@ -74,8 +74,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const loginTone = activeTab === 'staff' ? 'primary' : 'guardian';
 
   return (
-    <main className="relative min-h-[100dvh] overflow-hidden bg-slate-950 text-slate-100">
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(15,23,42,0.96),rgba(8,47,73,0.68)_52%,rgba(15,23,42,0.96))]" />
+    <main className="hader-auth relative min-h-[100dvh] overflow-hidden bg-[#06191e] text-slate-100">
+      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(6,25,30,0.98),rgba(10,85,93,0.76)_52%,rgba(6,47,53,0.96))]" />
       <div className="absolute inset-0 opacity-[0.11] [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:48px_48px]" />
 
       <div className="relative mx-auto grid min-h-[100dvh] w-full max-w-7xl grid-cols-1 items-center gap-10 px-5 py-8 md:grid-cols-[1.05fr_0.95fr] md:px-10 lg:px-12">
@@ -125,8 +125,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         </section>
 
         <section className="w-full">
-          <div className="mx-auto w-full max-w-[440px] rounded-[2rem] border border-white/10 bg-slate-950/85 md:bg-slate-950/72 p-2 shadow-[0_30px_90px_-42px_rgb(var(--color-primary-500)_/_0.58),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md md:backdrop-blur-xl">
-            <div className="rounded-[1.55rem] border border-white/10 bg-slate-900/88 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:p-7">
+          <div className="mx-auto w-full max-w-[440px] rounded-[2rem] border border-white/10 bg-[#06191e]/85 md:bg-[#06191e]/72 p-2 shadow-[0_30px_90px_-42px_rgb(var(--color-primary-500)_/_0.42),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md md:backdrop-blur-xl">
+            <div className="rounded-[1.55rem] border border-white/10 bg-[#0b272d]/90 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:p-7">
               <div className="mb-7 md:hidden">
                 <img
                   src="/images/hader-logo.png"

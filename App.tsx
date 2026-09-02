@@ -9,6 +9,7 @@ import { THEME_CONFIG } from './components/admin/constants';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import { accessPolicy, type ProtectedRouteKey } from './modules/access';
 import { applyAdminThemeKeyToDOM, applyAdminThemeToDOM } from './hooks/useAdminTheme';
+import { applyDarkMode, getStoredColorMode } from './utils/colorMode';
 
 const { canAccessRoute } = accessPolicy;
 
@@ -46,17 +47,6 @@ const ProtectedRoute: React.FC<{
   }
 
   return children;
-};
-
-// Apply dark/light mode to DOM
-const applyDarkMode = (isDark: boolean) => {
-  if (isDark) {
-    document.documentElement.classList.remove('light-mode');
-    document.documentElement.classList.add('dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-    document.documentElement.classList.add('light-mode');
-  }
 };
 
 const getSettingsAdminThemeKey = (settings?: SystemSettings | null) => {
@@ -197,7 +187,7 @@ const App: React.FC = () => {
       // Ignore storage failures; defaults remain usable.
     }
 
-    applyDarkMode(true);
+    applyDarkMode(getStoredColorMode() !== 'light', false);
     setLoading(false);
 
     if (!sessionUser) {
@@ -222,11 +212,12 @@ const App: React.FC = () => {
         }
 
         // Apply dark mode setting (default to dark if not set)
-        applyDarkMode(settings?.dark_mode !== false);
+        const savedMode = getStoredColorMode();
+        applyDarkMode(savedMode ? savedMode === 'dark' : settings?.dark_mode !== false, false);
       } catch (error) {
         logError(error, 'App - Load Settings');
         // Apply default dark mode on error
-        applyDarkMode(true);
+        applyDarkMode(getStoredColorMode() !== 'light', false);
       }
     };
 
