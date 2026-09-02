@@ -13,6 +13,7 @@ import {
     validateAttendanceTiming,
     validateWorkDays
 } from './attendanceSettingsRules';
+import { WhatsAppPackageSection } from './WhatsAppPackageSection';
 
 export interface AdminSettingsTabProps {
     // Attendance settings
@@ -644,6 +645,9 @@ const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                     </button>
                 </div>
             </div>
+
+            {/* WhatsApp Pro Server Packages (Mac & Windows) */}
+            <WhatsAppPackageSection showToast={showToast} />
 
             {/* Recalculation Modal */}
             {showRecalcModal && (

@@ -28,6 +28,7 @@ const ZIP_ENTRY_DATE = new Date('2026-01-01T00:00:00.000Z');
 const SHARED = [
   'server.py',
   'whatsapp_pro_tool.py',
+  'sqlite_db.py',
   'requirements.txt',
 ];
 

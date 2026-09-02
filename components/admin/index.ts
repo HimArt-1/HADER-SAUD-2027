@@ -26,3 +26,4 @@ export { default as AdminActivityLogTab } from './AdminActivityLogTab';
 export { default as AdminGuardianPhonesTab } from './AdminGuardianPhonesTab';
 export { default as AdminIntegrationsTab } from './AdminIntegrationsTab';
 export { default as AdminStaffOperationsTab } from './AdminStaffOperationsTab';
+export { WhatsAppPackageSection } from './WhatsAppPackageSection';
