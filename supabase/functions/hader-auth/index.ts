@@ -1,20 +1,6 @@
 // @ts-nocheck -- Supabase Edge Functions run on Deno, outside the Vite TS runtime.
 import { createClient } from 'npm:@supabase/supabase-js@2';
-
-const json = (status: number, body: Record<string, unknown>, origin: string | null) => new Response(
-  JSON.stringify(body),
-  {
-    status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': origin ?? 'null',
-      'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Vary': 'Origin'
-    }
-  }
-);
+import { jsonResponse as json } from '../_shared/http.ts';
 
 const splitConfig = (value: string | undefined) => new Set(
   (value ?? '').split(',').map(item => item.trim()).filter(Boolean)
