@@ -200,21 +200,40 @@
     </div>
 
     <figure class="campus-figure reveal">
-      <div class="campus-visual-shell">
-        <div class="campus-live-badge">
+      <div class="campus-visual-shell" id="campusVisualShell">
+        <div class="campus-live-badge" id="campusLiveBadge" role="status" aria-live="polite" title="عرض الحرم التفاعلي الحي">
           <span class="campus-live-dot" aria-hidden="true"></span>
-          <span data-i18n="campus_live">بيانات متصلة لحظياً</span>
+          <span class="campus-live-text" data-i18n="campus_live">عرض حي تفاعلي</span>
         </div>
-        <img
-          class="campus-image"
-          src="assets/img/hader-smart-campus.webp"
-          width="1672"
-          height="941"
-          loading="lazy"
-          decoding="async"
-          alt="تصور ثلاثي الأبعاد لحرم مدرسي سعودي ذكي متصل بمنظومة حاضر"
-          data-i18n-alt="campus_image_alt"
-        >
+        <div class="campus-media-stage">
+          <!-- Permanent base fallback image: guarantees instant first paint, SEO, zero CLS, and displays under any mobile/network condition -->
+          <img
+            class="campus-image"
+            id="campusFallbackImg"
+            src="assets/img/hader-smart-campus.webp"
+            width="1672"
+            height="941"
+            loading="eager"
+            decoding="async"
+            alt="تصور ثلاثي الأبعاد لحرم مدرسي سعودي ذكي متصل بمنظومة حاضر"
+            data-i18n-alt="campus_image_alt"
+          >
+          <!-- Modern seamless looping video -->
+          <video
+            class="campus-video"
+            id="campusVideo"
+            playsinline
+            autoplay
+            muted
+            loop
+            preload="auto"
+            poster="assets/img/hader-smart-campus.webp"
+            aria-hidden="true"
+          >
+            <source src="assets/img/Animate_campus_image_with_motion_202609041637.webm" type="video/webm">
+            <source src="assets/img/Animate_campus_image_with_motion_202609041637.mp4" type="video/mp4">
+          </video>
+        </div>
         <div class="campus-image-sheen" aria-hidden="true"></div>
       </div>
       <figcaption class="campus-journey">
@@ -928,7 +947,7 @@ const i18n = {
     campus_eyebrow: "مدرسة واحدة. منظومة واحدة.",
     campus_title: 'كل لحظة مدرسية <span class="hl">متصلة وآمنة</span>',
     campus_sub: "من بوابة الحضور إلى الفصل والمقصف ثم الانصراف؛ يوحّد حاضر رحلة الطالب في تدفق رقمي واضح يمنح الإدارة رؤية فورية ويطمئن الأسرة.",
-    campus_live: "بيانات متصلة لحظياً",
+    campus_live: "عرض حي تفاعلي",
     campus_step_1: "دخول موثّق في ثوانٍ",
     campus_step_2: "متابعة تشغيلية موحّدة",
     campus_step_3: "انصراف آمن بإشعار فوري",
@@ -1154,7 +1173,7 @@ const i18n = {
     campus_eyebrow: "One campus. One ecosystem.",
     campus_title: 'Every school moment, <span class="hl">connected and secure</span>',
     campus_sub: "From arrival and class time to the canteen and safe dismissal, HADER turns the student journey into one clear digital flow for schools and families.",
-    campus_live: "Live connected operations",
+    campus_live: "Live Interactive View",
     campus_step_1: "Verified check-in in seconds",
     campus_step_2: "Unified operational visibility",
     campus_step_3: "Safe dismissal with instant alerts",
@@ -1596,6 +1615,165 @@ function handleFormSubmit(e) {
   successMsg.style.display = 'block';
   form.reset();
 }
+
+/* ── Campus Intelligent Video Controller (Mobile & Bad-Network Safe) ── */
+(function initCampusVideo() {
+  const video = document.getElementById('campusVideo');
+  const fallbackImg = document.getElementById('campusFallbackImg');
+  const liveBadge = document.getElementById('campusLiveBadge');
+  const liveDot = liveBadge ? liveBadge.querySelector('.campus-live-dot') : null;
+  const liveText = liveBadge ? liveBadge.querySelector('.campus-live-text') : null;
+  if (!video || !fallbackImg) return;
+
+  // 1. Check Network Conditions, Data Saver & Motion Preferences
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const isSaveData = Boolean(connection && connection.saveData);
+  const isSlowNetwork = Boolean(
+    connection && (
+      connection.effectiveType === 'slow-2g' ||
+      connection.effectiveType === '2g' ||
+      connection.effectiveType === '3g' ||
+      (typeof connection.downlink === 'number' && connection.downlink < 1.8) ||
+      (typeof connection.rtt === 'number' && connection.rtt > 500)
+    )
+  );
+  const isOffline = typeof navigator.onLine === 'boolean' && !navigator.onLine;
+  const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function setBadgeState(state) {
+    if (!liveBadge) return;
+    if (state === 'playing') {
+      liveBadge.setAttribute('title', currentLang === 'en' ? 'Live Interactive View' : 'عرض الحرم الحي');
+      if (liveText) liveText.textContent = currentLang === 'en' ? 'Live Interactive View' : 'عرض حي تفاعلي';
+      if (liveDot) {
+        liveDot.style.background = '#00F5A0';
+        liveDot.style.boxShadow = '0 0 10px rgba(0, 245, 160, 0.8)';
+        liveDot.style.animation = 'pulse-dot 2s infinite';
+      }
+    } else if (state === 'fallback') {
+      liveBadge.setAttribute('title', currentLang === 'en' ? 'Click to play interactive view' : 'انقر لتشغيل العرض التفاعلي');
+      if (liveText) liveText.textContent = currentLang === 'en' ? 'Smart Campus' : 'مشهد الحرم الذكي';
+      if (liveDot) {
+        liveDot.style.background = '#00cbb4';
+        liveDot.style.boxShadow = 'none';
+        liveDot.style.animation = 'none';
+      }
+    } else if (state === 'paused') {
+      if (liveDot) {
+        liveDot.style.background = '#f59e0b';
+        liveDot.style.boxShadow = 'none';
+        liveDot.style.animation = 'none';
+      }
+    }
+  }
+
+  // Fallback to static image: ensures image stays pristine without video stall or blank box
+  function fallbackToImage() {
+    video.classList.remove('is-playing');
+    try { video.pause(); } catch(e) {}
+    setBadgeState('fallback');
+  }
+
+  // If slow network, Save-Data, offline, or reduced motion is detected upfront:
+  if (isSaveData || isSlowNetwork || isOffline || prefersReducedMotion) {
+    video.removeAttribute('autoplay');
+    video.preload = 'none';
+    fallbackToImage();
+
+    // Allow user to manually trigger video load on tap if they wish
+    if (liveBadge) {
+      liveBadge.style.cursor = 'pointer';
+      liveBadge.addEventListener('click', () => {
+        video.preload = 'auto';
+        video.play().then(() => {
+          markVideoPlaying();
+        }).catch(() => fallbackToImage());
+      }, { once: true });
+    }
+    return;
+  }
+
+  // 2. Seamless Transition once Video is Confirmed Playing
+  let isVideoPlaying = false;
+  function markVideoPlaying() {
+    if (isVideoPlaying) return;
+    isVideoPlaying = true;
+    video.classList.add('is-playing');
+    setBadgeState('playing');
+  }
+
+  // Watchdog Timer for weak network / slow loading connections
+  const NETWORK_TIMEOUT_MS = 4000;
+  let networkTimeout = setTimeout(() => {
+    if (!isVideoPlaying && video.readyState < 3) {
+      fallbackToImage();
+    }
+  }, NETWORK_TIMEOUT_MS);
+
+  video.addEventListener('playing', () => {
+    if (networkTimeout) clearTimeout(networkTimeout);
+    markVideoPlaying();
+  });
+
+  video.addEventListener('canplaythrough', () => {
+    if (!video.paused) {
+      if (networkTimeout) clearTimeout(networkTimeout);
+      markVideoPlaying();
+    }
+  });
+
+  video.addEventListener('error', () => {
+    if (networkTimeout) clearTimeout(networkTimeout);
+    fallbackToImage();
+  });
+
+  video.addEventListener('stalled', () => {
+    if (!isVideoPlaying) {
+      fallbackToImage();
+    }
+  });
+
+  // Autoplay attempt with fallback if browser blocks or battery saver is active
+  const playPromise = video.play();
+  if (playPromise !== undefined) {
+    playPromise.then(markVideoPlaying).catch(() => {
+      // Autoplay blocked by policy or low power mode - keep static image crisp & ready
+      fallbackToImage();
+    });
+  }
+
+  // Toggle playback on badge click when active
+  if (liveBadge) {
+    liveBadge.style.cursor = 'pointer';
+    liveBadge.addEventListener('click', () => {
+      if (video.paused) {
+        video.play().then(markVideoPlaying).catch(() => fallbackToImage());
+      } else {
+        video.pause();
+        video.classList.remove('is-playing');
+        setBadgeState('paused');
+      }
+    });
+  }
+
+  // 3. Viewport Performance Observer (Pause when offscreen to conserve phone battery and GPU)
+  if ('IntersectionObserver' in window) {
+    const campusObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          if (isVideoPlaying && video.paused) {
+            video.play().catch(() => {});
+          }
+        } else {
+          if (!video.paused) {
+            video.pause();
+          }
+        }
+      });
+    }, { threshold: 0.1 });
+    campusObserver.observe(video);
+  }
+})();
 </script>
 
 </body>
