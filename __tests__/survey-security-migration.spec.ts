@@ -6,6 +6,10 @@ const migration = readFileSync(
   join(process.cwd(), 'supabase/migrations/20260902090000_add_surveys.sql'),
   'utf8'
 );
+const identityRepairMigration = readFileSync(
+  join(process.cwd(), 'supabase/migrations/20260904210000_repair_survey_admin_identities.sql'),
+  'utf8'
+);
 
 describe('survey security migration', () => {
   it('makes the legacy users table read-only to API roles', () => {
@@ -29,5 +33,14 @@ describe('survey security migration', () => {
     expect(migration.match(/pg_advisory_xact_lock\(71423698501\)/g)).toHaveLength(2);
     expect(migration).toContain('لا يمكن تعطيل آخر مدير نظام');
     expect(migration).toContain('لا يمكن حذف آخر مدير نظام');
+  });
+
+  it('repairs stale survey administrator identities without leaving old sessions active', () => {
+    expect(identityRepairMigration).toContain('CREATE TEMP TABLE hader_changed_admin_identities');
+    expect(identityRepairMigration).toContain('DELETE FROM public.hader_survey_admin_sessions');
+    expect(identityRepairMigration).toContain('ON CONFLICT (user_id) DO UPDATE SET');
+    expect(identityRepairMigration).toContain('password_hash = EXCLUDED.password_hash');
+    expect(identityRepairMigration).toContain("role IN ('site_admin', 'school_admin')");
+    expect(identityRepairMigration).toContain('DROP TABLE hader_changed_admin_identities');
   });
 });
