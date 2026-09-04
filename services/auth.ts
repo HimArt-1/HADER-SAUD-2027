@@ -35,6 +35,7 @@ import {
   logError
 } from '../types/errors';
 import { normalizeAssignedClasses, normalizeAssignedSections } from './userAssignments';
+import { getHaderAuthFailureMessage } from './haderAuthError';
 
 // Session configuration
 const SESSION_TIMEOUT = 8 * 60 * 60 * 1000; // 8 hours
@@ -265,7 +266,7 @@ export const auth = {
       const { supabase, supabaseStatus } = await getSupabaseServices();
 
       if (type === 'staff') {
-        const { data: loginData, error } = await supabase.functions.invoke('hader-auth', {
+        const { data: loginData, error, response } = await supabase.functions.invoke('hader-auth', {
           body: {
             username,
             password,
@@ -274,9 +275,7 @@ export const auth = {
         });
         const data = loginData?.user ?? loginData;
         if (error || !data?.id) {
-          const message = supabaseStatus.isConfigured
-            ? 'بيانات الدخول غير صحيحة.'
-            : 'Supabase غير مهيأ. تأكد من إعدادات الاتصال ثم أعد المحاولة.';
+          const message = await getHaderAuthFailureMessage(response, supabaseStatus.isConfigured);
           return {
             success: false,
             message
