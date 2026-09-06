@@ -1,4 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import SupportKioskDiagnostics from '../components/SupportKioskDiagnostics';
+import SyncDiagnostics from '../components/SyncDiagnostics';
+import { probeSupportTables, supportConnections } from '../services/supportDiagnostics';
+import React, { useEffect, useState, useRef } from 'react';
 import { db, getLocalISODate } from '../services/db';
 import { auth } from '../services/auth';
 import { Role, SystemSettings, DiagnosticResult, SocialLinks, User, Notification, STORAGE_KEYS, AuthAuditLog, ClientErrorLog, AuthAuditAction, ClientErrorSeverity, ClientErrorSource, ATTENDANCE_DEFAULTS } from '../types';
@@ -29,6 +32,14 @@ type SqlQueueEntry = {
 const Support: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [diagError, setDiagError] = useState<string | null>(null);
+  const [authLogsError, setAuthLogsError] = useState<string | null>(null);
+  const [errorLogsError, setErrorLogsError] = useState<string | null>(null);
+  const authLogsRequest = useRef(0);
+  const errorLogsRequest = useRef(0);
+  const databaseCheckRunning = useRef(false);
+  const settingsSaveRunning = useRef(false);
+  const [settingsError, setSettingsError] = useState(false);
   const { addCleanup } = useCleanup();
   const safeAsync = useSafeAsync();
   const toast = useToast();
@@ -98,16 +109,7 @@ const Support: React.FC = () => {
     }
   );
   const [dbQueryStats, setDbQueryStats] = useState<{ success: number; failed: number; errors: Array<{ code: string; table: string; time: string; message: string }> }>({ success: 0, failed: 0, errors: [] });
-  const [connectivityStatus, setConnectivityStatus] = useState<Record<string, { status: 'ok' | 'degraded' | 'error'; lastSuccess?: string; lastError?: { status: number; message: string; time: string } }>>({});
-  const [kioskStatus, setKioskStatus] = useState<{
-    main: { online: boolean; lastHeartbeat?: string; browser?: string; screenOrientation?: string; uiRotation?: 'none' | 'right' | 'left' };
-    mini: { visible: boolean; size?: { width: number; height: number }; rotation?: 'none' | 'right' | 'left'; barcodeFocus?: boolean; lastScan?: string };
-    logs: Array<{ type: 'success' | 'error' | 'warning'; message: string; time: string; details?: any }>;
-  }>({
-    main: { online: false },
-    mini: { visible: false },
-    logs: []
-  });
+  const [connectivityStatus, setConnectivityStatus] = useState<Record<string, { status: 'unknown' | 'ok' | 'degraded' | 'error'; lastSuccess?: string; lastError?: { status: number; message: string; time: string } }>>({});
   const [authLogs, setAuthLogs] = useState<AuthAuditLog[]>([]);
   const [authLogsLoading, setAuthLogsLoading] = useState(false);
   const [authLogFilters, setAuthLogFilters] = useState({
@@ -177,7 +179,9 @@ const Support: React.FC = () => {
 
         setAuthorized(true);
         await loadData();
+        if (cancelled) return;
         await checkDatabaseStatus();
+        if (cancelled) return;
         interval = setInterval(checkDatabaseStatus, 30000);
       } catch (e: any) {
         if (cancelled) return;
@@ -204,26 +208,6 @@ const Support: React.FC = () => {
       logError(error, 'Support - Get Users');
     });
 
-    // Initialize connectivity status
-    const initialStatus: Record<string, { status: 'ok' | 'degraded' | 'error'; lastSuccess?: string; lastError?: { status: number; message: string; time: string } }> = {
-      'kiosk-api': { status: 'ok' },
-      'watcher-stats': { status: 'ok' },
-      'admin-reports': { status: 'ok' },
-      'supervision-data': { status: 'ok' }
-    };
-    setConnectivityStatus(initialStatus);
-
-    // Load kiosk status from localStorage
-    const kioskRotation = localStorage.getItem('hader:kiosk:rotation') as 'none' | 'right' | 'left' | null;
-    setKioskStatus(prev => ({
-      ...prev,
-      main: {
-        ...prev.main,
-        online: true, // Assume online if localStorage is accessible
-        browser: navigator.userAgent,
-        uiRotation: kioskRotation || 'none'
-      }
-    }));
   }, [authorized]);
 
   const loadSqlQueue = () => {
@@ -512,6 +496,8 @@ const Support: React.FC = () => {
   };
 
   const loadAuthLogs = async () => {
+    const requestId = ++authLogsRequest.current;
+    setAuthLogsError(null);
     setAuthLogsLoading(true);
     try {
       const { from, to } = resolveRange(authLogFilters.range);
@@ -524,16 +510,21 @@ const Support: React.FC = () => {
         limit: 200,
         offset: 0
       });
-      setAuthLogs(data);
+      if (requestId === authLogsRequest.current) setAuthLogs(data);
     } catch (error) {
       console.error('Failed to load auth logs', error);
-      setAuthLogs([]);
+      if (requestId === authLogsRequest.current) {
+        setAuthLogs([]);
+        setAuthLogsError(error instanceof Error ? error.message : 'تعذر تحميل السجلات؛ تحقق من الاتصال والصلاحيات');
+      }
     } finally {
-      setAuthLogsLoading(false);
+      if (requestId === authLogsRequest.current) setAuthLogsLoading(false);
     }
   };
 
   const loadErrorLogs = async () => {
+    const requestId = ++errorLogsRequest.current;
+    setErrorLogsError(null);
     setErrorLogsLoading(true);
     try {
       const { from, to } = resolveRange(errorLogFilters.range);
@@ -547,12 +538,15 @@ const Support: React.FC = () => {
         limit: 200,
         offset: 0
       });
-      setErrorLogs(data);
+      if (requestId === errorLogsRequest.current) setErrorLogs(data);
     } catch (error) {
       console.error('Failed to load error logs', error);
-      setErrorLogs([]);
+      if (requestId === errorLogsRequest.current) {
+        setErrorLogs([]);
+        setErrorLogsError(error instanceof Error ? error.message : 'تعذر تحميل السجلات؛ تحقق من الاتصال والصلاحيات');
+      }
     } finally {
-      setErrorLogsLoading(false);
+      if (requestId === errorLogsRequest.current) setErrorLogsLoading(false);
     }
   };
 
@@ -564,6 +558,7 @@ const Support: React.FC = () => {
     }, 200);
     return () => {
       active = false;
+      authLogsRequest.current++;
       clearTimeout(handle);
     };
   }, [authorized, activeDebugTab, authLogFilters]);
@@ -576,12 +571,14 @@ const Support: React.FC = () => {
     }, 200);
     return () => {
       active = false;
+      errorLogsRequest.current++;
       clearTimeout(handle);
     };
   }, [authorized, activeDebugTab, errorLogFilters]);
 
   const loadData = async () => {
     setLoading(true);
+    setSettingsError(false);
     try {
       const [s, stats] = await Promise.all([
         db.getSettings(),
@@ -595,6 +592,7 @@ const Support: React.FC = () => {
       }
       await runDiagnostics();
     } catch (error) {
+      setSettingsError(true);
       logError(error, 'Support - Load Settings');
       console.error(error);
     } finally {
@@ -603,95 +601,28 @@ const Support: React.FC = () => {
   };
 
   const checkDatabaseStatus = async () => {
+    if (databaseCheckRunning.current) return;
+    databaseCheckRunning.current = true;
     setCheckingDb(true);
     const startTime = Date.now();
     try {
-      // Test connection by querying a simple table
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select('id')
-        .limit(1);
-
-      const { data: studentsData, error: studentsError } = await supabase
-        .from('students')
-        .select('id')
-        .limit(1);
-
-      const { data: classesData, error: classesError } = await supabase
-        .from('classes')
-        .select('id')
-        .limit(1);
-
-      const { data: attendanceData, error: attendanceError } = await supabase
-        .from('attendance_logs')
-        .select('id')
-        .limit(1);
-
-      const { data: supervisorsData, error: supervisorsError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('role', 'SUPERVISOR_GLOBAL')
-        .limit(1);
-
-      const responseTime = Date.now() - startTime;
-      const connected = !usersError && !studentsError;
-
-      // Update query stats
-      if (connected) {
-        setDbQueryStats(prev => ({ ...prev, success: prev.success + 1 }));
-      } else {
-        const errors = [usersError, studentsError, classesError, attendanceError, supervisorsError].filter(Boolean);
-        setDbQueryStats(prev => ({
-          ...prev,
-          failed: prev.failed + errors.length,
-          errors: [
-            ...errors.map((err: any) => ({
-              code: err?.code || 'UNKNOWN',
-              table: err?.table || 'unknown',
-              time: new Date().toLocaleString('ar-SA'),
-              message: err?.message || 'خطأ غير معروف'
-            })),
-            ...prev.errors.slice(0, 9)
-          ]
-        }));
-      }
-
-      setDbStatus({
-        connected,
-        lastCheck: new Date().toLocaleString('ar-SA'),
-        responseTime,
-        tables: [
-          { name: 'users', accessible: !usersError },
-          { name: 'students', accessible: !studentsError },
-          { name: 'classes', accessible: !classesError },
-          { name: 'attendance_logs', accessible: !attendanceError },
-          { name: 'supervisors', accessible: !supervisorsError }
-        ],
-        error: usersError?.message || studentsError?.message || undefined
-      });
-    } catch (error: any) {
-      const responseTime = Date.now() - startTime;
+      const tables = await probeSupportTables(['users', 'students', 'classes', 'attendance_logs', 'settings']);
+      const failures = tables.filter(table => !table.accessible);
+      const time = new Date().toLocaleString('ar-SA');
       setDbQueryStats(prev => ({
-        ...prev,
-        failed: prev.failed + 1,
-        errors: [
-          {
-            code: error?.code || 'EXCEPTION',
-            table: 'unknown',
-            time: new Date().toLocaleString('ar-SA'),
-            message: error?.message || 'خطأ في الاتصال'
-          },
-          ...prev.errors.slice(0, 9)
-        ]
+        success: prev.success + tables.length - failures.length,
+        failed: prev.failed + failures.length,
+        errors: [...failures.map(table => ({ code: table.code || 'UNKNOWN', table: table.name, time, message: table.error || 'تعذر الاستعلام' })), ...prev.errors].slice(0, 10)
       }));
       setDbStatus({
-        connected: false,
-        lastCheck: new Date().toLocaleString('ar-SA'),
-        responseTime,
-        tables: [],
-        error: error?.message || 'خطأ في الاتصال'
+        connected: failures.length === 0,
+        lastCheck: time,
+        responseTime: Date.now() - startTime,
+        tables,
+        error: failures.length ? failures.map(table => `${table.name}: ${table.error}`).join('؛ ') : undefined
       });
     } finally {
+      databaseCheckRunning.current = false;
       setCheckingDb(false);
     }
   };
@@ -777,34 +708,40 @@ const Support: React.FC = () => {
 
   const runDiagnostics = async () => {
     setDiagLoading(true);
+    setDiagError(null);
     try {
       const results = await db.runDiagnostics();
       setDiagnostics(results);
     } catch (error) {
       logError(error, 'Support - Run Diagnostics');
+      setDiagError('تعذر إكمال الفحص؛ تحقق من الاتصال وأعد المحاولة');
+      setDiagnostics([]);
     }
     finally { setDiagLoading(false); }
   };
 
+  const saveSupportSettings = async (nextSettings: SystemSettings, message?: string) => {
+    if (settingsSaveRunning.current) return;
+    settingsSaveRunning.current = true;
+    try {
+      await db.saveSettings(nextSettings);
+      setSettings(nextSettings);
+      if (message) toast.success(message);
+      await runDiagnostics();
+    } catch (error) {
+      logError(error, 'Support - Save Settings');
+      toast.error('تعذر حفظ الإعدادات؛ أعد المحاولة');
+    } finally {
+      settingsSaveRunning.current = false;
+    }
+  };
+
   const toggleSetting = async (key: keyof SystemSettings) => {
-    const newSettings = { ...settings, [key]: !settings[key as any] };
-    setSettings(newSettings);
-    await db.saveSettings(newSettings);
-    // Re-run diagnostics if school active status changes (optional logic)
-    if (key === 'school_active') runDiagnostics();
+    await saveSupportSettings({ ...settings, [key]: !settings[key] });
   };
 
-  const saveLogo = async () => {
-    await db.saveSettings(settings);
-    toast.success('تم حفظ رابط الشعار');
-  };
-
-  const saveSocialLinks = async () => {
-    const updatedSettings = { ...settings, social_links };
-    setSettings(updatedSettings);
-    await db.saveSettings(updatedSettings);
-    toast.success('تم حفظ روابط التواصل ✓');
-  };
+  const saveLogo = () => saveSupportSettings(settings, 'تم حفظ رابط الشعار');
+  const saveSocialLinks = () => saveSupportSettings({ ...settings, social_links }, 'تم حفظ روابط التواصل');
 
   const handleBroadcast = async () => {
     if (!broadcast.message || !broadcast.title) {
@@ -896,7 +833,7 @@ const Support: React.FC = () => {
           <AlertTriangle className="w-5 h-5" />
           <span>{authError}</span>
         </div>
-        <p className="text-slate-300 text-sm">يرجى تسجيل الدخول بحساب مدير النظام الذي ضبطته في متغيرات البيئة ثم إعادة المحاولة.</p>
+        <p className="text-slate-300 text-sm">يرجى تسجيل الدخول بحساب مدير النظام ثم إعادة المحاولة.</p>
         <div className="flex justify-center gap-3">
           <button
             onClick={() => window.location.replace('/')}
@@ -913,6 +850,13 @@ const Support: React.FC = () => {
         </div>
       </div>
     );
+  }
+
+  if (settingsError) {
+    return <div className="p-8 text-center space-y-4">
+      <p role="alert" className="text-red-300">تعذر تحميل إعدادات الدعم الفني؛ أعد المحاولة قبل إجراء تغييرات.</p>
+      <button onClick={loadData} className="text-white underline">إعادة المحاولة</button>
+    </div>;
   }
 
   return (
@@ -960,7 +904,7 @@ const Support: React.FC = () => {
             <div className="text-xs text-slate-400 mb-2 font-medium">حالة النظام</div>
             <div className={`text-2xl font-bold font-mono transition-all duration-300 ${settings.system_ready && settings.school_active ? 'text-emerald-400 drop-shadow-[0_0_12px_rgba(16,185,129,0.6)]' : 'text-red-400 drop-shadow-[0_0_12px_rgba(239,68,68,0.6)]'
               }`}>
-              {systemStats.systemStatus}
+              {settings.system_ready && settings.school_active ? 'نشط' : 'معطل'}
             </div>
             <div className="text-xs text-slate-500 mt-1">وضع التخزين: سحابي</div>
           </div>
@@ -1473,7 +1417,8 @@ const Support: React.FC = () => {
               </button>
             </div>
 
-            {diagnostics.length === 0 && !diagLoading && (
+            {diagError && <p role="alert" className="text-red-300 mb-4">{diagError}</p>}
+            {diagnostics.length === 0 && !diagLoading && !diagError && (
               <div className="text-center py-12 text-gray-500">
                 <ShieldCheck className="w-12 h-12 mx-auto mb-4 text-gray-600" />
                 <p>لم يتم تشغيل الفحص بعد. اضغط "فحص الآن" للبدء.</p>
@@ -1543,6 +1488,7 @@ const Support: React.FC = () => {
             )}
           </div>
 
+          {activeMainTab === 'diagnostics' && db.getMode() === 'hybrid' && <div className="glass-card p-6 rounded-2xl"><SyncDiagnostics allowDataDeletion={false} /></div>}
           {/* System Stats Summary */}
           {systemStats && (
             <div className="glass-card p-6 rounded-[2rem] border border-white/10 bg-gradient-to-br from-slate-900/70 to-slate-800/50">
@@ -1783,10 +1729,7 @@ const Support: React.FC = () => {
 
           {/* Kiosk Debug Panel */}
           {activeDebugTab === 'kiosk' && (
-            <KioskDebugPanel
-              kioskStatus={kioskStatus}
-              onStatusUpdate={setKioskStatus}
-            />
+            <SupportKioskDiagnostics />
           )}
 
           {activeDebugTab === 'auth_logs' && (
@@ -1996,7 +1939,8 @@ const Support: React.FC = () => {
                           </tr>
                         ))
                       )}
-                      {!authLogsLoading && authLogs.length === 0 && (
+                      {!authLogsLoading && authLogsError && <tr><td colSpan={7} role="alert" className="p-4 text-red-300">{authLogsError}</td></tr>}
+                      {!authLogsLoading && !authLogsError && authLogs.length === 0 && (
                         <tr>
                           <td colSpan={6} className="py-6 text-center text-gray-500">
                             لا توجد سجلات بعد ضمن النطاق المحدد.
@@ -2227,7 +2171,8 @@ const Support: React.FC = () => {
                       <div className="h-4 w-2/3 bg-white/10 rounded"></div>
                     </div>
                   ))}
-                  {!errorLogsLoading && errorLogs.length === 0 && (
+                  {!errorLogsLoading && errorLogsError && <p role="alert" className="p-4 text-red-300">{errorLogsError}</p>}
+                  {!errorLogsLoading && !errorLogsError && errorLogs.length === 0 && (
                     <div className="py-6 text-center text-gray-500">
                       لا توجد أخطاء مسجلة ضمن النطاق المحدد.
                     </div>
@@ -2750,8 +2695,8 @@ const DatabaseDebugPanel: React.FC<DatabaseDebugPanelProps> = ({
 // 🌐 Connectivity Debug Panel Component
 // ═══════════════════════════════════════════════════════════════
 interface ConnectivityDebugPanelProps {
-  connectivityStatus: Record<string, { status: 'ok' | 'degraded' | 'error'; lastSuccess?: string; lastError?: { status: number; message: string; time: string } }>;
-  onStatusUpdate: (status: Record<string, { status: 'ok' | 'degraded' | 'error'; lastSuccess?: string; lastError?: { status: number; message: string; time: string } }>) => void;
+  connectivityStatus: Record<string, { status: 'unknown' | 'ok' | 'degraded' | 'error'; lastSuccess?: string; lastError?: { status: number; message: string; time: string } }>;
+  onStatusUpdate: (status: Record<string, { status: 'unknown' | 'ok' | 'degraded' | 'error'; lastSuccess?: string; lastError?: { status: number; message: string; time: string } }>) => void;
 }
 
 const ConnectivityDebugPanel: React.FC<ConnectivityDebugPanelProps> = ({
@@ -2760,23 +2705,20 @@ const ConnectivityDebugPanel: React.FC<ConnectivityDebugPanelProps> = ({
 }) => {
   const [testing, setTesting] = useState<string | null>(null);
 
-  const routes = [
-    { id: 'kiosk-api', name: 'كشك الحضور → API → Supabase', path: '/kiosk' },
-    { id: 'watcher-stats', name: 'واجهة المراقب → API الإحصاءات', path: '/watcher' },
-    { id: 'admin-reports', name: 'واجهة المدير → تقارير الحضور', path: '/admin' },
-    { id: 'supervision-data', name: 'بوابة الإشراف → بيانات الطلاب والفصول', path: '/supervision' }
-  ];
+  const routes = supportConnections;
 
-  const testRoute = async (routeId: string, routeName: string) => {
+  const testRoute = async (routeId: string) => {
     setTesting(routeId);
     try {
       const startTime = Date.now();
-      // Simulate API test - in real implementation, this would call actual endpoints
-      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000));
+      const route = routes.find(item => item.id === routeId);
+      if (!route) throw new Error('مسار فحص غير معروف');
+      const probes = await probeSupportTables(route.tables);
+      const failures = probes.filter(probe => !probe.accessible);
+      if (failures.length) throw new Error(failures.map(probe => `${probe.name}: ${probe.error}`).join('؛ '));
       const responseTime = Date.now() - startTime;
-
       const newStatus = {
-        status: responseTime < 1000 ? 'ok' as const : 'degraded' as const,
+        status: responseTime < 2000 ? 'ok' as const : 'degraded' as const,
         lastSuccess: new Date().toLocaleString('ar-SA'),
         lastError: undefined
       };
@@ -2799,18 +2741,20 @@ const ConnectivityDebugPanel: React.FC<ConnectivityDebugPanelProps> = ({
     }
   };
 
-  const getStatusIcon = (status: 'ok' | 'degraded' | 'error') => {
+  const getStatusIcon = (status: 'unknown' | 'ok' | 'degraded' | 'error') => {
     switch (status) {
+      case 'unknown': return <Clock className="w-5 h-5 text-slate-400" />;
       case 'ok': return <CheckCircle className="w-5 h-5 text-emerald-400" />;
       case 'degraded': return <AlertTriangle className="w-5 h-5 text-amber-400" />;
       case 'error': return <XCircle className="w-5 h-5 text-red-400" />;
     }
   };
 
-  const getStatusLabel = (status: 'ok' | 'degraded' | 'error') => {
+  const getStatusLabel = (status: 'unknown' | 'ok' | 'degraded' | 'error') => {
     switch (status) {
-      case 'ok': return '✅ يعمل';
-      case 'degraded': return '⚠ متقطع';
+      case 'unknown': return 'لم يُفحص بعد';
+      case 'ok': return 'نجح استعلام البيانات';
+      case 'degraded': return 'استجابة بطيئة';
       case 'error': return '❌ لا يعمل';
     }
   };
@@ -2818,7 +2762,7 @@ const ConnectivityDebugPanel: React.FC<ConnectivityDebugPanelProps> = ({
   return (
     <div className="space-y-4">
       {routes.map((route) => {
-        const status = connectivityStatus[route.id] || { status: 'ok' as const };
+        const status = connectivityStatus[route.id] || { status: 'unknown' as const };
         return (
           <div key={route.id} className="p-4 rounded-xl border border-white/10 bg-slate-800/30">
             <div className="flex items-center justify-between mb-3">
@@ -2826,10 +2770,11 @@ const ConnectivityDebugPanel: React.FC<ConnectivityDebugPanelProps> = ({
                 {getStatusIcon(status.status)}
                 <div>
                   <h4 className="text-sm font-bold text-white">{route.name}</h4>
-                  <p className="text-xs text-slate-400">مسار: {route.path}</p>
+                  <p className="text-xs text-slate-400">مسار: {route.path} — فحص قراءة البيانات بصلاحيات الجلسة الحالية</p>
                 </div>
               </div>
               <span className={`text-xs font-bold px-2 py-1 rounded-lg ${status.status === 'ok' ? 'bg-emerald-500/20 text-emerald-400' :
+                status.status === 'unknown' ? 'bg-slate-500/20 text-slate-400' :
                 status.status === 'degraded' ? 'bg-amber-500/20 text-amber-400' :
                   'bg-red-500/20 text-red-400'
                 }`}>
@@ -2848,14 +2793,14 @@ const ConnectivityDebugPanel: React.FC<ConnectivityDebugPanelProps> = ({
                 <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
                   <p className="text-[10px] text-slate-400 mb-1">آخر فشل</p>
                   <p className="text-xs text-red-400 font-mono">{status.lastError.time}</p>
-                  <p className="text-[10px] text-red-300 mt-1">HTTP {status.lastError.status}: {status.lastError.message}</p>
+                  <p className="text-[10px] text-red-300 mt-1">{status.lastError.message}</p>
                 </div>
               )}
             </div>
 
             <button
-              onClick={() => testRoute(route.id, route.name)}
-              disabled={testing === route.id}
+              onClick={() => testRoute(route.id)}
+              disabled={testing !== null}
               className="w-full py-2 bg-secondary-600/20 hover:bg-secondary-600/30 border border-secondary-500/30 rounded-lg text-secondary-300 text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
             >
               {testing === route.id ? (
@@ -2873,252 +2818,6 @@ const ConnectivityDebugPanel: React.FC<ConnectivityDebugPanelProps> = ({
           </div>
         );
       })}
-    </div>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════
-// 🖥️ Kiosk Debug Panel Component
-// ═══════════════════════════════════════════════════════════════
-interface KioskDebugPanelProps {
-  kioskStatus: {
-    main: { online: boolean; lastHeartbeat?: string; browser?: string; screenOrientation?: string; uiRotation?: 'none' | 'right' | 'left' };
-    mini: { visible: boolean; size?: { width: number; height: number }; rotation?: 'none' | 'right' | 'left'; barcodeFocus?: boolean; lastScan?: string };
-    logs: Array<{ type: 'success' | 'error' | 'warning'; message: string; time: string; details?: any }>;
-  };
-  onStatusUpdate: (status: {
-    main: { online: boolean; lastHeartbeat?: string; browser?: string; screenOrientation?: string; uiRotation?: 'none' | 'right' | 'left' };
-    mini: { visible: boolean; size?: { width: number; height: number }; rotation?: 'none' | 'right' | 'left'; barcodeFocus?: boolean; lastScan?: string };
-    logs: Array<{ type: 'success' | 'error' | 'warning'; message: string; time: string; details?: any }>;
-  }) => void;
-}
-
-const KioskDebugPanel: React.FC<KioskDebugPanelProps> = ({
-  kioskStatus,
-  onStatusUpdate
-}) => {
-  const [rotation, setRotation] = useState<'none' | 'right' | 'left'>('none');
-
-  // Listen for kiosk status updates via localStorage events
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'hader:kiosk:status') {
-        try {
-          const status = JSON.parse(e.newValue || '{}');
-          onStatusUpdate({
-            ...kioskStatus,
-            main: { ...kioskStatus.main, ...status.main },
-            mini: { ...kioskStatus.mini, ...status.mini }
-          });
-        } catch (err) {
-          logError(err, 'Support - Parse Kiosk Status');
-        }
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [kioskStatus, onStatusUpdate]);
-
-  // Check kiosk rotation from localStorage
-  useEffect(() => {
-    const storedRotation = localStorage.getItem('hader:kiosk:rotation') as 'none' | 'right' | 'left' | null;
-    if (storedRotation) {
-      setRotation(storedRotation);
-      onStatusUpdate({
-        ...kioskStatus,
-        main: { ...kioskStatus.main, uiRotation: storedRotation }
-      });
-    }
-  }, []);
-
-  const getRotationIcon = (rot: 'none' | 'right' | 'left') => {
-    switch (rot) {
-      case 'right': return <RotateCw className="w-4 h-4" />;
-      case 'left': return <RotateCcw className="w-4 h-4" />;
-      default: return <Monitor className="w-4 h-4" />;
-    }
-  };
-
-  const getRotationLabel = (rot: 'none' | 'right' | 'left') => {
-    switch (rot) {
-      case 'right': return 'Rotated Right (90°)';
-      case 'left': return 'Rotated Left (-90°)';
-      default: return 'Normal';
-    }
-  };
-
-  const sendResetUI = () => {
-    // Send message via BroadcastChannel or localStorage event
-    const channel = new BroadcastChannel('hader-kiosk-control');
-    channel.postMessage({ type: 'reset-ui' });
-    channel.close();
-
-    onStatusUpdate({
-      ...kioskStatus,
-      logs: [
-        { type: 'success', message: 'تم إرسال أمر Reset UI للكشك', time: new Date().toLocaleString('ar-SA') },
-        ...kioskStatus.logs.slice(0, 9)
-      ]
-    });
-  };
-
-  const sendRefocusBarcode = () => {
-    const channel = new BroadcastChannel('hader-kiosk-control');
-    channel.postMessage({ type: 'refocus-barcode' });
-    channel.close();
-
-    onStatusUpdate({
-      ...kioskStatus,
-      logs: [
-        { type: 'success', message: 'تم إرسال أمر إعادة التركيز على حقل الباركود', time: new Date().toLocaleString('ar-SA') },
-        ...kioskStatus.logs.slice(0, 9)
-      ]
-    });
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Main Kiosk Status */}
-      <div className="p-4 rounded-xl border border-amber-500/20 bg-amber-500/10">
-        <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-          <Monitor className="w-4 h-4 text-amber-400" />
-          الكشك الرئيسي (الشاشة الثانية)
-        </h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-            <p className="text-xs text-slate-400 mb-1">الحالة</p>
-            <p className={`text-sm font-bold ${kioskStatus.main.online ? 'text-emerald-400' : 'text-red-400'}`}>
-              {kioskStatus.main.online ? 'Online' : 'Offline'}
-            </p>
-          </div>
-          <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-            <p className="text-xs text-slate-400 mb-1">آخر Heartbeat</p>
-            <p className="text-xs text-slate-300 font-mono">
-              {kioskStatus.main.lastHeartbeat || 'غير متوفر'}
-            </p>
-          </div>
-          <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-            <p className="text-xs text-slate-400 mb-1">المتصفح/النظام</p>
-            <p className="text-xs text-slate-300">
-              {kioskStatus.main.browser || navigator.userAgent.split(' ')[0]}
-            </p>
-          </div>
-          <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-            <p className="text-xs text-slate-400 mb-1">اتجاه الواجهة</p>
-            <div className="flex items-center gap-2">
-              {getRotationIcon(kioskStatus.main.uiRotation || 'none')}
-              <p className="text-xs text-slate-300">
-                {getRotationLabel(kioskStatus.main.uiRotation || 'none')}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Mini-Kiosk Status */}
-      <div className="p-4 rounded-xl border border-secondary-500/20 bg-secondary-500/10">
-        <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-          <Monitor className="w-4 h-4 text-secondary-400" />
-          الميني-كشك (داخل واجهة المراقب)
-        </h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-            <p className="text-xs text-slate-400 mb-1">الحالة</p>
-            <p className={`text-sm font-bold ${kioskStatus.mini.visible ? 'text-emerald-400' : 'text-slate-500'}`}>
-              {kioskStatus.mini.visible ? 'ظاهر' : 'مخفي'}
-            </p>
-          </div>
-          {kioskStatus.mini.size && (
-            <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-              <p className="text-xs text-slate-400 mb-1">الحجم الحالي</p>
-              <p className="text-xs text-slate-300 font-mono">
-                {kioskStatus.mini.size.width} × {kioskStatus.mini.size.height}px
-              </p>
-            </div>
-          )}
-          <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-            <p className="text-xs text-slate-400 mb-1">اتجاه الميني-كشك</p>
-            <div className="flex items-center gap-2">
-              {getRotationIcon(kioskStatus.mini.rotation || 'none')}
-              <p className="text-xs text-slate-300">
-                {getRotationLabel(kioskStatus.mini.rotation || 'none')}
-              </p>
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-            <p className="text-xs text-slate-400 mb-1">حالة حقل الباركود</p>
-            <p className={`text-xs font-bold ${kioskStatus.mini.barcodeFocus ? 'text-emerald-400' : 'text-slate-500'}`}>
-              {kioskStatus.mini.barcodeFocus ? 'Yes (فوكس نشط)' : 'No'}
-            </p>
-            {kioskStatus.mini.lastScan && (
-              <p className="text-[10px] text-slate-500 mt-1">آخر قراءة: {kioskStatus.mini.lastScan}</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="p-4 rounded-xl border border-primary-500/20 bg-primary-500/10">
-        <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-          <Zap className="w-4 h-4 text-primary-400" />
-          أدوات سريعة
-        </h4>
-        <div className="flex gap-3">
-          <button
-            onClick={sendResetUI}
-            className="flex-1 py-2 bg-primary-600/20 hover:bg-primary-600/30 border border-primary-500/30 rounded-lg text-primary-300 text-xs font-bold flex items-center justify-center gap-2 transition-all"
-          >
-            <RefreshCw className="w-3 h-3" />
-            Reset UI للكشك
-          </button>
-          <button
-            onClick={sendRefocusBarcode}
-            className="flex-1 py-2 bg-primary-600/20 hover:bg-primary-600/30 border border-primary-500/30 rounded-lg text-primary-300 text-xs font-bold flex items-center justify-center gap-2 transition-all"
-          >
-            <Focus className="w-3 h-3" />
-            إعادة التركيز على الباركود
-          </button>
-        </div>
-      </div>
-
-      {/* Kiosk Logs */}
-      <div className="p-4 rounded-xl border border-white/10 bg-slate-800/30">
-        <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-          <FileText className="w-4 h-4 text-primary-400" />
-          Log تفاعلات الكشك (آخر 10 عمليات)
-        </h4>
-        <div className="space-y-2 max-h-64 overflow-y-auto">
-          {kioskStatus.logs.length > 0 ? (
-            kioskStatus.logs.map((log, idx) => (
-              <div
-                key={idx}
-                className={`p-3 rounded-lg border ${log.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' :
-                  log.type === 'error' ? 'bg-red-500/10 border-red-500/20' :
-                    'bg-amber-500/10 border-amber-500/20'
-                  }`}
-              >
-                <div className="flex items-start justify-between mb-1">
-                  <div className="flex-1">
-                    <p className={`text-xs font-bold ${log.type === 'success' ? 'text-emerald-300' :
-                      log.type === 'error' ? 'text-red-300' :
-                        'text-amber-300'
-                      }`}>
-                      {log.message}
-                    </p>
-                    {log.details && (
-                      <p className="text-[10px] text-slate-400 mt-1">{JSON.stringify(log.details)}</p>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-slate-500">{log.time}</span>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="text-xs text-slate-500 text-center py-4">لا توجد سجلات حالياً</p>
-          )}
-        </div>
-      </div>
     </div>
   );
 };

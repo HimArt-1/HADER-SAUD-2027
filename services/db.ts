@@ -4,6 +4,7 @@
 // Orchestrates provider selection and delegates all calls.
 // All types, helpers, CloudProvider, and LocalProvider are in separate modules.
 
+import { supportTelemetry } from './supportTelemetry';
 import { supabase, getSupabaseDebugInfo } from './supabase';
 import { logger } from './logger';
 import {
@@ -699,12 +700,12 @@ class Database implements IDatabaseProvider, IStudentAffairsProvider {
           targetAudience: targetRole as Notification['target_audience']
         });
       },
-      runDiagnostics: async () => [] as DiagnosticResult[],
+      runDiagnostics: () => hp.runDiagnostics(),
 
       // Telemetry
-      getAuthAuditLogs: async () => [] as AuthAuditLog[],
-      getClientErrorLogs: async () => [] as ClientErrorLog[],
-      cleanupTelemetryLogs: async () => ({ auth_deleted: 0, error_deleted: 0 }),
+      getAuthAuditLogs: supportTelemetry.getAuthAuditLogs,
+      getClientErrorLogs: supportTelemetry.getClientErrorLogs,
+      cleanupTelemetryLogs: supportTelemetry.cleanupTelemetryLogs,
 
       // Dismissals — delegated to HybridProvider (cloud-direct for realtime calls)
       addDismissal: (record: any) => hp.addDismissal(record),

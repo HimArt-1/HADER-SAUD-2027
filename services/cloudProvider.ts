@@ -1,3 +1,4 @@
+import { supportTelemetry } from './supportTelemetry';
 // =============================================================================
 // نظام حاضر (Hader) - Cloud Provider
 // =============================================================================
@@ -2851,7 +2852,8 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
     const cached = staticCache.get<SystemSettings>(CACHE_KEYS.SETTINGS);
     if (cached) return cached;
 
-    const { data } = await supabase.from('settings').select('*').limit(1).maybeSingle();
+    const { data, error } = await supabase.from('settings').select('*').limit(1).maybeSingle();
+    if (error) throw error;
     if (data) {
       rememberRemoteSettingsPk((data as { id?: string | number }).id);
       const mappedSettings = mapSettingsFromDB(data);
@@ -2873,7 +2875,10 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
       this.invalidateKioskSettingsCache();
       // Broadcast to other tabs
       broadcastSettingsUpdate(settings);
-    } catch (e) { console.error("Settings table might be missing", e); }
+    } catch (e) {
+      console.error("Failed to save settings", e);
+      throw e;
+    }
   }
 
   async sendBroadcast(targetRole: string, message: string, title: string): Promise<void> {
@@ -2904,13 +2909,13 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
       });
 
       // 2. Integrity: Students without Guardian Phone
-      const { count: missingPhoneCount } = await supabase.from('students').select('*', { count: 'exact', head: true }).or('guardian_phone.is.null,guardian_phone.eq.""');
+      const { count: missingPhoneCount, error: missingPhoneError } = await supabase.from('students').select('*', { count: 'exact', head: true }).or('guardian_phone.is.null,guardian_phone.eq.""');
       results.push({
         key: 'integrity',
         title: 'نزاهة البيانات (أولياء الأمور)',
-        status: (missingPhoneCount || 0) > 0 ? 'warning' : 'ok',
-        message: (missingPhoneCount || 0) > 0 ? `يوجد ${missingPhoneCount} طالب بدون رقم جوال ولي الأمر` : 'سجلات الطلاب مكتملة',
-        count: missingPhoneCount || 0,
+        status: missingPhoneError || missingPhoneCount === null ? 'error' : (missingPhoneCount || 0) > 0 ? 'warning' : 'ok',
+        message: missingPhoneError || missingPhoneCount === null ? 'تعذر فحص أرقام التواصل؛ لا يمكن تأكيد اكتمال البيانات' : (missingPhoneCount || 0) > 0 ? `يوجد ${missingPhoneCount} طالب بدون رقم جوال ولي الأمر` : 'سجلات الطلاب مكتملة',
+        count: missingPhoneError ? undefined : missingPhoneCount ?? undefined,
         hint: 'استخدم لوحة الإدارة لتحديث بيانات الطلاب الناقصة'
       });
 
@@ -2918,9 +2923,9 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
       results.push({
         key: 'communication',
         title: 'قنوات التواصل',
-        status: (missingPhoneCount || 0) > 0 ? 'warning' : 'ok',
-        message: (missingPhoneCount || 0) > 0 ? `يوجد ${missingPhoneCount} طالب بدون رقم تواصل` : 'جميع الطلاب لديهم أرقام تواصل',
-        count: missingPhoneCount || 0,
+        status: missingPhoneError || missingPhoneCount === null ? 'error' : (missingPhoneCount || 0) > 0 ? 'warning' : 'ok',
+        message: missingPhoneError || missingPhoneCount === null ? 'تعذر فحص أرقام التواصل؛ لا يمكن تأكيد اكتمال البيانات' : (missingPhoneCount || 0) > 0 ? `يوجد ${missingPhoneCount} طالب بدون رقم تواصل` : 'جميع الطلاب لديهم أرقام تواصل',
+        count: missingPhoneError ? undefined : missingPhoneCount ?? undefined,
         hint: 'لن تصل رسائل الواتساب أو الإشعارات لهؤلاء الطلاب'
       });
 
@@ -2941,84 +2946,9 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
     return results;
   }
 
-  async getAuthAuditLogs(filters: AuthAuditLogFilters): Promise<AuthAuditLog[]> {
-    const {
-      from,
-      to,
-      action,
-      role,
-      search,
-      limit = 200,
-      offset = 0
-    } = filters;
-    let query = supabase
-      .from('auth_audit_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (from) query = query.gte('created_at', from);
-    if (to) query = query.lte('created_at', to);
-    if (action) query = query.eq('action', action);
-    if (role) query = query.eq('actor_role', role);
-    if (search) {
-      query = query.or(`actor_user_id.ilike.%${search}%,actor_label.ilike.%${search}%`);
-    }
-
-    const { data, error } = await query;
-    if (error || !data) {
-      console.warn('[Support] Failed to load auth audit logs', error);
-      return [];
-    }
-    return data as AuthAuditLog[];
-  }
-
-  async getClientErrorLogs(filters: ClientErrorLogFilters): Promise<ClientErrorLog[]> {
-    const {
-      from,
-      to,
-      severity,
-      source,
-      path,
-      search,
-      limit = 200,
-      offset = 0
-    } = filters;
-    let query = supabase
-      .from('client_error_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (from) query = query.gte('created_at', from);
-    if (to) query = query.lte('created_at', to);
-    if (severity) query = query.eq('severity', severity);
-    if (source) query = query.eq('source', source);
-    if (path) query = query.ilike('path', `%${path}%`);
-    if (search) {
-      query = query.or(`message.ilike.%${search}%,stack.ilike.%${search}%`);
-    }
-
-    const { data, error } = await query;
-    if (error || !data) {
-      console.warn('[Support] Failed to load client error logs', error);
-      return [];
-    }
-    return data as ClientErrorLog[];
-  }
-
-  async cleanupTelemetryLogs(retentionDays: number): Promise<{ auth_deleted: number; error_deleted: number }> {
-    const { data, error } = await supabase.rpc('cleanup_telemetry_logs', {
-      retention_days: retentionDays
-    });
-    if (error) {
-      throw error;
-    }
-    return {
-      auth_deleted: data?.auth_deleted ?? 0,
-      error_deleted: data?.error_deleted ?? 0
-    };
-  }
+  getAuthAuditLogs = supportTelemetry.getAuthAuditLogs;
+  getClientErrorLogs = supportTelemetry.getClientErrorLogs;
+  cleanupTelemetryLogs = supportTelemetry.cleanupTelemetryLogs;
 
   // =============================================================================
   // PART 3: DISMISSAL SYSTEM (Supabase Integration)

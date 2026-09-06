@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 const {
   getDiagnosticsMock,
@@ -33,11 +33,27 @@ vi.mock('../services/db', () => ({
 
 import Diagnostics from '../pages/Diagnostics';
 
+afterEach(cleanup);
+
 describe('Diagnostics telemetry UI', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getPendingSyncEntriesMock.mockResolvedValue([]);
     syncNowMock.mockResolvedValue(undefined);
+  });
+
+  it('shows returned sync failures in the page', async () => {
+    getDiagnosticsMock.mockResolvedValue({ isOnline: true, isSyncing: false, supabaseConfigured: true, queueSize: 0 });
+    syncNowMock.mockResolvedValue({ success: false, errors: [{ message: 'Offline' }] });
+    render(<Diagnostics />);
+    fireEvent.click(await screen.findByText('Force Sync Now'));
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'الجهاز غير متصل بالإنترنت');
+  });
+
+  it('disables sync while the service is already syncing', async () => {
+    getDiagnosticsMock.mockResolvedValue({ isOnline: true, isSyncing: true, supabaseConfigured: true, queueSize: 0 });
+    render(<Diagnostics />);
+    expect(await screen.findByText('Force Sync Now')).toHaveProperty('disabled', true);
   });
 
   it('renders last sync telemetry metrics', async () => {

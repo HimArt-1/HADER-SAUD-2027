@@ -1,3 +1,4 @@
+import { syncFailureMessage } from '../services/supportDiagnostics';
 import React, { useState, useEffect } from 'react';
 import { 
   Database, 
@@ -29,18 +30,21 @@ interface DiagnosticsData {
   isSyncing: boolean;
   lastSync: string | null;
   queueSize: number;
+  blockedQueueSize?: number;
   queueByTable: Record<string, number>;
   conflictCount: number;
   conflictsByTable: Record<string, number>;
   supabaseConfigured: boolean;
 }
 
-const SyncDiagnostics: React.FC = () => {
+const SyncDiagnostics: React.FC<{ allowDataDeletion?: boolean }> = ({ allowDataDeletion = true }) => {
   const [diagnostics, setDiagnostics] = useState<DiagnosticsData | null>(null);
   const [queueEntries, setQueueEntries] = useState<SyncQueueEntry[]>([]);
   const [conflicts, setConflicts] = useState<ConflictLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState({
     queue: true,
     conflicts: false,
@@ -49,12 +53,13 @@ const SyncDiagnostics: React.FC = () => {
   const [storageInfo, setStorageInfo] = useState<{
     used: number;
     quota: number;
-    tables: Record<string, number>;
+    tables: Record<string, number | null>;
   } | null>(null);
 
   const loadDiagnostics = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       
       // Get sync diagnostics
       const diag = await syncService.getDiagnostics();
@@ -69,7 +74,7 @@ const SyncDiagnostics: React.FC = () => {
       setConflicts(conflictList);
 
       // Get storage info
-      const tables: Record<string, number> = {};
+      const tables: Record<string, number | null> = {};
       const tableNames = ['students', 'attendance_logs', 'users', 'classes', 'settings', 'exits', 'violations', 'notifications'];
       
       for (const tableName of tableNames) {
@@ -77,7 +82,7 @@ const SyncDiagnostics: React.FC = () => {
           const count = await localDb.table(tableName).count();
           tables[tableName] = count;
         } catch {
-          tables[tableName] = 0;
+          tables[tableName] = null;
         }
       }
 
@@ -95,6 +100,7 @@ const SyncDiagnostics: React.FC = () => {
 
     } catch (error) {
       console.error('Failed to load diagnostics:', error);
+      setLoadError('تعذر تحديث بيانات التشخيص؛ قد تكون القيم المعروضة قديمة');
     } finally {
       setLoading(false);
     }
@@ -110,11 +116,14 @@ const SyncDiagnostics: React.FC = () => {
 
   const handleForceSync = async () => {
     setSyncing(true);
+    setSyncError(null);
     try {
-      await syncService.syncNow('bidirectional');
+      const result = await syncService.syncNow('bidirectional');
+      setSyncError(syncFailureMessage(result));
       await loadDiagnostics();
     } catch (error) {
       console.error('Force sync failed:', error);
+      setSyncError(error instanceof Error ? error.message : 'تعذر إكمال المزامنة');
     } finally {
       setSyncing(false);
     }
@@ -139,6 +148,7 @@ const SyncDiagnostics: React.FC = () => {
       await loadDiagnostics();
     } catch (error) {
       console.error('Failed to resolve conflict:', error);
+      setSyncError(error instanceof Error ? error.message : 'تعذر حل التعارض');
     }
   };
 
@@ -225,6 +235,9 @@ const SyncDiagnostics: React.FC = () => {
         </div>
       </div>
 
+      {loadError && <p role="alert" className="text-red-300">{loadError}</p>}
+      {syncError && <p role="alert" className="text-red-300">{syncError}</p>}
+      {(diagnostics?.blockedQueueSize || 0) > 0 && <p role="alert" className="text-amber-300">يوجد {diagnostics?.blockedQueueSize} سجل متوقف بسبب خطأ ويحتاج مراجعة؛ إعادة المزامنة وحدها لن تعالجه.</p>}
       {/* Status Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {/* Connection Status */}
@@ -280,7 +293,7 @@ const SyncDiagnostics: React.FC = () => {
         </div>
         <button
           onClick={handleForceSync}
-          disabled={syncing}
+          disabled={syncing || diagnostics?.isSyncing || !diagnostics?.isOnline || !diagnostics?.supabaseConfigured}
           className="px-4 py-1.5 bg-secondary-600 hover:bg-secondary-500 disabled:bg-slate-600 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
         >
           <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
@@ -337,13 +350,13 @@ const SyncDiagnostics: React.FC = () => {
                     </div>
                   ))}
                 </div>
-                <button
+                {allowDataDeletion && <button
                   onClick={handleClearQueue}
                   className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
                 >
                   <Trash2 className="w-3 h-3" />
                   مسح الطابور
-                </button>
+                </button>}
               </>
             ) : (
               <p className="text-sm text-gray-500 text-center py-4">
@@ -432,7 +445,7 @@ const SyncDiagnostics: React.FC = () => {
               <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-gradient-to-r from-secondary-500 to-secondary-500 rounded-full transition-all"
-                  style={{ width: `${Math.min((storageInfo.used / storageInfo.quota) * 100, 100)}%` }}
+                  style={{ width: `${storageInfo.quota > 0 ? Math.min((storageInfo.used / storageInfo.quota) * 100, 100) : 0}%` }}
                 />
               </div>
             </div>
@@ -442,7 +455,7 @@ const SyncDiagnostics: React.FC = () => {
               {Object.entries(storageInfo.tables).map(([table, count]) => (
                 <div key={table} className="p-2 bg-slate-900/50 rounded-lg flex items-center justify-between">
                   <span className="text-xs text-gray-400">{table}</span>
-                  <span className="text-sm font-medium text-white">{count}</span>
+                  <span className="text-sm font-medium text-white">{count ?? 'تعذر الفحص'}</span>
                 </div>
               ))}
             </div>
@@ -456,13 +469,13 @@ const SyncDiagnostics: React.FC = () => {
                 <Download className="w-4 h-4" />
                 تصدير البيانات
               </button>
-              <button
+              {allowDataDeletion && <button
                 onClick={handleClearAllData}
                 className="flex-1 px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Trash2 className="w-4 h-4" />
                 مسح الكل
-              </button>
+              </button>}
             </div>
           </div>
         )}

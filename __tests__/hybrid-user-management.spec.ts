@@ -4,10 +4,11 @@ import { Role } from '../types';
 const mocks = vi.hoisted(() => ({
   save: vi.fn(), remove: vi.fn(), put: vi.fn(), deleteLocal: vi.fn(), tombstone: vi.fn(),
   pendingCount: vi.fn(), queue: vi.fn(), sync: vi.fn(), from: vi.fn(),
-  status: { isConfigured: true }, hash: vi.fn(async () => 'hashed-password')
+  diagnostics: vi.fn(), studentCount: vi.fn(), status: { isConfigured: true }, hash: vi.fn(async () => 'hashed-password')
 }));
 vi.mock('../services/localDb', () => ({
   localDb: {
+    students: { count: mocks.studentCount },
     users: { put: mocks.put, delete: mocks.deleteLocal, bulkPut: vi.fn(), toArray: vi.fn(async () => [{ id: 'stale' }]) },
     sync_queue: { where: () => ({ equals: () => ({ count: mocks.pendingCount }) }) }
   },
@@ -19,7 +20,7 @@ vi.mock('../services/supabase', () => {
   const channel = { on: () => channel, subscribe: () => channel };
   return { supabaseStatus: mocks.status, supabase: { from: mocks.from, channel: () => channel } };
 });
-vi.mock('../services/syncService', () => ({ syncService: { syncNow: mocks.sync, on: vi.fn() } }));
+vi.mock('../services/syncService', () => ({ syncService: { syncNow: mocks.sync, getDiagnostics: mocks.diagnostics, on: vi.fn() } }));
 vi.mock('../services/security', () => ({ ensurePasswordForCloud: mocks.hash }));
 vi.mock('../services/liveNotificationService', () => ({ liveNotificationService: {} }));
 vi.mock('../services/settingsBroadcast', () => ({ broadcastSettingsUpdate: vi.fn() }));
@@ -95,5 +96,17 @@ describe('confirmed cloud user management', () => {
   it('uses the authoritative cloud list instead of returning deleted cached accounts', async () => {
     mocks.from.mockReturnValue({ select: () => ({ order: async () => ({ data: [], error: null }) }) });
     expect(await provider().getUsers()).toEqual([]);
+  });
+});
+
+
+describe('hybrid support diagnostics', () => {
+  it('counts blocked entries and does not claim all data is synced', async () => {
+    mocks.diagnostics.mockResolvedValue({ queueSize: 0, blockedQueueSize: 2, conflictCount: 0, isOnline: true, supabaseConfigured: true });
+    mocks.studentCount.mockResolvedValue(10);
+    mocks.from.mockReturnValue({ select: () => ({ limit: () => ({ abortSignal: async () => ({ error: { message: 'permission denied' } }) }) }) });
+    const results = await provider().runDiagnostics();
+    expect(results.find(row => row.key === 'sync-queue')).toMatchObject({ status: 'error', count: 2 });
+    expect(results.find(row => row.key === 'cloud-connection')).toMatchObject({ status: 'error', message: 'permission denied' });
   });
 });

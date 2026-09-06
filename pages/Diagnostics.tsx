@@ -1,3 +1,4 @@
+import { syncFailureMessage } from '../services/supportDiagnostics';
 import React, { useEffect, useState } from 'react';
 import { syncService } from '../services/syncService';
 import { db } from '../services/db';
@@ -8,6 +9,7 @@ const Diagnostics: React.FC = () => {
     const [diagnostics, setDiagnostics] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [syncing, setSyncing] = useState(false);
+    const [syncError, setSyncError] = useState<string | null>(null);
     const [detailedQueue, setDetailedQueue] = useState<any[]>([]);
     const [showQueue, setShowQueue] = useState(false);
 
@@ -35,12 +37,14 @@ const Diagnostics: React.FC = () => {
 
     const handleForceSync = async () => {
         setSyncing(true);
+        setSyncError(null);
         try {
-            await syncService.syncNow('bidirectional');
+            const result = await syncService.syncNow('bidirectional');
+            setSyncError(syncFailureMessage(result));
             await fetchDiagnostics(); // Refresh immediately after
         } catch (error) {
             console.error('Force sync failed:', error);
-            alert('Sync Failed: ' + (error as Error).message);
+            setSyncError(error instanceof Error ? error.message : 'تعذر إكمال المزامنة');
         } finally {
             setSyncing(false);
         }
@@ -68,6 +72,7 @@ const Diagnostics: React.FC = () => {
         <div className="min-h-screen bg-slate-900 text-white p-6">
             <div className="max-w-4xl mx-auto space-y-6">
 
+                {syncError && <p role="alert" className="text-red-300">{syncError}</p>}
                 {/* Header */}
                 <div className="flex justify-between items-center mb-8">
                     <div>
@@ -128,7 +133,7 @@ const Diagnostics: React.FC = () => {
                 <div className="flex gap-4">
                     <button
                         onClick={handleForceSync}
-                        disabled={syncing || !diagnostics?.isOnline}
+                        disabled={syncing || diagnostics?.isSyncing || !diagnostics?.isOnline || !diagnostics?.supabaseConfigured}
                         className={`flex-1 py-3 px-6 rounded-lg font-bold flex items-center justify-center gap-2 transition
               ${syncing
                                 ? 'bg-slate-700 cursor-wait'

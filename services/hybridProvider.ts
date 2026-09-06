@@ -3,6 +3,7 @@
 // =============================================================================
 // Hybrid database provider that uses IndexedDB locally with cloud sync
 
+import { probeSupportTables } from './supportDiagnostics';
 import { supabase, supabaseStatus } from './supabase';
 import { logger } from './logger';
 import {
@@ -2133,14 +2134,18 @@ export class HybridProvider {
         const results: DiagnosticResult[] = [];
         const syncDiag = await syncService.getDiagnostics();
         
+        const probes = await probeSupportTables(['settings']);
+        const cloudAvailable = probes.every(probe => probe.accessible);
+        const queueSize = syncDiag.queueSize + (syncDiag.blockedQueueSize || 0);
+
         // 1. Connection check
         results.push({
             key: 'cloud-connection',
             title: 'الاتصال السحابي',
-            status: syncDiag.supabaseConfigured && syncDiag.isOnline ? 'ok' : 'error',
-            message: syncDiag.supabaseConfigured && syncDiag.isOnline 
-                ? 'الاتصال بـ Supabase نشط ومستقر' 
-                : 'يوجد انقطاع في الاتصال السحابي',
+            status: cloudAvailable ? 'ok' : 'error',
+            message: cloudAvailable
+                ? 'نجح استعلام الإعدادات السحابية بهذه الجلسة'
+                : probes.find(probe => !probe.accessible)?.error || 'تعذر التحقق من الاتصال السحابي',
             hint: !syncDiag.supabaseConfigured ? 'تحقق من إعدادات Supabase' : (!syncDiag.isOnline ? 'تحقق من اتصال الإنترنت' : undefined)
         });
 
@@ -2148,11 +2153,11 @@ export class HybridProvider {
         results.push({
             key: 'sync-queue',
             title: 'طابور المزامنة',
-            status: syncDiag.queueSize > 100 ? 'error' : (syncDiag.queueSize > 50 ? 'warning' : 'ok'),
-            count: syncDiag.queueSize,
-            message: syncDiag.queueSize > 0 
-                ? `يوجد ${syncDiag.queueSize} عنصر في انتظار المزامنة` 
-                : 'جميع البيانات المحلية متزامنة مع السحابة',
+            status: syncDiag.blockedQueueSize > 0 || queueSize > 100 ? 'error' : (queueSize > 0 ? 'warning' : 'ok'),
+            count: queueSize,
+            message: queueSize > 0
+                ? `يوجد ${queueSize} عنصر لم تتم مزامنته، منها ${syncDiag.blockedQueueSize || 0} متوقف بسبب خطأ`
+                : 'لا توجد عناصر في طابور المزامنة',
             hint: syncDiag.queueSize > 100 ? 'قد يكون هناك بطء في المزامنة بسبب حجم البيانات' : undefined
         });
 
