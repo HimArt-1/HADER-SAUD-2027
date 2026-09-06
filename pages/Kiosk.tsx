@@ -312,6 +312,8 @@ const Kiosk: React.FC = () => {
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [initStatus, setInitStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [initMessage, setInitMessage] = useState<string | null>(null);
+  const preloadRunningRef = useRef(false);
+  const hasReadyDataRef = useRef(false);
   const [syncState, setSyncState] = useState(() => db.getSyncStatus());
   const [syncRetrying, setSyncRetrying] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -603,13 +605,21 @@ const Kiosk: React.FC = () => {
   }, []);
 
   const runPreload = useCallback(async () => {
-    setInitStatus('loading');
-    setInitMessage(null);
+    // Wake/focus/online events can arrive together. Once ready, refresh data
+    // without unmounting the scanner or discarding an in-progress barcode.
+    if (preloadRunningRef.current) return;
+    preloadRunningRef.current = true;
+    if (!hasReadyDataRef.current) {
+      setInitStatus('loading');
+      setInitMessage(null);
+    }
     try {
       const res = await db.preloadForKiosk();
 
       if (res.ok) {
+        hasReadyDataRef.current = true;
         setInitStatus('ready');
+        setInitMessage(null);
 
         // ═══════════════════════════════════════════════════════════════
         // Show appropriate message based on preload result
@@ -630,15 +640,22 @@ const Kiosk: React.FC = () => {
           setInitMessage(res.message);
         }
       } else {
-        // ═══════════════════════════════════════════════════════════════
-        // Error state - blocking error
-        // ═══════════════════════════════════════════════════════════════
-        setInitStatus('error');
-        setInitMessage(res.message || 'تعذر تهيئة وضع الكشك');
+        if (hasReadyDataRef.current) {
+          setInitMessage('تعذر تحديث بيانات الكشك؛ يستمر العمل بالبيانات المحمّلة حتى عودة الاتصال.');
+        } else {
+          setInitStatus('error');
+          setInitMessage(res.message || 'تعذر تهيئة وضع الكشك');
+        }
       }
     } catch (error: any) {
-      setInitStatus('error');
-      setInitMessage(error?.message || 'تعذر تهيئة وضع الكشك');
+      if (hasReadyDataRef.current) {
+        setInitMessage('تعذر تحديث بيانات الكشك؛ يستمر العمل بالبيانات المحمّلة حتى عودة الاتصال.');
+      } else {
+        setInitStatus('error');
+        setInitMessage(error?.message || 'تعذر تهيئة وضع الكشك');
+      }
+    } finally {
+      preloadRunningRef.current = false;
     }
   }, []);
 
