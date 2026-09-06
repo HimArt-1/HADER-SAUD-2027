@@ -154,14 +154,14 @@ const throwDataError = (error: any, action: string): never => {
     : `تعذر ${action}: ${String(error?.message || 'خطأ غير معروف')}`);
 };
 
-const getSurveyAdminToken = (): string => {
+const getSurveyAdminToken = (purpose = 'إدارة الاستبيانات'): string => {
   const session = secureSessionStorage.get();
   const token = session?.surveyAdminToken;
   if (session?.surveyAdminExpiresAt && session.surveyAdminExpiresAt <= Date.now()) {
-    throw new Error('انتهت جلسة إدارة الاستبيانات. سجّل الخروج ثم ادخل مجدداً.');
+    throw new Error(`انتهت جلسة ${purpose}. سجّل الخروج ثم ادخل مجدداً.`);
   }
   if (!token) {
-    throw new Error('جلسة إدارة الاستبيانات غير متاحة. بعد تطبيق ترحيل Supabase، سجّل الخروج ثم ادخل مجدداً.');
+    throw new Error(`جلسة ${purpose} غير متاحة. سجّل الخروج ثم ادخل مجدداً؛ إذا استمرت المشكلة يلزم تحديث إعداد الخادم.`);
   }
   return token;
 };
@@ -175,7 +175,7 @@ export const hasSurveyAdminAccess = (): boolean => {
 export const saveManagedCloudUser = async (user: Readonly<Record<string, unknown>>): Promise<Record<string, any>> => {
   if (!supabaseStatus.isConfigured) throw new Error('الاتصال السحابي غير مهيأ');
   const { data, error } = await supabase.rpc('save_hader_user', {
-    p_session_token: getSurveyAdminToken(),
+    p_session_token: getSurveyAdminToken('إدارة المستخدمين'),
     p_user: user
   });
   if (error || !data) throwDataError(error, 'حفظ المستخدم');
@@ -185,7 +185,7 @@ export const saveManagedCloudUser = async (user: Readonly<Record<string, unknown
 export const deleteManagedCloudUser = async (userId: string): Promise<void> => {
   if (!supabaseStatus.isConfigured) throw new Error('الاتصال السحابي غير مهيأ');
   const { error } = await supabase.rpc('delete_hader_user', {
-    p_session_token: getSurveyAdminToken(),
+    p_session_token: getSurveyAdminToken('إدارة المستخدمين'),
     p_user_id: userId
   });
   if (error) throwDataError(error, 'حذف المستخدم');

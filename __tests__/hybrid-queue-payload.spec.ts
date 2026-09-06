@@ -7,7 +7,8 @@ const {
   queueChangeMock,
   syncNowMock,
   supabaseStatusMock,
-  supabaseFromMock
+  supabaseFromMock,
+  saveManagedMock
 } = vi.hoisted(() => {
   const createTable = () => ({
     put: vi.fn(async () => undefined),
@@ -25,14 +26,18 @@ const {
       violations: createTable(),
       notifications: createTable(),
       users: createTable(),
+      sync_queue: { where: () => ({ equals: () => ({ count: async () => 0 }) }) },
       dismissal_schedules: createTable()
     },
     queueChangeMock: vi.fn(async () => 1),
     syncNowMock: vi.fn(async () => ({ errors: [] })),
     supabaseStatusMock: { isConfigured: false },
-    supabaseFromMock: vi.fn()
+    supabaseFromMock: vi.fn(),
+    saveManagedMock: vi.fn(async (payload) => ({ ...payload, id: payload.id || "server-user" }))
   };
 });
+
+vi.mock('../services/surveys', () => ({ saveManagedCloudUser: saveManagedMock, deleteManagedCloudUser: vi.fn() }));
 
 vi.mock('../services/localDb', () => ({
   localDb: localDbMock,
@@ -164,7 +169,8 @@ describe('HybridProvider queued payloads', () => {
     );
   });
 
-  it('normalizes and queues class supervisor assignments', async () => {
+  it('normalizes class supervisor assignments for confirmed cloud saving', async () => {
+    supabaseStatusMock.isConfigured = true;
     const provider = new HybridProvider();
 
     const saved = await provider.saveUser({
@@ -183,14 +189,10 @@ describe('HybridProvider queued payloads', () => {
       id: saved.id,
       assigned_classes: [{ class_name: 'الأول', sections: ['A', 'B'] }]
     }));
-    expect(queueChangeMock).toHaveBeenCalledWith(
-      'users',
-      'INSERT',
-      expect.objectContaining({
-        id: saved.id,
-        assigned_classes: [{ class_name: 'الأول', sections: ['A', 'B'] }]
-      })
-    );
+    expect(saveManagedMock).toHaveBeenCalledWith(expect.objectContaining({
+      assigned_classes: [{ class_name: 'الأول', sections: ['A', 'B'] }]
+    }));
+    expect(queueChangeMock).not.toHaveBeenCalled();
   });
 
   it('hydrates users from Supabase before returning the admin users list', async () => {

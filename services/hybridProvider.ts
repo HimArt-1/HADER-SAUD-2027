@@ -8,6 +8,7 @@ import { logger } from './logger';
 import {
     localDb,
     queueChange,
+    recordSyncTombstone,
     getSyncMeta,
     setSyncMeta,
     SyncableStudent,
@@ -26,6 +27,7 @@ import {
     SyncableClientErrorLog
 } from './localDb';
 import { syncService } from './syncService';
+import { saveManagedCloudUser, deleteManagedCloudUser } from './surveys';
 import { SyncState } from './syncTypes';
 import { liveNotificationService } from './liveNotificationService';
 import { broadcastSettingsUpdate } from './settingsBroadcast';
@@ -1133,7 +1135,7 @@ export class HybridProvider {
     async getUsers(): Promise<User[]> {
         if (supabaseStatus.isConfigured && navigator.onLine) {
             try {
-                await this.fetchUsersFromCloud();
+                return await this.fetchUsersFromCloud();
             } catch (error) {
                 logger.warn('Hybrid', 'Failed to fetch users from cloud, using local cache:', error);
             }
@@ -1148,80 +1150,56 @@ export class HybridProvider {
         return user || undefined;
     }
 
+    private async assertUserManagementReady(): Promise<void> {
+        if (!supabaseStatus.isConfigured || !navigator.onLine) {
+            throw new Error('إدارة المستخدمين تتطلب اتصالاً بالخادم؛ لم يُحفظ أي تغيير.');
+        }
+        // Do not let an older queued mutation overwrite a newly confirmed RPC.
+        const pending = await localDb.sync_queue.where('table').equals('users').count();
+        if (pending > 0) {
+            throw new Error('توجد عمليات مستخدمين معلقة من إصدار سابق؛ أكمل مزامنتها أو راجع أخطاءها قبل إجراء تغيير جديد.');
+        }
+    }
+
     async saveUser(user: User): Promise<User> {
-        const now = new Date().toISOString();
-        const isNewUser = !user.id;
-        const normalizedAssignedClasses = normalizeAssignedClasses(user.assigned_classes);
-        const normalizedAssignedSections = normalizeAssignedSections(user.assigned_sections);
-        const userForStore: User = {
-            ...user,
-            assigned_classes: user.role === Role.SUPERVISOR_CLASS ? (normalizedAssignedClasses ?? []) : null as any,
-            assigned_sections: normalizedAssignedSections
+        await this.assertUserManagementReady();
+        const password = user.password ? await ensurePasswordForCloud(user.password) : undefined;
+        const payload = {
+            ...(user.id ? { id: user.id } : {}),
+            username: user.username,
+            name: user.name,
+            role: user.role,
+            is_active: user.is_active ?? true,
+            email: user.email ?? null,
+            phone: user.phone ?? null,
+            can_use_whatsapp: user.can_use_whatsapp ?? false,
+            assigned_classes: user.role === Role.SUPERVISOR_CLASS
+                ? (normalizeAssignedClasses(user.assigned_classes) ?? []) : null,
+            assigned_sections: normalizeAssignedSections(user.assigned_sections) ?? null,
+            ...(password ? { password, password_hash_version: 1 } : {})
         };
-
-        let passwordForStore: string | undefined = userForStore.password;
-        if (userForStore.password) {
-            passwordForStore = await ensurePasswordForCloud(userForStore.password);
-        }
-
-        const syncableUser: SyncableUser = {
-            ...userForStore,
-            id: userForStore.id || crypto.randomUUID(),
-            ...(passwordForStore !== undefined ? { password: passwordForStore } : {}),
-            _synced: false,
-            _updated_at: now
-        };
-
-        await localDb.users.put(syncableUser);
-
-        if (isNewUser) {
-            const row = passwordForStore
-                ? { ...syncableUser, password_hash_version: 1 as const }
-                : syncableUser;
-            await queueChange('users', 'INSERT', row);
-        } else {
-            const { password: _pw, ...userWithoutPassword } = syncableUser;
-            if (passwordForStore) {
-                await queueChange('users', 'UPSERT', {
-                    ...userWithoutPassword,
-                    password: passwordForStore,
-                    password_hash_version: 1
-                });
-            } else {
-                await queueChange('users', 'UPSERT', userWithoutPassword);
-            }
-        }
-
-        // Wait for user sync to complete. Admin account creation must not report
-        // success unless Supabase accepted the user row; otherwise the new
-        // account cannot authenticate from another device/session.
+        // Administrative account changes require a server receipt. Background
+        // sync can skip a run or return errors without throwing.
+        const saved = mapUser(await saveManagedCloudUser(payload));
         try {
-            const syncResult = await syncService.syncNow('up');
-            const userSyncError = syncResult.errors.find(error => error.table === 'users');
-            if (userSyncError) {
-                throw new Error(userSyncError.message || 'فشل مزامنة المستخدم مع قاعدة البيانات السحابية');
-            }
-        } catch (e) {
-            logger.warn('Hybrid', 'Sync failed after saveUser:', e);
-            if (isNewUser) {
-                await localDb.users.delete(syncableUser.id);
-            }
-            throw e;
+            await localDb.users.put({ ...saved, _synced: true, _updated_at: new Date().toISOString() });
+        } catch (error) {
+            // A failed cache refresh must not encourage repeating a committed write.
+            logger.warn('Hybrid', 'User saved on server; local cache refresh failed:', error);
         }
-
-        return syncableUser;
+        return saved;
     }
 
     async deleteUser(userId: string): Promise<void> {
-        await localDb.users.delete(userId);
-        await queueChange('users', 'DELETE', userId);
-
-        // Wait for sync to complete
+        await this.assertUserManagementReady();
+        await deleteManagedCloudUser(userId);
+        // Preserve the cached account if the server rejects deletion. Only a
+        // confirmed deletion may enter the local tombstone stream.
         try {
-            await syncService.syncNow('up');
-        } catch (e) {
-            logger.warn('Hybrid', 'Sync failed after deleteUser:', e);
-            throw e;
+            await recordSyncTombstone('users', userId);
+            await localDb.users.delete(userId);
+        } catch (error) {
+            logger.warn('Hybrid', 'User deleted on server; local cache refresh failed:', error);
         }
     }
 
