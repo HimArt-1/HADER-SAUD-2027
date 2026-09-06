@@ -29,6 +29,25 @@ export type StaffAttendanceRecord = Readonly<{
   status: StaffAttendanceStatus;
   minutesLate?: number;
   recordedAt: string;
+  source?: 'huduri';
+}>;
+
+export type StaffLessonPreparation = Readonly<{
+  id: string;
+  teacherId: string;
+  date: string;
+  period: number;
+  subject: string;
+  className: string;
+  section: string;
+  status: 'prepared' | 'not-prepared';
+  recordedAt: string;
+  source: 'madrasati';
+}>;
+
+export type StaffReportBatch = Readonly<{
+  attendance: readonly StaffAttendanceRecord[];
+  preparations: readonly StaffLessonPreparation[];
 }>;
 
 export type CoverageAssignment = Readonly<{
@@ -58,7 +77,7 @@ export type CoveragePlan = Readonly<{
 
 export type StaffOperationsAuditEvent = Readonly<{
   id: string;
-  action: 'teacher-saved' | 'timetable-replaced' | 'attendance-recorded' | 'coverage-approved';
+  action: 'teacher-saved' | 'timetable-replaced' | 'attendance-recorded' | 'coverage-approved' | 'report-imported';
   actorId: string;
   occurredAt: string;
   details: Readonly<Record<string, string | number | boolean>>;
@@ -69,6 +88,7 @@ export type StaffOperationsSnapshot = Readonly<{
   teachers: readonly StaffTeacher[];
   timetable: readonly StaffTeachingSlot[];
   attendance: readonly StaffAttendanceRecord[];
+  preparations: readonly StaffLessonPreparation[];
   coveragePlans: readonly CoveragePlan[];
 }>;
 
@@ -83,6 +103,7 @@ export type StaffOperationsPort = Readonly<{
   saveTeacher(teacher: StaffTeacher, audit: StaffOperationsAuditEvent, expectedVersion: number): Promise<void>;
   replaceTimetable(slots: readonly StaffTeachingSlot[], audit: StaffOperationsAuditEvent, expectedVersion: number): Promise<void>;
   saveAttendance(record: StaffAttendanceRecord, audit: StaffOperationsAuditEvent, expectedVersion: number): Promise<void>;
+  importReport(batch: StaffReportBatch, audit: StaffOperationsAuditEvent, expectedVersion: number): Promise<void>;
   saveCoveragePlan(plan: CoveragePlan, audit: StaffOperationsAuditEvent, expectedVersion: number): Promise<void>;
   auditEvents(): Promise<readonly StaffOperationsAuditEvent[]>;
 }>;
@@ -483,13 +504,14 @@ export const createInMemoryStaffOperationsPort = (
   let teachers = clone([...(initial.teachers ?? [])]);
   let timetable = clone([...(initial.timetable ?? [])]);
   let attendance = clone([...(initial.attendance ?? [])]);
+  let preparations = clone([...(initial.preparations ?? [])]);
   let coveragePlans = clone([...(initial.coveragePlans ?? [])]);
   let audit: StaffOperationsAuditEvent[] = [];
   let version = initial.version ?? 0;
 
   return Object.freeze({
     async load() {
-      return clone({ version, teachers, timetable, attendance, coveragePlans });
+      return clone({ version, teachers, timetable, attendance, preparations, coveragePlans });
     },
     async saveTeacher(teacher, event, expectedVersion) {
       if (version !== expectedVersion) throw new Error('تغيرت البيانات؛ أعد المحاولة');
@@ -506,6 +528,15 @@ export const createInMemoryStaffOperationsPort = (
     async saveAttendance(record, event, expectedVersion) {
       if (version !== expectedVersion) throw new Error('تغيرت البيانات؛ أعد المحاولة');
       attendance = [...attendance.filter(candidate => candidate.id !== record.id), clone(record)];
+      audit = [...audit, clone(event)];
+      version += 1;
+    },
+    async importReport(batch, event, expectedVersion) {
+      if (version !== expectedVersion) throw new Error('تغيرت البيانات؛ أعد فحص التقرير');
+      const attendanceIds = new Set(batch.attendance.map(record => record.id));
+      const preparationIds = new Set(batch.preparations.map(record => record.id));
+      attendance = [...attendance.filter(record => !attendanceIds.has(record.id)), ...clone(batch.attendance)];
+      preparations = [...preparations.filter(record => !preparationIds.has(record.id)), ...clone(batch.preparations)];
       audit = [...audit, clone(event)];
       version += 1;
     },

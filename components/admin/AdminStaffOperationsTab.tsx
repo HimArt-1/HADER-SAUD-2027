@@ -405,7 +405,8 @@ const AdminStaffOperationsTab: React.FC<Props> = ({
                   'teacher-saved': 'حفظ بيانات معلم',
                   'timetable-replaced': 'اعتماد الجدول الأسبوعي',
                   'attendance-recorded': 'تحديث حضور معلم',
-                  'coverage-approved': 'اعتماد جدول الانتظار'
+                  'coverage-approved': 'اعتماد جدول الانتظار',
+                  'report-imported': 'مزامنة تقرير حضوري أو مدرستي'
                 }[event.action]}</span>
                 <time className="text-xs text-slate-500">{new Date(event.occurredAt).toLocaleString('ar-SA')}</time>
               </div>

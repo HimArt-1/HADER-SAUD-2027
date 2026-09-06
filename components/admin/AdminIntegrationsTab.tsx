@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import StaffIntegrationsPanel from './StaffIntegrationsPanel';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -234,17 +235,19 @@ const AdminIntegrationsTab: React.FC<Props> = ({ controller, showToast }) => {
               <article className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 opacity-75">
                 <div className="flex items-center gap-3"><GraduationCap className="h-5 w-5 text-secondary-200" /><strong className="text-white">منصة مدرستي</strong></div>
                 <p className="mt-2 text-xs leading-6 text-slate-400">مراجعة تحضير الدروس للمعلمين</p>
-                <span className="mt-3 inline-block text-xs font-bold text-slate-500">قيد البناء</span>
+                <a href="#staff-integrations" className="mt-3 inline-block text-xs font-bold text-primary-200">استيراد ومراجعة تقرير التحضير</a>
               </article>
               <article className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 opacity-75">
                 <div className="flex items-center gap-3"><Clock3 className="h-5 w-5 text-amber-200" /><strong className="text-white">حضوري</strong></div>
                 <p className="mt-2 text-xs leading-6 text-slate-400">حضور المعلمين وجدول الانتظار</p>
-                <span className="mt-3 inline-block text-xs font-bold text-slate-500">قيد البناء</span>
+                <a href="#staff-integrations" className="mt-3 inline-block text-xs font-bold text-primary-200">استيراد ومراجعة تقرير الحضور</a>
               </article>
             </div>
           </div>
         </div>
       </div>
+
+      <StaffIntegrationsPanel showToast={showToast} />
 
       {review && (
         <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-5 md:p-7">

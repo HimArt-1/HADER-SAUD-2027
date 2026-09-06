@@ -5,6 +5,7 @@ import {
   validateStaffTimetable,
   type CoveragePlan,
   type StaffAttendanceRecord,
+  type StaffLessonPreparation,
   type StaffOperationsAuditEvent,
   type StaffOperationsModule,
   type StaffOperationsPort,
@@ -19,10 +20,11 @@ import {
 import { auth } from './auth';
 import { parseXlsxFile } from './import/parsers/xlsx';
 
-class HaderStaffOperationsDB extends Dexie {
+export class HaderStaffOperationsDB extends Dexie {
   teachers!: Table<StaffTeacher, string>;
   timetable!: Table<StaffTeachingSlot, string>;
   attendance!: Table<StaffAttendanceRecord, string>;
+  preparations!: Table<StaffLessonPreparation, string>;
   coveragePlans!: Table<CoveragePlan, string>;
   audit!: Table<StaffOperationsAuditEvent, string>;
   metadata!: Table<Readonly<{ key: string; value: number }>, string>;
@@ -38,6 +40,9 @@ class HaderStaffOperationsDB extends Dexie {
     });
     this.version(2).stores({
       metadata: '&key'
+    });
+    this.version(3).stores({
+      preparations: '&id, teacherId, date, status, [date+teacherId]'
     });
   }
 }
@@ -60,18 +65,20 @@ export const createIndexedDbStaffOperationsPort = (
         database.teachers,
         database.timetable,
         database.attendance,
+        database.preparations,
         database.coveragePlans,
         database.metadata
       ],
       async () => {
-        const [version, teachers, timetable, attendance, coveragePlans] = await Promise.all([
+        const [version, teachers, timetable, attendance, preparations, coveragePlans] = await Promise.all([
           readVersion(database),
           database.teachers.toArray(),
           database.timetable.toArray(),
           database.attendance.toArray(),
+          database.preparations.toArray(),
           database.coveragePlans.toArray()
         ]);
-        return Object.freeze({ version, teachers, timetable, attendance, coveragePlans });
+        return Object.freeze({ version, teachers, timetable, attendance, preparations, coveragePlans });
       }
     );
   },
@@ -99,6 +106,16 @@ export const createIndexedDbStaffOperationsPort = (
     await database.transaction('rw', database.attendance, database.audit, database.metadata, async () => {
       if (await readVersion(database) !== expectedVersion) throw new Error('تغيرت البيانات؛ أعد المحاولة');
       await database.attendance.put(record);
+      await database.audit.put(event);
+      await incrementVersion(database);
+    });
+  },
+
+  async importReport(batch, event, expectedVersion) {
+    await database.transaction('rw', [database.attendance, database.preparations, database.audit, database.metadata], async () => {
+      if (await readVersion(database) !== expectedVersion) throw new Error('تغيرت البيانات؛ أعد فحص التقرير');
+      if (batch.attendance.length) await database.attendance.bulkPut([...batch.attendance]);
+      if (batch.preparations.length) await database.preparations.bulkPut([...batch.preparations]);
       await database.audit.put(event);
       await incrementVersion(database);
     });
