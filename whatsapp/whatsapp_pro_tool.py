@@ -282,10 +282,13 @@ class WhatsAppProTool:
         opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
         opts.add_argument("--disable-blink-features=AutomationControlled")
-        opts.add_argument("--disable-gpu")
         opts.add_argument("--remote-debugging-port=0")
         opts.add_argument("--disable-infobars")
         opts.add_argument("--disable-notifications")
+        # Prevent blank-page rendering on Chrome 130+ (macOS especially)
+        opts.add_argument("--disable-features=VizDisplayCompositor")
+        # Prevent Chrome initial dialogs from blocking page load
+        opts.add_argument("--disable-search-engine-choice-screen")
         _w = 1280 + random.randint(-80, 80)
         _h = 900 + random.randint(-60, 60)
         opts.add_argument(f"--window-size={_w},{_h}")
@@ -459,13 +462,11 @@ class WhatsAppProTool:
         }
 
         // ═══════════════════════════════════════════════════════
-        // 10. Prevent iframe detection
+        // 10. Prevent iframe detection (safe version)
         // ═══════════════════════════════════════════════════════
-        Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
-            get: function() {
-                return window;
-            }
-        });
+        // NOTE: Do NOT override HTMLIFrameElement.prototype.contentWindow
+        // as WhatsApp Web relies heavily on iframes for its UI.
+        // Overriding it causes blank pages.
         """
 
     def init_browser(self) -> bool:
@@ -481,13 +482,24 @@ class WhatsAppProTool:
                 self.driver = webdriver.Chrome(service=service, options=opts)
 
                 # Inject comprehensive stealth fingerprints
-                self.driver.execute_cdp_cmd(
-                    "Page.addScriptToEvaluateOnNewDocument",
-                    {"source": self._get_stealth_js()}
-                )
+                try:
+                    self.driver.execute_cdp_cmd(
+                        "Page.addScriptToEvaluateOnNewDocument",
+                        {"source": self._get_stealth_js()}
+                    )
+                except Exception as cdp_err:
+                    logging.warning(f"CDP stealth injection skipped (non-fatal): {cdp_err}")
 
                 self.driver.set_page_load_timeout(60)
                 self.wait = WebDriverWait(self.driver, 60)
+
+                # Sanity check: load a blank page to verify the browser works
+                try:
+                    self.driver.get("about:blank")
+                    time.sleep(1)
+                except Exception as nav_err:
+                    logging.warning(f"Initial navigation test failed: {nav_err}")
+
                 logging.info("✅ Engine ready.")
                 return True
 
@@ -510,8 +522,29 @@ class WhatsAppProTool:
         Navigate to WhatsApp Web and wait up to 90 s for authentication.
         Returns True when the side-panel is visible (user is logged in).
         """
-        self.driver.get("https://web.whatsapp.com")
-        logging.info("📱 Waiting for WhatsApp authentication…")
+        try:
+            self.driver.get("https://web.whatsapp.com")
+        except WebDriverException as nav_err:
+            logging.error(f"❌ Failed to navigate to WhatsApp Web: {nav_err}")
+            return False
+
+        logging.info("📱 Waiting for WhatsApp Web to load…")
+
+        # Wait for page to actually start rendering (not blank)
+        try:
+            WebDriverWait(self.driver, 30).until(
+                lambda d: d.execute_script(
+                    "return document.readyState === 'complete' "
+                    "&& document.body && document.body.innerHTML.length > 100"
+                )
+            )
+            logging.info("📄 WhatsApp Web page loaded successfully.")
+        except TimeoutException:
+            logging.warning("⚠️ Page load slow — continuing to wait for login elements…")
+        except WebDriverException as js_err:
+            logging.warning(f"⚠️ Page load check failed: {js_err}")
+
+        logging.info("📱 Waiting for WhatsApp authentication (QR scan or saved session)…")
 
         try:
             # Build a combined OR-XPath from all side-panel selectors
