@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Play, Square, Terminal, AlertCircle, MessageSquare, Send, Clock, Moon, List, Edit, Settings, RotateCcw, CheckCircle, Paperclip, Pause, Trash2, Award, Zap, X, Volume2, VolumeX, Keyboard, Download, BookOpen } from 'lucide-react';
+import { Play, Terminal, AlertCircle, MessageSquare, Send, Clock, Moon, List, Edit, Settings, RotateCcw, CheckCircle, Paperclip, Pause, Trash2, Award, Zap, X, Volume2, VolumeX, Keyboard, Download, BookOpen } from 'lucide-react';
 import { auth } from '../services/auth';
 import { db, getLocalISODate } from '../services/db';
 import { appSettings } from '../services/settings';
@@ -7,7 +7,9 @@ import { roster } from '../services/roster';
 import { whatsappGateway } from '../services/whatsappGateway';
 import { logger } from '../services/logger';
 import { Role, Student, SchoolClass, AttendanceRecord } from '../types';
-import type { WhatsAppQueueItem, WhatsAppStatus } from '../modules/whatsapp';
+import type { WhatsAppCommand, WhatsAppQueueItem, WhatsAppStatus } from '../modules/whatsapp';
+import { isEngineAlive } from '../modules/whatsapp';
+import { WhatsAppGatewayError } from '../services/whatsappGateway';
 import { StudentSelectComponent, StudentSelectFilters, MultiStudentSelectComponent } from '../components/StudentSelect';
 import { motion } from 'framer-motion';
 
@@ -33,6 +35,8 @@ import {
 } from '../constants/whatsappLauncher';
 import ConnectionStatusBadge from '../components/whatsapp/ConnectionStatusBadge';
 import SendingProgress from '../components/whatsapp/SendingProgress';
+import EngineControlPanel, { describeEngineState } from '../components/whatsapp/EngineControlPanel';
+import { useWhatsAppSSE } from '../hooks/useWhatsAppSSE';
 import { QueueListSkeleton, StatsSkeleton } from '../components/whatsapp/Skeletons';
 import { useWhatsAppShortcuts, formatShortcut } from '../hooks/useKeyboardShortcuts';
 import useSoundEffects from '../hooks/useSoundEffects';
@@ -86,6 +90,17 @@ const formatAttendanceTime = (timestamp?: string | null): string => {
 };
 
 type QueueItem = WhatsAppQueueItem;
+
+/** Toast shown after each engine command succeeds. */
+const ENGINE_COMMAND_FEEDBACK: Record<string, string> = {
+    'start': 'تم تشغيل المحرك — تُفتح نافذة واتساب ويب الآن',
+    'stop': 'تم إيقاف المحرك وإغلاق المتصفح',
+    'sending:start': 'تم إظهار نافذة واتساب — بدأ إرسال الطابور',
+    'sending:pause': 'تم إيقاف الإرسال مؤقتاً',
+    'sending:resume': 'تم استكمال الإرسال',
+    'sending:stop': 'تم إيقاف الإرسال — نافذة واتساب ما زالت مفتوحة',
+    'window:focus': 'تم إظهار نافذة واتساب ويب',
+};
 
 const DEFAULT_TEMPLATES: WhatsAppTemplate[] = [
     {
@@ -197,9 +212,9 @@ const WhatsAppControl: React.FC = () => {
             icon: Smartphone,
             color: "emerald",
             details: [
-                "ستفتح نافذة كروم جديدة تطلب مسح رمز QR.",
-                "افتح واتساب على جوالك > الأجهزة المرتبطة > ربط جهاز.",
-                "بعد المسح، ستتحول الحالة في الموقع إلى 'متصل'."
+                "اضغط 'تشغيل المحرك' في بطاقة التحكم بالنظام؛ ستفتح نافذة كروم منبثقة بواتساب ويب.",
+                "افتح واتساب على جوالك > الأجهزة المرتبطة > ربط جهاز، ثم امسح رمز QR.",
+                "بعد المسح تتحول الحالة إلى 'جاهز للإرسال' — الجلسة تُحفظ ولا تحتاج مسحاً في كل مرة."
             ]
         },
         {
@@ -208,9 +223,9 @@ const WhatsAppControl: React.FC = () => {
             icon: CheckCircle2,
             color: "amber",
             details: [
-                "اختر الطلاب من القوائم أو الإرسال اليدوي.",
-                "حدد قالب الرسالة المناسب.",
-                "اضغط 'إرسال' وراقب تقدم العملية في الطابور."
+                "اختر الطلاب من القوائم أو الإرسال اليدوي وحدد قالب الرسالة ثم أضفهم إلى الطابور.",
+                "اضغط 'إبدأ الإرسال' — سيُظهر النظام آخر نافذة واتساب ويب ويبدأ الإرسال فوراً.",
+                "استخدم 'إيقاف مؤقت' أو 'إيقاف الإرسال' للتحكم، و'إيقاف اضطراري' لإغلاق المتصفح."
             ]
         }
     ];
@@ -317,8 +332,15 @@ const WhatsAppControl: React.FC = () => {
     const [executionQueue, setExecutionQueue] = useState<QueueItem[]>([]);
     const [processingId, setProcessingId] = useState<string | undefined>(undefined);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [isPaused, setIsPaused] = useState(false); // New: Paused State
+    const [isPaused, setIsPaused] = useState(false); // Simulation-only paused state
     const [startStopLoading, setStartStopLoading] = useState(false);
+    const [continuousMode, setContinuousMode] = useState<boolean>(() => {
+        try { return localStorage.getItem('hader:whatsapp_continuous') === '1'; } catch { return false; }
+    });
+    const updateContinuousMode = useCallback((value: boolean) => {
+        setContinuousMode(value);
+        try { localStorage.setItem('hader:whatsapp_continuous', value ? '1' : '0'); } catch { /* storage unavailable */ }
+    }, []);
 
     // Refs لمنع Race Conditions والطلبات المتزامنة
     const isFetchingStatusRef = useRef(false);
@@ -383,6 +405,16 @@ const WhatsAppControl: React.FC = () => {
             isFetchingQueueRef.current = false;
         }
     };
+
+    // 📡 حالة المحرك حيّة عبر SSE: تشغيل/QR/جاهز/إرسال/إيقاف مؤقت + تحديث الطابور فور تغيّره
+    useWhatsAppSSE({
+        enabled: hasPermission && !isSimulationMode,
+        onStatus: (liveStatus) => {
+            setStatus(liveStatus);
+            setServerError(null);
+        },
+        onQueueUpdate: () => { void fetchQueue(); },
+    });
 
     // Badge Sending Handler
     const handleBadgeSend = async (file: File, message: string) => {
@@ -482,6 +514,7 @@ const WhatsAppControl: React.FC = () => {
                 fetchQueue();
                 const i = setInterval(() => {
                     fetchQueue();
+                    fetchStatus();
                 }, 10000); // زيادة من 3000 إلى 10000 مللي ثانية
                 return () => clearInterval(i);
             } else {
@@ -518,7 +551,7 @@ const WhatsAppControl: React.FC = () => {
             }
         },
         onPause: () => {
-            setIsPaused(prev => !prev);
+            togglePause();
             soundEffects.playClick();
         },
         onRefresh: () => {
@@ -842,22 +875,48 @@ const WhatsAppControl: React.FC = () => {
             }
         }
     };
-    const handleBotAction = useCallback(async (action: 'start' | 'stop') => {
+    // ═══════════════════════════════════════════════════════════════
+    // 🧭 أوامر المحرك: تشغيل → (مسح QR) → إبدأ الإرسال → إيقاف مؤقت/استكمال/إيقاف
+    // ═══════════════════════════════════════════════════════════════
+    const runEngineCommand = useCallback(async (command: WhatsAppCommand) => {
         if (isSimulationMode) {
             showToast('لا يمكن التحكم في البوت في وضع المحاكاة', 'error');
             return;
         }
+        const commandName = typeof command === 'string' ? command : command.type;
         setStartStopLoading(true);
         try {
-            await whatsappGateway.control(action);
-            fetchStatus();
-            showToast(`تم ${action === 'start' ? 'تشغيل' : 'إيقاف'} البوت بنجاح`, 'success');
-        } catch {
-            showToast('خطأ في الاتصال', 'error');
+            await whatsappGateway.control(command);
+            await fetchStatus();
+            showToast(ENGINE_COMMAND_FEEDBACK[commandName] ?? 'تم تنفيذ الأمر', 'success');
+            if (commandName === 'sending:start') soundEffects.playSend();
+        } catch (error) {
+            const message = error instanceof WhatsAppGatewayError
+                ? error.message
+                : 'خطأ في الاتصال بخادم واتساب';
+            showToast(message, 'error');
+            soundEffects.playError();
+            void fetchStatus();
         } finally {
             setStartStopLoading(false);
         }
-    }, [isSimulationMode, showToast]);
+    }, [isSimulationMode, showToast, soundEffects]);
+
+    const engineMeta = describeEngineState(status);
+    const engineAlive = isEngineAlive(status);
+    const enginePaused = engineMeta.state === 'paused';
+    const engineSending = engineMeta.state === 'sending';
+    const effectivePaused = isSimulationMode ? isPaused : enginePaused;
+
+    const togglePause = useCallback(() => {
+        if (isSimulationMode) {
+            setIsPaused(prev => !prev);
+            return;
+        }
+        if (engineSending) void runEngineCommand('sending:pause');
+        else if (enginePaused) void runEngineCommand('sending:resume');
+        else showToast('لا يوجد إرسال جارٍ — اضغط "إبدأ الإرسال" أولاً', 'error');
+    }, [isSimulationMode, engineSending, enginePaused, runEngineCommand, showToast]);
 
     if (!hasPermission) return <div className="p-8 text-center text-white">غير مصرح...</div>;
 
@@ -944,9 +1003,17 @@ const WhatsAppControl: React.FC = () => {
                         </button>
                     </div>
 
-                    <div className={`flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 sm:px-4 ${status?.running ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-gray-800/50 border-gray-700 text-gray-400'}`}>
-                        <div className={`w-3 h-3 rounded-full ${status?.running ? 'bg-green-500' : 'bg-gray-500'}`} />
-                        {status?.running ? 'متصل (Live)' : 'غير متصل'}
+                    <div
+                        data-testid="engine-header-badge"
+                        className={`flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 sm:px-4 text-sm font-bold ${engineSending
+                            ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                            : engineAlive
+                                ? 'bg-green-500/10 border-green-500/30 text-green-400'
+                                : 'bg-gray-800/50 border-gray-700 text-gray-400'}`}
+                        title={status?.state_message}
+                    >
+                        <div className={`w-3 h-3 rounded-full ${engineSending ? 'bg-cyan-400 animate-pulse' : engineAlive ? 'bg-green-500' : 'bg-gray-500'}`} />
+                        {engineAlive ? engineMeta.label : 'غير متصل'}
                     </div>
 
                     {/* Download Buttons — platform-specific */}
@@ -1035,7 +1102,7 @@ const WhatsAppControl: React.FC = () => {
                 <div className="mb-6">
                     <SendingProgress
                         queue={executionQueue}
-                        isPaused={isPaused}
+                        isPaused={effectivePaused}
                     />
                 </div>
             )}
@@ -1095,14 +1162,15 @@ const WhatsAppControl: React.FC = () => {
                             </h3>
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => setIsPaused(!isPaused)}
-                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${isPaused
+                                    onClick={togglePause}
+                                    disabled={!isSimulationMode && !engineSending && !enginePaused}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed ${effectivePaused
                                         ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20'
                                         : 'bg-gray-800 text-gray-400 border border-gray-700 hover:bg-gray-700'
                                         }`}
                                 >
-                                    {isPaused ? <Play className="w-3 h-3 fill-current" /> : <Pause className="w-3 h-3 fill-current" />}
-                                    {isPaused ? 'استكمال الإرسال' : 'إيقاف مؤقت'}
+                                    {effectivePaused ? <Play className="w-3 h-3 fill-current" /> : <Pause className="w-3 h-3 fill-current" />}
+                                    {effectivePaused ? 'استكمال الإرسال' : 'إيقاف مؤقت'}
                                 </button>
 
                                 {executionQueue.length > 0 && (
@@ -1148,23 +1216,18 @@ const WhatsAppControl: React.FC = () => {
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                         {/* Left: Controls & Logs */}
                         <div className="lg:col-span-4 space-y-6">
-                            {/* لوحة التحكم بالنظام */}
-                            <div className="glass-card p-6 rounded-3xl border border-white/10 relative overflow-hidden">
-                                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -z-10" />
-                                <h3 className="text-xl font-bold text-white mb-6">التحكم بالنظام</h3>
-
-                                <div className="space-y-3">
-                                    <button onClick={() => handleBotAction('start')} disabled={status?.running || isSimulationMode} className="w-full py-4 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3">
-                                        <Play className="w-5 h-5 fill-current" /> تشغيل المحرك
-                                    </button>
-                                    <button onClick={() => handleBotAction('stop')} disabled={(!status?.running && !isSimulationMode)} className="w-full py-4 rounded-2xl bg-red-500/10 text-red-400 border border-red-500/30 font-bold hover:bg-red-500/20 disabled:opacity-50 flex items-center justify-center gap-3">
-                                        <Square className="w-5 h-5 fill-current" /> إيقاف اضطراري
-                                    </button>
-                                    <button onClick={() => setExecutionQueue([])} className="w-full py-2 text-sm text-gray-400 hover:text-white flex items-center justify-center gap-2 mt-4">
-                                        <RotateCcw className="w-4 h-4" /> تصفير العدادات
-                                    </button>
-                                </div>
-                            </div>
+                            {/* لوحة التحكم بالنظام: تشغيل المحرك → مسح QR → إبدأ الإرسال */}
+                            <EngineControlPanel
+                                status={status}
+                                serverOnline={connection.status === 'connected' || !serverError}
+                                pendingCount={stats.pending}
+                                busy={startStopLoading}
+                                simulation={isSimulationMode}
+                                continuous={continuousMode}
+                                onContinuousChange={updateContinuousMode}
+                                onCommand={(command) => { void runEngineCommand(command); }}
+                                onResetCounters={() => setExecutionQueue([])}
+                            />
                             
                             {/* Live Notifications (On Present) Quick Settings */}
                             <div className="glass-card p-6 rounded-3xl border border-white/10 relative overflow-hidden">
@@ -1197,6 +1260,9 @@ const WhatsAppControl: React.FC = () => {
                                     {(isSimulationMode ? ['[SIM] Simulation Mode Active', '[SIM] Ready for requests...'] : (status?.logs || [])).map((l, i) => (
                                         <div key={`log-${i}-${l.slice(0, 20).replace(/\s/g, '_')}`} className="text-gray-300 break-all"><span className="text-green-500 mr-2">$</span>{l}</div>
                                     ))}
+                                    {!isSimulationMode && (status?.logs?.length ?? 0) === 0 && (
+                                        <div className="text-gray-600">$ بانتظار سجلات المحرك — شغّل المحرك لبدء التسجيل...</div>
+                                    )}
                                 </div>
                             </div>
                         </div>

@@ -1,9 +1,12 @@
 import {
   type WhatsAppCommand,
   type WhatsAppGateway,
+  type WhatsAppMissionOptions,
   type WhatsAppOutboundMessage,
+  type WhatsAppProgress,
   type WhatsAppQueueItem,
   type WhatsAppQueueStatus,
+  type WhatsAppSimpleCommand,
   type WhatsAppStatus,
   type WhatsAppSubscription
 } from '../modules/whatsapp';
@@ -27,6 +30,30 @@ const QUEUE_STATUS_PRIORITY: Record<WhatsAppQueueStatus, number> = {
   pending: 1,
   failed: 2,
   sent: 3
+};
+
+/** Every simple command maps to one POST route on the local bridge. */
+export const WHATSAPP_COMMAND_ROUTES: Record<WhatsAppSimpleCommand, string> = {
+  start: '/api/start',
+  stop: '/api/stop',
+  clear: '/api/clear',
+  'sending:start': '/api/sending/start',
+  'sending:pause': '/api/sending/pause',
+  'sending:resume': '/api/sending/resume',
+  'sending:stop': '/api/sending/stop',
+  'window:focus': '/api/window/focus'
+};
+
+const serializeMissionOptions = (options?: WhatsAppMissionOptions): Record<string, unknown> => {
+  if (!options) return {};
+  const mapped: Record<string, unknown> = {
+    batch_size: options.batchSize,
+    min_delay: options.minDelay,
+    max_delay: options.maxDelay,
+    long_break: options.longBreak,
+    continuous: options.continuous
+  };
+  return Object.fromEntries(Object.entries(mapped).filter(([, value]) => value !== undefined));
 };
 
 export class WhatsAppGatewayError extends Error {
@@ -58,17 +85,46 @@ const asRecord = (value: unknown): UnknownRecord =>
 const asText = (value: unknown, fallback = ''): string =>
   value === null || value === undefined ? fallback : String(value);
 
+const asCount = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+};
+
+const normalizeProgress = (value: unknown): WhatsAppProgress | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = asRecord(value);
+  return {
+    current: asCount(raw.current),
+    total: asCount(raw.total),
+    sent: asCount(raw.sent),
+    failed: asCount(raw.failed),
+    skipped: asCount(raw.skipped),
+    lastPhone: asText(raw.last_phone ?? raw.lastPhone),
+    lastName: asText(raw.last_name ?? raw.lastName)
+  };
+};
+
 const normalizeStatus = (value: unknown): WhatsAppStatus => {
   const raw = asRecord(value);
+  const state = raw.state === undefined ? undefined : String(raw.state);
+  const sending = raw.sending === undefined
+    ? state === 'sending' || state === 'paused'
+    : raw.sending === true;
   return {
     running: raw.running === true,
     logs: Array.isArray(raw.logs) ? raw.logs.map(log => String(log)) : [],
-    state: raw.state === undefined ? undefined : String(raw.state),
+    state,
     state_message: raw.state_message === undefined ? undefined : String(raw.state_message),
     version: raw.version === undefined ? undefined : String(raw.version),
     stats: raw.stats && typeof raw.stats === 'object'
       ? raw.stats as Record<string, unknown>
-      : undefined
+      : undefined,
+    logged_in: raw.logged_in === undefined ? undefined : raw.logged_in === true,
+    sending,
+    paused: raw.paused === undefined ? state === 'paused' : raw.paused === true,
+    pending: raw.pending === undefined ? undefined : asCount(raw.pending),
+    progress: normalizeProgress(raw.progress),
+    last_error: raw.last_error === undefined || raw.last_error === null ? null : String(raw.last_error)
   };
 };
 
@@ -208,7 +264,7 @@ export const createHttpWhatsAppGateway = (
       if (eventName === 'status') observer.onStatus?.(normalizeStatus(payload));
       if (eventName === 'queue_update') {
         const raw = asRecord(payload);
-        const action = raw.action === 'clear' ? 'clear' : 'send';
+        const action = raw.action === 'clear' ? 'clear' : raw.action === 'remove' ? 'remove' : 'send';
         const added = Number(raw.added);
         observer.onQueueUpdate?.({
           action,
@@ -253,7 +309,30 @@ export const createHttpWhatsAppGateway = (
     },
     async control(command: WhatsAppCommand) {
       if (typeof command === 'string') {
-        await request(`/api/${command}`, { method: 'POST' });
+        const route = WHATSAPP_COMMAND_ROUTES[command];
+        if (!route) throw new WhatsAppGatewayError(`أمر واتساب غير معروف: ${command}`);
+        await request(route, { method: 'POST' });
+        return;
+      }
+
+      if (command.type === 'start') {
+        await request(WHATSAPP_COMMAND_ROUTES.start, {
+          method: 'POST',
+          headers: headers(true),
+          body: JSON.stringify({
+            auto_send: command.autoSend ?? false,
+            options: serializeMissionOptions(command.options)
+          })
+        });
+        return;
+      }
+
+      if (command.type === 'sending:start') {
+        await request(WHATSAPP_COMMAND_ROUTES['sending:start'], {
+          method: 'POST',
+          headers: headers(true),
+          body: JSON.stringify({ options: serializeMissionOptions(command.options) })
+        });
         return;
       }
 

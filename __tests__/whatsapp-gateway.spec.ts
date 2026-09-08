@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createInMemoryWhatsAppGateway } from '../modules/whatsapp';
+import { createInMemoryWhatsAppGateway, isEngineAlive } from '../modules/whatsapp';
 import {
   createHttpWhatsAppGateway,
+  WHATSAPP_COMMAND_ROUTES,
   WhatsAppGatewayError
 } from '../services/whatsappGateway';
 
@@ -31,13 +32,53 @@ describe('WhatsApp gateway interface', () => {
     unsubscribe();
   });
 
+  it('mirrors the two-phase engine flow in the in-memory adapter', async () => {
+    const gateway = createInMemoryWhatsAppGateway({ requireQrScan: true });
+    await gateway.enqueue([{ phone: '0500000001', message: 'A' }, { phone: '0500000002', message: 'B' }]);
+
+    // "تشغيل المحرك" opens WhatsApp Web and parks in waiting_login — nothing is sent.
+    await gateway.control('start');
+    let status = await gateway.getStatus();
+    expect(status).toMatchObject({ running: true, state: 'waiting_login', logged_in: false, pending: 2 });
+    expect(isEngineAlive(status)).toBe(true);
+    await expect(gateway.control('sending:start')).rejects.toThrow('QR');
+    expect((await gateway.getQueue()).every(item => item.status === 'pending')).toBe(true);
+
+    // Once logged in, "إبدأ الإرسال" dispatches the queue and returns to ready.
+    await gateway.control('stop');
+    expect((await gateway.getStatus()).running).toBe(false);
+    const loggedIn = createInMemoryWhatsAppGateway({
+      queue: [{ phone: '0500000001', message: 'A' }]
+    });
+    await loggedIn.control('start');
+    expect(await loggedIn.getStatus()).toMatchObject({ state: 'ready', logged_in: true, pending: 1 });
+    await loggedIn.control({ type: 'sending:start', options: { continuous: false } });
+    status = await loggedIn.getStatus();
+    expect(status).toMatchObject({ state: 'ready', sending: false, pending: 0 });
+    expect(status.progress).toMatchObject({ sent: 1, total: 1 });
+    expect((await loggedIn.getQueue())[0].status).toBe('sent');
+    await expect(loggedIn.control('sending:pause')).rejects.toThrow();
+    await expect(createInMemoryWhatsAppGateway().control('window:focus')).rejects.toThrow('شغّل المحرك');
+  });
+
   it('centralizes API paths, authentication, payloads and queue normalization', async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       requests.push({ url, init });
       if (url.endsWith('/api/status')) {
-        return jsonResponse({ running: true, version: '2.0.0' });
+        return jsonResponse({
+          running: true,
+          version: '3.0.0',
+          state: 'sending',
+          state_message: 'جاري الإرسال 2/5 → أحمد',
+          logged_in: true,
+          sending: true,
+          paused: false,
+          pending: 3,
+          progress: { current: 2, total: 5, sent: 1, failed: 1, skipped: 0, last_phone: '9665', last_name: 'أحمد' },
+          logs: ['10:00:00 🚀 Mission start']
+        });
       }
       if (url.endsWith('/api/queue')) {
         return jsonResponse([
@@ -55,7 +96,17 @@ describe('WhatsApp gateway interface', () => {
       fetcher
     });
 
-    expect(await gateway.getStatus()).toMatchObject({ running: true, version: '2.0.0', logs: [] });
+    expect(await gateway.getStatus()).toMatchObject({
+      running: true,
+      version: '3.0.0',
+      state: 'sending',
+      logged_in: true,
+      sending: true,
+      paused: false,
+      pending: 3,
+      progress: { current: 2, total: 5, sent: 1, failed: 1, skipped: 0, lastPhone: '9665', lastName: 'أحمد' },
+      logs: ['10:00:00 🚀 Mission start']
+    });
     const queue = await gateway.getQueue();
     expect(queue.map(item => item.status)).toEqual([
       'sending',
@@ -71,6 +122,13 @@ describe('WhatsApp gateway interface', () => {
     await gateway.control('clear');
     expect(await gateway.upload(new File(['image'], 'badge.png', { type: 'image/png' })))
       .toBe('/uploads/badge.png');
+    await gateway.control('sending:start');
+    await gateway.control('sending:pause');
+    await gateway.control('sending:resume');
+    await gateway.control('sending:stop');
+    await gateway.control('window:focus');
+    await gateway.control({ type: 'sending:start', options: { continuous: true, batchSize: 4, minDelay: 5 } });
+    await gateway.control({ type: 'start', autoSend: true });
 
     expect(requests.map(request => request.url)).toEqual([
       'http://localhost:5001/api/status',
@@ -78,7 +136,14 @@ describe('WhatsApp gateway interface', () => {
       'http://localhost:5001/api/send?append=true',
       'http://localhost:5001/api/start',
       'http://localhost:5001/api/clear',
-      'http://localhost:5001/api/upload'
+      'http://localhost:5001/api/upload',
+      'http://localhost:5001/api/sending/start',
+      'http://localhost:5001/api/sending/pause',
+      'http://localhost:5001/api/sending/resume',
+      'http://localhost:5001/api/sending/stop',
+      'http://localhost:5001/api/window/focus',
+      'http://localhost:5001/api/sending/start',
+      'http://localhost:5001/api/start'
     ]);
     for (const request of requests) {
       expect(request.init?.headers).toMatchObject({ 'X-API-Key': 'secret-key' });
@@ -87,6 +152,21 @@ describe('WhatsApp gateway interface', () => {
     expect(requests[2].init?.body).toBe(JSON.stringify([{ phone: '0500', message: 'مرحباً' }]));
     expect(requests[5].init?.body).toBeInstanceOf(FormData);
     expect(requests[5].init?.headers).not.toHaveProperty('Content-Type');
+    for (const index of [6, 7, 8, 9, 10]) expect(requests[index].init).toMatchObject({ method: 'POST' });
+    expect(JSON.parse(String(requests[11].init?.body))).toEqual({
+      options: { continuous: true, batch_size: 4, min_delay: 5 }
+    });
+    expect(JSON.parse(String(requests[12].init?.body))).toEqual({ auto_send: true, options: {} });
+    expect(Object.values(WHATSAPP_COMMAND_ROUTES).every(route => route.startsWith('/api/'))).toBe(true);
+  });
+
+  it('surfaces the bridge message when a control command is rejected', async () => {
+    const gateway = createHttpWhatsAppGateway({
+      fetcher: async () => jsonResponse({ message: 'امسح رمز QR في نافذة واتساب ويب أولاً', ok: false, state: 'waiting_login' }, 409)
+    });
+    await expect(gateway.control('sending:start')).rejects.toEqual(
+      expect.objectContaining({ message: 'امسح رمز QR في نافذة واتساب ويب أولاً', status: 409 })
+    );
   });
 
   it('falls back to the legacy delete route and exposes useful server errors', async () => {

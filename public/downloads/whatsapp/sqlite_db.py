@@ -178,6 +178,31 @@ def update_status(item_id: str, status: str) -> bool:
         return False
 
 
+def reset_stuck_sending() -> int:
+    """Re-queue rows left in 'sending' by a crashed/interrupted mission."""
+    try:
+        with get_db() as conn:
+            cursor = conn.execute("UPDATE queue SET status = 'pending' WHERE status = 'sending'")
+            return cursor.rowcount
+    except Exception as e:
+        logging.error(f"Error resetting stuck rows: {e}")
+        return 0
+
+
+def count_pending() -> int:
+    """Number of rows waiting to be sent (pending / empty / stuck sending)."""
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM queue "
+                "WHERE status IS NULL OR status = '' OR status = 'pending' OR status = 'sending'"
+            ).fetchone()
+            return int(row['c']) if row else 0
+    except Exception as e:
+        logging.error(f"Error counting pending rows: {e}")
+        return 0
+
+
 def get_stats() -> Dict[str, int]:
     """Return queue statistics."""
     try:
@@ -187,7 +212,7 @@ def get_stats() -> Dict[str, int]:
                     COUNT(*) as total,
                     COALESCE(SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END), 0) as sent,
                     COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed,
-                    COALESCE(SUM(CASE WHEN status = 'pending' OR status IS NULL OR status = '' THEN 1 ELSE 0 END), 0) as pending,
+                    COALESCE(SUM(CASE WHEN status = 'pending' OR status = 'sending' OR status IS NULL OR status = '' THEN 1 ELSE 0 END), 0) as pending,
                     COALESCE(SUM(CASE WHEN status = 'skipped' OR status = 'invalid_phone' THEN 1 ELSE 0 END), 0) as skipped
                 FROM queue
             ''').fetchone()

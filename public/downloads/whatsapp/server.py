@@ -13,14 +13,17 @@ import re
 import json
 import queue as queue_module
 from datetime import datetime, timedelta
-from collections import defaultdict
+from collections import defaultdict, deque
 from whatsapp_pro_tool import WhatsAppProTool
+from engine_controller import EngineController, sanitize_mission_options
 from PIL import Image, ImageDraw, ImageFont
 import random
 
 # App Setup
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+VERSION = "3.0.0"
 
 app = Flask(__name__)
 PORT = int(os.environ.get('WHATSAPP_SERVER_PORT', 5001))
@@ -51,6 +54,35 @@ API_SECRET_KEY = (os.environ.get('WHATSAPP_API_KEY') or '').strip() or None
 # أنواع الملفات المسموح بها
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = (os.environ.get(name) or '').strip().lower()
+    if not raw:
+        return default
+    return raw in {'1', 'true', 'yes', 'on'}
+
+
+def _env_number(name: str, default):
+    raw = (os.environ.get(name) or '').strip()
+    if not raw:
+        return default
+    try:
+        return type(default)(float(raw)) if isinstance(default, int) else float(raw)
+    except ValueError:
+        return default
+
+
+# ⚙️ إعدادات المحرك (قابلة للضبط من متغيرات البيئة)
+LOGIN_TIMEOUT_SECONDS = _env_number('WHATSAPP_LOGIN_TIMEOUT', 15 * 60)
+AUTO_SEND_ON_START = _env_bool('WHATSAPP_AUTO_SEND_ON_START', False)
+MISSION_DEFAULTS = sanitize_mission_options({
+    'batch_size': os.environ.get('WHATSAPP_BATCH_SIZE'),
+    'min_delay': os.environ.get('WHATSAPP_MIN_DELAY'),
+    'max_delay': os.environ.get('WHATSAPP_MAX_DELAY'),
+    'long_break': os.environ.get('WHATSAPP_LONG_BREAK'),
+    'continuous': _env_bool('WHATSAPP_CONTINUOUS', False),
+})
 
 # ═══════════════════════════════════════════════════════════════
 # 🛡️ Rate Limiting - حماية من الطلبات المتكررة
@@ -197,11 +229,44 @@ class OptionsFilter(logging.Filter):
         msg = record.getMessage()
         return 'OPTIONS' not in msg
 
+
+class RingBufferLogHandler(logging.Handler):
+    """يحتفظ بآخر السجلات في الذاكرة لعرضها في لوحة التحكم (System Logs)."""
+    def __init__(self, capacity: int = 150):
+        super().__init__(level=logging.INFO)
+        self._records = deque(maxlen=capacity)
+        self._lock = threading.Lock()
+
+    def emit(self, record):
+        try:
+            line = self.format(record)
+        except Exception:
+            return
+        with self._lock:
+            self._records.append(line)
+
+    def tail(self, count: int = 60):
+        with self._lock:
+            items = list(self._records)
+        return items[-count:] if count else items
+
+
+class NoiseFilter(logging.Filter):
+    """يمنع سجلات HTTP الروتينية (werkzeug) من إغراق سجل لوحة التحكم — تبقى سجلات المحرك فقط."""
+    _NOISY = ('GET /api/status', 'GET /status', 'GET /api/queue', 'GET /queue', 'GET /api/events', 'GET /events', 'OPTIONS')
+
+    def filter(self, record):
+        if record.name.startswith('werkzeug'):
+            return False
+        msg = record.getMessage()
+        return not any(token in msg for token in self._NOISY)
+
+
 # مسح المعالجات المكررة (whatsapp_pro_tool يضيف handlers أيضاً)
 logging.root.handlers.clear()
 
 # معالج الملف
-file_handler = logging.FileHandler(os.path.join(LOG_DIR, "server.log"))
+file_handler = logging.FileHandler(os.path.join(LOG_DIR, "server.log"), encoding='utf-8')
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
 file_handler.addFilter(OptionsFilter())
@@ -214,15 +279,17 @@ console_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(me
 console_handler.addFilter(OptionsFilter())
 logging.root.addHandler(console_handler)
 
+# معالج لوحة التحكم (آخر السجلات في الذاكرة)
+dashboard_log_handler = RingBufferLogHandler(capacity=150)
+dashboard_log_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s', datefmt='%H:%M:%S'))
+dashboard_log_handler.addFilter(NoiseFilter())
+logging.root.addHandler(dashboard_log_handler)
+
 logging.root.setLevel(logging.INFO)
 
 logging.info(f"Server starting with Python: {sys.executable}")
 
 # المتغيرات العامة
-bot_instance = None
-bot_thread = None
-bot_state = 'idle'  # idle | initializing | waiting_login | running | error | stopped
-bot_state_message = ''
 file_lock = threading.Lock()
 
 # ═══════════════════════════════════════════════════════════════
@@ -231,15 +298,6 @@ file_lock = threading.Lock()
 
 _sse_clients: list = []
 _sse_lock = threading.Lock()
-
-
-def _sse_current_snapshot() -> dict:
-    is_running = bot_instance is not None and bot_instance.running
-    return {
-        "running": is_running,
-        "state": bot_state,
-        "state_message": bot_state_message,
-    }
 
 
 def sse_broadcast(event_type: str, data: dict) -> None:
@@ -264,6 +322,76 @@ if not os.path.exists(CERT_DIR):
 logging.info(f"Configuration: SQLITE_DB_INITIALIZED")
 logging.info(f"Configuration: CERT_DIR={CERT_DIR}")
 logging.info(f"Configuration: UPLOAD_DIR={os.path.join(os.path.dirname(__file__), 'uploads')}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 🧭 محرك واتساب — دورة حياة على مرحلتين
+#   "تشغيل المحرك"  → فتح واتساب ويب وانتظار تسجيل الدخول (حالة ready)
+#   "إبدأ الإرسال"  → إظهار النافذة وإرسال الطابور (حالة sending)
+# ═══════════════════════════════════════════════════════════════
+
+def _pending_count() -> int:
+    try:
+        with file_lock:
+            return sqlite_db.count_pending()
+    except Exception:
+        return 0
+
+
+def _engine_payload(snapshot: dict = None, log_lines: int = 40) -> dict:
+    """الحالة الكاملة للمحرك كما تراها لوحة التحكم (REST + SSE)."""
+    snap = dict(snapshot or engine.snapshot())
+    snap['pending'] = _pending_count()
+    snap['version'] = VERSION
+    snap['logs'] = dashboard_log_handler.tail(log_lines)
+    return snap
+
+
+def _sse_current_snapshot(snapshot: dict = None) -> dict:
+    return _engine_payload(snapshot, log_lines=40)
+
+
+def _on_engine_change(snapshot: dict) -> None:
+    try:
+        sse_broadcast('status', _sse_current_snapshot(snapshot))
+    except Exception as exc:  # pragma: no cover - broadcasting must never break the engine
+        logging.debug(f"SSE broadcast failed: {exc}")
+
+
+def _make_bot() -> WhatsAppProTool:
+    # WhatsAppProTool expects the SQLite db path
+    return WhatsAppProTool(sqlite_db.DB_FILE, file_lock)
+
+
+engine = EngineController(
+    _make_bot,
+    on_change=_on_engine_change,
+    login_timeout=LOGIN_TIMEOUT_SECONDS,
+    mission_defaults=MISSION_DEFAULTS,
+)
+
+
+def _broadcast_queue_change(action: str, added: int = 0) -> None:
+    sse_broadcast('queue_update', {"action": action, "added": added})
+    sse_broadcast('status', _sse_current_snapshot())
+
+
+def _control_response(ok: bool, message: str, code: int):
+    payload = {"message": message, "ok": ok}
+    payload.update(_engine_payload(log_lines=0))
+    payload.pop('logs', None)
+    return jsonify(payload), (code if not ok else (code if code in (200, 202) else 200))
+
+
+def _request_options() -> dict:
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return {}
+    options = body.get('options')
+    if isinstance(options, dict):
+        return options
+    return body
+
 
 def generate_certificate(student_name, cert_type='appreciation'):
     """-توليد شهادة بصرية للطالب"""
@@ -365,101 +493,16 @@ def generate_certificate(student_name, cert_type='appreciation'):
         return None
 
 def watchdog_task():
-    """نظام Watchdog لإعادة تشغيل المتصفح في حال التجمد"""
-    global bot_instance, bot_state, bot_state_message, bot_thread
+    """نظام Watchdog لإعادة تشغيل المتصفح في حال التجمد أثناء الإرسال"""
     while True:
         time.sleep(30)
         try:
-            if bot_state == 'running' and bot_instance and bot_instance.running:
-                inactive_time = time.time() - bot_instance.last_activity_time
-                if inactive_time > 300:
-                    logging.error(f"🚨 Watchdog: Browser frozen for {int(inactive_time)}s. Restarting...")
-                    bot_state_message = 'المتصفح لا يستجيب - جاري إعادة التشغيل تلقائيا...'
-                    bot_state = 'error'
-                    sse_broadcast('status', _sse_current_snapshot())
-                    
-                    bot_instance.running = False
-                    try:
-                        if hasattr(bot_instance, 'driver') and bot_instance.driver:
-                            bot_instance.driver.quit()
-                    except Exception:
-                        pass
-                    
-                    bot_instance = None
-                    time.sleep(5)
-                    
-                    bot_thread = threading.Thread(target=run_bot_thread)
-                    bot_thread.daemon = True
-                    bot_thread.start()
-                    logging.info("🚨 Watchdog: Bot restarted.")
+            engine.watchdog_check(max_idle_seconds=300)
         except Exception as e:
             logging.error(f"Watchdog error: {e}")
 
 watchdog_thread = threading.Thread(target=watchdog_task, daemon=True)
 watchdog_thread.start()
-
-def run_bot_thread():
-    """تشغيل البوت في خيط منفصل مع تتبع الحالة"""
-    global bot_instance, bot_state, bot_state_message
-    try:
-        # DB is checked inside tools/db directly now
-        bot_state = 'initializing'
-        bot_state_message = 'جاري تهيئة المتصفح...'
-        sse_broadcast('status', _sse_current_snapshot())
-        
-        # WhatsAppProTool now expects the SQLite db path
-        bot_instance = WhatsAppProTool(sqlite_db.DB_FILE, file_lock)
-
-        # التحقق من نجاح تهيئة المتصفح
-        if not bot_instance.init_browser():
-            bot_state = 'error'
-            bot_state_message = 'فشل تهيئة المتصفح - تأكد من تثبيت Chrome'
-            sse_broadcast('status', _sse_current_snapshot())
-            logging.error("فشل تهيئة المتصفح - لن يتم تشغيل البوت")
-            return
-
-        bot_state = 'waiting_login'
-        bot_state_message = 'بانتظار تسجيل الدخول (مسح QR)...'
-        sse_broadcast('status', _sse_current_snapshot())
-        if bot_instance.check_login():
-            bot_state = 'running'
-            bot_state_message = 'البوت يعمل ويرسل الرسائل'
-            sse_broadcast('status', _sse_current_snapshot())
-            # Optimized settings for human-like behavior and high reliability
-            bot_instance.run_mission(
-                batch_size=5, 
-                min_delay=25, 
-                max_delay=60, 
-                long_break=180, 
-                continuous=True
-            )
-        else:
-            bot_state = 'error'
-            bot_state_message = 'فشل تسجيل الدخول - يرجى مسح رمز QR'
-            sse_broadcast('status', _sse_current_snapshot())
-            logging.error("فشل تسجيل الدخول")
-
-    except Exception as e:
-        bot_state = 'error'
-        bot_state_message = f'خطأ: {str(e)[:100]}'
-        logging.error(f"خطأ في خيط البوت: {e}")
-        import traceback
-        logging.error(traceback.format_exc())
-        sse_broadcast('status', _sse_current_snapshot())
-    finally:
-        # تنظيف موارد WebDriver عند الانتهاء
-        if bot_instance:
-            try:
-                if hasattr(bot_instance, 'driver') and bot_instance.driver:
-                    bot_instance.driver.quit()
-                    logging.info("تم إغلاق WebDriver بنجاح")
-            except Exception as cleanup_error:
-                logging.warning(f"خطأ أثناء تنظيف WebDriver: {cleanup_error}")
-        bot_instance = None
-        if bot_state == 'running':
-            bot_state = 'stopped'
-            bot_state_message = 'تم إيقاف البوت'
-        sse_broadcast('status', _sse_current_snapshot())
 
 @api_bp.route('/', methods=['GET'])
 @rate_limit(general_limiter)
@@ -467,9 +510,9 @@ def index():
     """رسالة ترحيبية عند زيارة الصفحة الرئيسية"""
     return jsonify({
         "status": "online",
-        "message": "WhatsApp Control Server is Running. Use /status, /start, /stop endpoints.",
-        "version": "2.0.0",
-        "features": ["rate_limiting", "auto_cleanup", "secure_ids"]
+        "message": "WhatsApp Control Server is Running. Use /status, /start, /sending/start, /stop endpoints.",
+        "version": VERSION,
+        "features": ["rate_limiting", "auto_cleanup", "secure_ids", "two_phase_engine", "window_focus", "pause_resume", "sse"]
     })
 
 @api_bp.route('/favicon.ico')
@@ -480,53 +523,68 @@ def favicon():
 # بدون rate limit - نقطة فحص الاتصال
 @require_api_key
 def status():
-    """معرفة حالة البوت - خفيف وسريع بدون قراءة ملفات"""
-    global bot_instance, bot_state, bot_state_message
-    is_running = bot_instance is not None and bot_instance.running
-
-    return jsonify({
-        "running": is_running,
-        "state": bot_state,
-        "state_message": bot_state_message,
-        "version": "2.0.0"
-    })
+    """حالة المحرك الكاملة: running (المتصفح مفتوح) / logged_in / sending / paused / progress / logs"""
+    return jsonify(_engine_payload(log_lines=80))
 
 @api_bp.route('/start', methods=['POST'])
 @require_api_key
 def start():
-    """تشغيل البوت"""
-    global bot_thread, bot_instance
-    
-    if bot_instance and bot_instance.running:
-        return jsonify({"message": "البوت يعمل بالفعل"}), 400
-        
-    if not os.path.exists(sqlite_db.DB_FILE):
-        return jsonify({"message": "ملف contacts.db غير موجود. يرجى تشغيل الجسر أولاً."}), 404
-
-    bot_thread = threading.Thread(target=run_bot_thread)
-    bot_thread.daemon = True
-    bot_thread.start()
-    
-    logging.info("تم بدء تشغيل البوت بواسطة API")
-    return jsonify({"message": "تم بدء تشغيل البوت"})
+    """
+    تشغيل المحرك: فتح Chrome + واتساب ويب وانتظار تسجيل الدخول.
+    لا يبدأ الإرسال تلقائياً (إلا مع auto_send=true).
+    """
+    body = request.get_json(silent=True) or {}
+    auto_send = AUTO_SEND_ON_START
+    if isinstance(body, dict) and 'auto_send' in body:
+        auto_send = bool(body.get('auto_send'))
+    ok, message, code = engine.start_engine(auto_send=auto_send, options=_request_options())
+    if ok:
+        logging.info("▶️  تم بدء تشغيل المحرك بواسطة API")
+    return _control_response(ok, message, code)
 
 @api_bp.route('/stop', methods=['POST'])
 @require_api_key
 def stop():
-    """إيقاف البوت"""
-    global bot_instance, bot_state, bot_state_message
-    if bot_instance:
-        bot_instance.stop()
-        bot_state = 'stopped'
-        bot_state_message = 'تم إيقاف البوت'
-        sse_broadcast('status', _sse_current_snapshot())
-        logging.info("تم إيقاف البوت بواسطة API")
-        return jsonify({"message": "جاري إيقاف البوت..."})
-    else:
-        bot_state = 'idle'
-        bot_state_message = 'في وضع الانتظار'
-        sse_broadcast('status', _sse_current_snapshot())
-        return jsonify({"message": "البوت متوقف بالفعل"}), 400
+    """إيقاف اضطراري: إيقاف الإرسال وإغلاق المتصفح"""
+    ok, message, code = engine.stop_engine()
+    if ok:
+        logging.info("⏹  تم إيقاف المحرك بواسطة API")
+    return _control_response(ok, message, code)
+
+@api_bp.route('/sending/start', methods=['POST'])
+@require_api_key
+def sending_start():
+    """إبدأ الإرسال: إظهار آخر نافذة واتساب ويب ثم إرسال الرسائل المعلقة في الطابور"""
+    ok, message, code = engine.start_sending(options=_request_options())
+    if ok:
+        logging.info("📤 بدء الإرسال بواسطة API")
+    return _control_response(ok, message, code)
+
+@api_bp.route('/sending/pause', methods=['POST'])
+@require_api_key
+def sending_pause():
+    ok, message, code = engine.pause_sending()
+    return _control_response(ok, message, code)
+
+@api_bp.route('/sending/resume', methods=['POST'])
+@require_api_key
+def sending_resume():
+    ok, message, code = engine.resume_sending()
+    return _control_response(ok, message, code)
+
+@api_bp.route('/sending/stop', methods=['POST'])
+@require_api_key
+def sending_stop():
+    """إيقاف الإرسال مع إبقاء نافذة واتساب مفتوحة (العودة إلى ready)"""
+    ok, message, code = engine.stop_sending()
+    return _control_response(ok, message, code)
+
+@api_bp.route('/window/focus', methods=['POST'])
+@require_api_key
+def window_focus():
+    """إظهار آخر نافذة واتساب ويب في المقدمة"""
+    ok, message, code = engine.focus_window()
+    return _control_response(ok, message, code)
 
 @api_bp.route('/certificates/<path:filename>')
 @require_api_key
@@ -601,7 +659,6 @@ def upload_file():
         # تنظيف اسم الملف
         original_filename = werkzeug.utils.secure_filename(file.filename)
         # إضافة timestamp لتجنب التعارض
-        import time
         timestamp = int(time.time())
         filename = f"{timestamp}_{original_filename}"
         
@@ -643,6 +700,7 @@ def get_stats():
         return jsonify({"total": 0, "sent": 0, "failed": 0, "pending": 0, "skipped": 0})
 
 @api_bp.route('/delete/<id>', methods=['DELETE'])
+@api_bp.route('/queue/<id>', methods=['DELETE'])
 @require_api_key
 def delete_item(id):
     """حذف عنصر محدد من القائمة"""
@@ -652,11 +710,12 @@ def delete_item(id):
             
         with file_lock:
             success = sqlite_db.delete_item(id)
-            if success:
-                logging.info(f"تم حذف العنصر: {id}")
-                return jsonify({"message": "تم حذف العنصر بنجاح"})
-            else:
-                return jsonify({"message": "العنصر غير موجود"}), 404
+        if success:
+            logging.info(f"تم حذف العنصر: {id}")
+            _broadcast_queue_change('remove', 0)
+            return jsonify({"message": "تم حذف العنصر بنجاح"})
+        else:
+            return jsonify({"message": "العنصر غير موجود"}), 404
     except Exception as e:
         logging.error(f"خطأ في حذف العنصر {id}: {e}")
         return jsonify({"message": "فشل حذف العنصر"}), 500
@@ -669,7 +728,7 @@ def clear_queue():
         with file_lock:
             sqlite_db.clear_queue()
         logging.info("تم مسح قائمة الانتظار")
-        sse_broadcast('queue_update', {"action": "clear", "added": 0})
+        _broadcast_queue_change('clear', 0)
         return jsonify({"message": "تم مسح القائمة بنجاح"})
     except Exception as e:
         logging.error(f"خطأ في مسح القائمة: {e}")
@@ -679,7 +738,7 @@ def clear_queue():
 @rate_limit(send_limiter)
 @require_api_key
 def send_list():
-    """استقبال قائمة الإرسال وحفظها في CSV"""
+    """استقبال قائمة الإرسال وحفظها في الطابور"""
     try:
         data = request.json
         append_mode = request.args.get('append', 'false').lower() == 'true'
@@ -739,8 +798,13 @@ def send_list():
             return jsonify({"message": "تعذر حفظ الرسائل في قائمة الانتظار"}), 500
                 
         logging.info(f"تم تحديث قائمة الإرسال: {len(formatted_data)} جهة اتصال (Append={append_mode}).")
-        sse_broadcast('queue_update', {"added": len(formatted_data), "action": "send"})
-        return jsonify({"message": f"تم حفظ {len(formatted_data)} رسالة في قائمة الانتظار بنجاح."})
+        _broadcast_queue_change('send', len(formatted_data))
+        hint = ''
+        if engine.state == 'ready':
+            hint = ' اضغط "إبدأ الإرسال" لبدء الإرسال.'
+        elif not engine.alive:
+            hint = ' شغّل المحرك ثم اضغط "إبدأ الإرسال".'
+        return jsonify({"message": f"تم حفظ {len(formatted_data)} رسالة في قائمة الانتظار بنجاح.{hint}"})
 
     except Exception as e:
         logging.error(f"خطأ في حفظ القائمة: {e}")
@@ -755,7 +819,7 @@ def send_list():
 def events():
     """
     Server-Sent Events endpoint.
-    Events: 'status' (bot state) | 'queue_update' (queue mutations)
+    Events: 'status' (engine state + progress + logs) | 'queue_update' (queue mutations)
     """
     client_q = queue_module.Queue(maxsize=50)
 
@@ -803,7 +867,7 @@ app.register_blueprint(api_bp, name='api_root')
 
 if __name__ == '__main__':
     print("\n" + "═" * 60)
-    print("   🚀 HADER WHATSAPP PRO SERVER - [v2.0.0 MASTER]")
+    print(f"   🚀 HADER WHATSAPP PRO SERVER - [v{VERSION} MASTER]")
     print("═" * 60)
     
     # التأكد من وجود المجلدات المطلوبة
@@ -826,6 +890,8 @@ if __name__ == '__main__':
     sqlite_db.init_db()
     
     print("⏸️  الخادم في وضع الاستعداد - جاهز لاستقبال الطلبات")
+    print("   1) تشغيل المحرك  → يفتح واتساب ويب وينتظر مسح رمز QR")
+    print("   2) إبدأ الإرسال  → يُظهر نافذة واتساب ويبدأ إرسال الطابور")
     print("═" * 60)
     print(f"🌐 الرابط المحلي: http://localhost:{PORT}")
     print(f"📊 معدل الحماية: نشط (Rate Limiting Enabled)")

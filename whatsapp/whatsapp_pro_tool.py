@@ -1,15 +1,19 @@
 """
-WhatsApp Pro Tool — Cross-Platform Automation Engine v4.0
+WhatsApp Pro Tool — Cross-Platform Automation Engine v5.0
 =========================================================
 • Supports macOS, Windows, and Linux
+• Two-phase lifecycle: open WhatsApp Web + wait for login ("تشغيل المحرك"),
+  then dispatch the queue on demand ("إبدأ الإرسال") — the browser stays open
+  between missions so the operator never re-scans the QR code.
+• Window focus: brings the (last) WhatsApp Web window to the front on
+  every dispatch, cross-platform (macOS System Events, Win32, wmctrl/xdotool)
 • Human-behaviour simulation (typing bursts, reading pauses, Bezier mouse, scroll)
 • Load distribution: configurable batch_size, inter-message delays, batch breaks
-• Anti-detection: stealth fingerprints, CDP hiding, Canvas/WebGL protection
+• Pause / resume / stop that react within half a second
+• Anti-detection: stealth fingerprints, CDP hiding
 • Robust element detection: data-testid + legacy XPath fallbacks
 • Thread-safe SQLite queue with status tracking & retry mechanism
 • Automatic browser refresh to clear memory every N messages
-• Session time windows to avoid sending during unrealistic hours
-• Idle browsing simulation between message batches
 """
 
 import os
@@ -20,6 +24,7 @@ import math
 import platform
 import subprocess
 import tempfile
+import threading
 import time
 import random
 import logging
@@ -35,7 +40,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import (
-    TimeoutException, NoSuchElementException,
+    TimeoutException, NoSuchElementException, NoSuchWindowException,
     WebDriverException, StaleElementReferenceException
 )
 from webdriver_manager.chrome import ChromeDriverManager
@@ -46,6 +51,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 PLATFORM = platform.system()   # 'Darwin' | 'Windows' | 'Linux'
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 USER_DATA_DIR = os.path.join(BASE_DIR, "whatsapp_session")
+WHATSAPP_URL = "https://web.whatsapp.com"
 
 # Allowed directories for attachment security
 ALLOWED_UPLOAD_DIRS = [
@@ -102,6 +108,49 @@ def _kill_chromedriver():
             )
     except Exception:
         pass
+
+
+def _child_pids(parent_pid: int) -> list:
+    """Direct child process ids of ``parent_pid`` — cross-platform, no psutil needed."""
+    if not parent_pid:
+        return []
+    try:
+        if PLATFORM == 'Windows':
+            import ctypes
+            import ctypes.wintypes as wt
+
+            TH32CS_SNAPPROCESS = 0x00000002
+
+            class PROCESSENTRY32(ctypes.Structure):
+                _fields_ = [
+                    ('dwSize', wt.DWORD), ('cntUsage', wt.DWORD),
+                    ('th32ProcessID', wt.DWORD), ('th32DefaultHeapID', ctypes.POINTER(ctypes.c_ulong)),
+                    ('th32ModuleID', wt.DWORD), ('cntThreads', wt.DWORD),
+                    ('th32ParentProcessID', wt.DWORD), ('pcPriClassBase', ctypes.c_long),
+                    ('dwFlags', wt.DWORD), ('szExeFile', ctypes.c_char * 260),
+                ]
+
+            kernel32 = ctypes.windll.kernel32
+            snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+            if snapshot == -1:
+                return []
+            entry = PROCESSENTRY32()
+            entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+            children = []
+            try:
+                if kernel32.Process32First(snapshot, ctypes.byref(entry)):
+                    while True:
+                        if entry.th32ParentProcessID == parent_pid:
+                            children.append(int(entry.th32ProcessID))
+                        if not kernel32.Process32Next(snapshot, ctypes.byref(entry)):
+                            break
+            finally:
+                kernel32.CloseHandle(snapshot)
+            return children
+        result = subprocess.run(['pgrep', '-P', str(parent_pid)], capture_output=True, text=True, timeout=3)
+        return [int(p) for p in result.stdout.split() if p.strip().isdigit()]
+    except Exception:
+        return []
 
 
 def _get_chrome_version() -> str:
@@ -224,6 +273,13 @@ class WhatsAppProTool:
     """
     Professional WhatsApp bulk messaging tool.
 
+    Lifecycle (driven by engine_controller.EngineController)
+    ────────────────────────────────────────────────────────
+    init_browser() → open_whatsapp() → wait_for_login()      "تشغيل المحرك"
+    bring_to_front() → run_mission()                          "إبدأ الإرسال"
+    pause() / resume() / stop_sending()                       queue controls
+    close()                                                   "إيقاف اضطراري"
+
     Human-simulation highlights
     ───────────────────────────
     • _human_typing   – character-level delays, word pauses, sentence rest, rare typo
@@ -232,33 +288,128 @@ class WhatsAppProTool:
 
     Load-distribution defaults (configurable via run_mission args)
     ─────────────────────────────────────────────────────────────
-    batch_size  = 5   → send 5 messages, then take a long break
-    min_delay   = 25s → minimum gap between two messages (within batch)
-    max_delay   = 60s → maximum gap between two messages
-    long_break  = 180s→ base break length after each full batch (±20 % jitter)
+    batch_size  = 8   → send 8 messages, then take a long break
+    min_delay   = 10s → minimum gap between two messages (within batch)
+    max_delay   = 25s → maximum gap between two messages
+    long_break  = 90s → base break length after each full batch (±20 % jitter)
     """
 
-    def __init__(self, db_path: str, file_lock=None):
+    SLEEP_TICK = 0.5   # granularity for pause / stop / focus responsiveness
+
+    def __init__(self, db_path: str, file_lock=None, on_event=None):
         self.db_path   = db_path
         self.file_lock = file_lock
+        self.on_event  = on_event          # callable(event: str, payload: dict)
         self.driver    = None
         self.wait      = None
-        self.running   = False
+        self.running   = False             # backward-compat alias of ``sending``
+        self.sending   = False
+        self.paused    = False
+        self._focus_requested = threading.Event()
+        self._pause_event = threading.Event()   # set → paused
         self.message_count = 0
         self.last_activity_time = time.time()
         # Refresh every 15–25 messages to prevent memory leaks
         self.refresh_threshold = random.randint(15, 25)
         self.stats = {"sent": 0, "failed": 0, "skipped": 0, "total": 0, "start_time": None}
+        self.progress = {"current": 0, "total": 0, "sent": 0, "failed": 0, "skipped": 0,
+                         "last_phone": "", "last_name": ""}
 
-    # ── Lifecycle ──────────────────────────────────────────────────
+    # ── Lifecycle controls ─────────────────────────────────────────
 
     def stop(self):
+        """Backward-compat: stop the current mission (browser stays open)."""
+        self.stop_sending()
+
+    def stop_sending(self):
+        was_sending = self.sending
         self.running = False
-        logging.info("⏹  Stop signal received.")
+        self.sending = False
+        self._pause_event.clear()
+        self.paused = False
+        if was_sending:
+            logging.info("⏹  Stop-sending signal received.")
+
+    def pause(self):
+        if self.sending:
+            self.paused = True
+            self._pause_event.set()
+            logging.info("⏸  Sending paused.")
+
+    def resume(self):
+        if self.paused or self._pause_event.is_set():
+            logging.info("▶️  Sending resumed.")
+        self.paused = False
+        self._pause_event.clear()
+
+    def request_focus(self):
+        """Ask the mission loop to bring the WhatsApp window to the front at the next safe point."""
+        self._focus_requested.set()
+
+    def close(self):
+        """Quit the browser (idempotent)."""
+        self.stop_sending()
+        driver, self.driver = self.driver, None
+        if driver is None:
+            return
+        try:
+            driver.quit()
+            logging.info("🔒 Browser closed safely.")
+        except Exception as exc:
+            logging.warning(f"Browser quit error (ignored): {exc}")
 
     def get_stats(self):
         """Get current statistics"""
         return {**self.stats}
+
+    def _emit(self, event: str, payload: dict = None):
+        callback = self.on_event
+        if not callback:
+            return
+        try:
+            callback(event, payload or {})
+        except Exception as exc:
+            logging.debug(f"on_event callback failed: {exc}")
+
+    def _emit_progress(self):
+        self._emit('progress', dict(self.progress))
+
+    def _sleep(self, seconds: float) -> bool:
+        """
+        Interruptible sleep. Returns False when sending was stopped meanwhile.
+        Honours pause (waits while paused) and focus requests.
+        """
+        deadline = time.time() + max(0.0, float(seconds))
+        while True:
+            if not self.sending:
+                return False
+            self._service_focus_request()
+            if self._pause_event.is_set():
+                # Paused: keep the watchdog happy and wait without consuming the delay budget.
+                self.last_activity_time = time.time()
+                time.sleep(self.SLEEP_TICK)
+                deadline = max(deadline, time.time())
+                continue
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return True
+            time.sleep(min(self.SLEEP_TICK, remaining))
+
+    def _wait_if_paused(self) -> bool:
+        """Block while paused. Returns False if sending was stopped."""
+        while self._pause_event.is_set() and self.sending:
+            self.last_activity_time = time.time()
+            self._service_focus_request()
+            time.sleep(self.SLEEP_TICK)
+        return self.sending
+
+    def _service_focus_request(self):
+        if self._focus_requested.is_set():
+            self._focus_requested.clear()
+            try:
+                self.bring_to_front()
+            except Exception as exc:
+                logging.debug(f"Focus request failed: {exc}")
 
     # ── Browser init ───────────────────────────────────────────────
 
@@ -303,6 +454,8 @@ class WhatsAppProTool:
         # Strip all automation fingerprints
         opts.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
         opts.add_experimental_option("useAutomationExtension", False)
+        # Keep the browser alive if chromedriver dies; we quit it explicitly in close()
+        opts.add_experimental_option("detach", False)
 
         return opts
 
@@ -393,6 +546,7 @@ class WhatsAppProTool:
                 except Exception as nav_err:
                     logging.warning(f"Initial navigation test failed: {nav_err}")
 
+                self.last_activity_time = time.time()
                 logging.info("✅ Engine ready.")
                 return True
 
@@ -408,61 +562,285 @@ class WhatsAppProTool:
 
         return False
 
-    # ── Login ──────────────────────────────────────────────────────
+    # ── Window management ──────────────────────────────────────────
 
-    def check_login(self) -> bool:
+    def _whatsapp_handle(self):
         """
-        Navigate to WhatsApp Web and wait up to 90 s for authentication.
-        Returns True when the side-panel is visible (user is logged in).
+        Return (handle, all_handles) where handle is the LAST window that has
+        WhatsApp Web loaded, or None when no such window exists.
         """
+        if not self.driver:
+            return None, []
         try:
-            self.driver.get("https://web.whatsapp.com")
-        except WebDriverException as nav_err:
-            logging.error(f"❌ Failed to navigate to WhatsApp Web: {nav_err}")
+            handles = list(self.driver.window_handles)
+        except WebDriverException:
+            return None, []
+        current = None
+        try:
+            current = self.driver.current_window_handle
+            # Fast path: the driver is already on a WhatsApp window — don't cycle through tabs.
+            if 'web.whatsapp.com' in (self.driver.current_url or ''):
+                return current, handles
+        except WebDriverException:
+            pass
+
+        match = None
+        for handle in handles:
+            try:
+                self.driver.switch_to.window(handle)
+                if 'web.whatsapp.com' in (self.driver.current_url or ''):
+                    match = handle          # keep the last match → "آخر نافذة منبثقة"
+            except WebDriverException:
+                continue
+
+        if match is None and current in handles:
+            try:
+                self.driver.switch_to.window(current)
+            except WebDriverException:
+                pass
+        return match, handles
+
+    def open_whatsapp(self, timeout: float = 45) -> bool:
+        """
+        Make sure a window with WhatsApp Web exists and is selected.
+        Re-uses the last WhatsApp window; opens a fresh one if the user closed it.
+        """
+        if not self.driver:
             return False
-
-        logging.info("📱 Waiting for WhatsApp Web to load…")
-
-        # Wait for page to actually start rendering (not blank)
         try:
-            WebDriverWait(self.driver, 30).until(
-                lambda d: d.execute_script(
-                    "return document.readyState === 'complete' "
-                    "&& document.body && document.body.innerHTML.length > 100"
+            handle, handles = self._whatsapp_handle()
+            if handle is not None:
+                self.driver.switch_to.window(handle)
+                return True
+
+            if not handles:
+                self.driver.switch_to.new_window('window')
+            else:
+                self.driver.switch_to.window(handles[-1])
+
+            logging.info("🌐 Opening WhatsApp Web…")
+            try:
+                self.driver.get(WHATSAPP_URL)
+            except TimeoutException:
+                logging.warning("⚠️ WhatsApp Web load timed out — continuing, elements may still appear.")
+
+            try:
+                WebDriverWait(self.driver, timeout).until(
+                    lambda d: d.execute_script(
+                        "return document.readyState === 'complete' "
+                        "&& document.body && document.body.innerHTML.length > 100"
+                    )
                 )
-            )
-            logging.info("📄 WhatsApp Web page loaded successfully.")
-        except TimeoutException:
-            logging.warning("⚠️ Page load slow — continuing to wait for login elements…")
-        except WebDriverException as js_err:
-            logging.warning(f"⚠️ Page load check failed: {js_err}")
-
-        logging.info("📱 Waiting for WhatsApp authentication (QR scan or saved session)…")
-
-        try:
-            # Build a combined OR-XPath from all side-panel selectors
-            combined = " | ".join(_SELECTORS["side_panel"])
-            WebDriverWait(self.driver, 90).until(
-                EC.presence_of_element_located((By.XPATH, combined))
-            )
-            logging.info("✅ Authenticated.")
+                logging.info("📄 WhatsApp Web page loaded.")
+            except TimeoutException:
+                logging.warning("⚠️ Page load slow — continuing to wait for login elements…")
+            except WebDriverException as js_err:
+                logging.warning(f"⚠️ Page load check failed: {js_err}")
+            self.last_activity_time = time.time()
             return True
-        except TimeoutException:
-            logging.warning("⏳ Login timeout — please scan the QR code.")
+        except WebDriverException as exc:
+            logging.error(f"❌ Failed to open WhatsApp Web: {exc}")
             return False
+
+    def is_logged_in(self) -> bool:
+        """True when the chat side-panel is present in the WhatsApp window."""
+        if not self.driver:
+            return False
+        try:
+            handle, handles = self._whatsapp_handle()
+            if handle is None:
+                if not handles:
+                    return False
+                # The user navigated away / closed the tab — bring WhatsApp back.
+                if not self.open_whatsapp():
+                    return False
+            for xpath in _SELECTORS["side_panel"]:
+                if self.driver.find_elements(By.XPATH, xpath):
+                    return True
+            return False
+        except (NoSuchWindowException, WebDriverException) as exc:
+            logging.debug(f"Login probe failed: {exc}")
+            return False
+
+    def wait_for_login(self, timeout: float = None, should_continue=None, poll_interval: float = 2.0) -> bool:
+        """
+        Wait until the operator is authenticated (QR scanned or session restored).
+        ``timeout`` None → wait forever (until should_continue() returns False).
+        """
+        logging.info("📱 Waiting for WhatsApp authentication (QR scan or saved session)…")
+        deadline = None if timeout is None else time.time() + float(timeout)
+        announced = False
+        while True:
+            if should_continue is not None and not should_continue():
+                return False
+            # "فتح نافذة واتساب" pressed while the QR code is on screen → raise the window now
+            self._service_focus_request()
+            if self.is_logged_in():
+                logging.info("✅ Authenticated.")
+                self.last_activity_time = time.time()
+                return True
+            if not announced:
+                announced = True
+                logging.info("🔎 QR code / login screen is up — scan it from your phone to continue.")
+            self.last_activity_time = time.time()
+            if deadline is not None and time.time() >= deadline:
+                logging.warning("⏳ Login timeout — QR code was not scanned.")
+                return False
+            # Sleep in small ticks so focus requests and stop signals stay responsive
+            slept = 0.0
+            while slept < poll_interval:
+                if should_continue is not None and not should_continue():
+                    return False
+                self._service_focus_request()
+                time.sleep(self.SLEEP_TICK)
+                slept += self.SLEEP_TICK
+
+    def check_login(self, timeout: float = 90) -> bool:
+        """Backward-compat helper: open WhatsApp Web and wait up to ``timeout`` s for login."""
+        if not self.open_whatsapp():
+            return False
+        return self.wait_for_login(timeout=timeout)
+
+    def bring_to_front(self) -> bool:
+        """
+        Bring the (last) WhatsApp Web window to the front of the screen —
+        the visual confirmation the operator expects when pressing "إبدأ الإرسال".
+        """
+        if not self.driver:
+            return False
+        try:
+            if not self.open_whatsapp():
+                return False
+            try:
+                self.driver.execute_cdp_cmd('Page.bringToFront', {})
+            except Exception as cdp_err:
+                logging.debug(f"Page.bringToFront unavailable: {cdp_err}")
+            try:
+                self.driver.execute_script("window.focus();")
+            except WebDriverException:
+                pass
+            self._os_activate_window()
+            logging.info("🪟 WhatsApp Web window brought to front.")
+            return True
+        except WebDriverException as exc:
+            logging.warning(f"Could not focus WhatsApp window: {exc}")
+            return False
+
+    def _browser_pids(self) -> list:
+        """PIDs of the Chrome browser process(es) spawned by our chromedriver."""
+        try:
+            service = getattr(self.driver, 'service', None)
+            process = getattr(service, 'process', None)
+            pid = getattr(process, 'pid', None)
+            return _child_pids(int(pid)) if pid else []
+        except Exception:
+            return []
+
+    def _os_activate_window(self) -> bool:
+        """OS-level activation so the window rises above other apps (best effort)."""
+        try:
+            if PLATFORM == 'Darwin':
+                return self._activate_macos()
+            if PLATFORM == 'Windows':
+                return self._activate_windows()
+            return self._activate_linux()
+        except Exception as exc:
+            logging.debug(f"OS activation skipped: {exc}")
+            return False
+
+    def _activate_macos(self) -> bool:
+        for pid in self._browser_pids():
+            script = (
+                'tell application "System Events" to set frontmost of '
+                f'(first process whose unix id is {pid}) to true'
+            )
+            result = subprocess.run(['osascript', '-e', script], capture_output=True, timeout=5)
+            if result.returncode == 0:
+                return True
+        result = subprocess.run(
+            ['osascript', '-e', 'tell application "Google Chrome" to activate'],
+            capture_output=True, timeout=5
+        )
+        return result.returncode == 0
+
+    def _activate_windows(self) -> bool:
+        import ctypes
+        import ctypes.wintypes as wt
+
+        user32 = ctypes.windll.user32
+        browser_pids = set(self._browser_pids())
+        candidates = []
+
+        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wt.HWND, wt.LPARAM)
+
+        def _callback(hwnd, _lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length == 0:
+                return True
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buffer, length + 1)
+            title = buffer.value or ''
+            pid = wt.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            owned = pid.value in browser_pids
+            looks_like_whatsapp = 'WhatsApp' in title and 'Chrome' in title
+            if owned or looks_like_whatsapp:
+                candidates.append((owned, hwnd))
+            return True
+
+        user32.EnumWindows(EnumWindowsProc(_callback), 0)
+        if not candidates:
+            return False
+        owned = [h for is_owned, h in candidates if is_owned]
+        hwnd = (owned or [h for _, h in candidates])[-1]   # last window wins
+
+        SW_RESTORE = 9
+        VK_MENU = 0x12
+        KEYEVENTF_KEYUP = 0x0002
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        # Simulate an ALT tap so Windows allows SetForegroundWindow from a background process
+        user32.keybd_event(VK_MENU, 0, 0, 0)
+        user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+        user32.SetForegroundWindow(hwnd)
+        user32.BringWindowToTop(hwnd)
+        return True
+
+    def _activate_linux(self) -> bool:
+        title = ''
+        try:
+            title = self.driver.title or ''
+        except WebDriverException:
+            pass
+        for command in (
+            ['wmctrl', '-a', title or 'WhatsApp'],
+            ['xdotool', 'search', '--name', 'WhatsApp', 'windowactivate', '--sync'],
+        ):
+            try:
+                result = subprocess.run(command, capture_output=True, timeout=5)
+                if result.returncode == 0:
+                    return True
+            except (FileNotFoundError, subprocess.SubprocessError):
+                continue
+        return False
 
     # ── Mission ────────────────────────────────────────────────────
 
     def run_mission(
         self,
-        batch_size: int  = 5,
-        min_delay:  float = 25,
-        max_delay:  float = 60,
-        long_break: float = 180,
+        batch_size: int  = 8,
+        min_delay:  float = 10,
+        max_delay:  float = 25,
+        long_break: float = 90,
         continuous: bool  = False,
-    ):
+        warmup: tuple     = (2, 5),
+        respect_session_window: bool = False,
+    ) -> dict:
         """
-        Execute the messaging mission.
+        Execute the messaging mission for everything pending in the queue.
+        The browser is left open when the mission ends so a new mission can
+        start immediately.
 
         Parameters
         ──────────
@@ -470,114 +848,171 @@ class WhatsAppProTool:
         min_delay   – minimum sleep between messages (seconds)
         max_delay   – maximum sleep between messages (seconds)
         long_break  – base long-break duration after a full batch (±20 %)
-        continuous  – keep polling queue for new items when empty
+        continuous  – keep polling the queue for new items when empty
+        warmup      – (min, max) seconds of "human warm-up" before the first message
+        respect_session_window – pause during 01:00–06:00 (off by default)
+
+        Returns a summary dict: sent / failed / skipped / stopped / session_lost.
         """
         logging.info(
             f"🚀 Mission start — batch_size={batch_size}, "
-            f"delay={min_delay}–{max_delay}s, break={long_break}s"
+            f"delay={min_delay}–{max_delay}s, break={long_break}s, continuous={continuous}"
         )
+        self.sending = True
         self.running = True
-        self.stats["start_time"] = datetime.now().isoformat()
+        self.paused = False
+        self._pause_event.clear()
+        self.stats = {"sent": 0, "failed": 0, "skipped": 0, "total": 0, "start_time": datetime.now().isoformat()}
+        self.progress = {"current": 0, "total": 0, "sent": 0, "failed": 0, "skipped": 0,
+                         "last_phone": "", "last_name": ""}
+        self.last_activity_time = time.time()
+        result = {"sent": 0, "failed": 0, "skipped": 0, "stopped": False, "session_lost": False}
 
-        # Session time window check — don't start in unrealistic hours
-        if not self._is_within_session_window():
-            hour = datetime.now().hour
-            wake_hour = 6 + random.randint(0, 2)
-            wait_minutes = (wake_hour - hour) % 24 * 60 + random.randint(0, 30)
-            logging.info(f"🌙 Outside session window (hour={hour}). Sleeping {wait_minutes} min until ~{wake_hour}:00…")
-            time.sleep(wait_minutes * 60)
-
-        # Human warm-up: browse briefly before sending
-        warmup = random.uniform(15, 45)
-        logging.info(f"🧘 Human warm-up: browsing for {int(warmup)}s before starting…")
-        time.sleep(warmup)
+        # Rows stuck in "sending" from a previous crash are re-queued.
+        try:
+            self._reset_stuck_rows()
+        except Exception as exc:
+            logging.debug(f"Could not reset stuck rows: {exc}")
 
         try:
-            while self.running:
+            if respect_session_window and not self._is_within_session_window():
+                logging.info("🌙 Outside session window — waiting for morning…")
+                if not self._wait_for_session_window():
+                    result["stopped"] = True
+                    return self._finish_mission(result)
+
+            # Short human warm-up before the first message
+            warm_lo, warm_hi = (warmup or (0, 0))
+            warm = random.uniform(float(warm_lo), float(warm_hi)) if warm_hi else 0
+            if warm > 0:
+                logging.info(f"🧘 Human warm-up: {warm:.1f}s before starting…")
+                if not self._sleep(warm):
+                    result["stopped"] = True
+                    return self._finish_mission(result)
+
+            idle_announced = False
+            while self.sending:
                 self.last_activity_time = time.time()
-                queue = self._read_queue()
-                if not queue:
-                    if continuous:
-                        time.sleep(5)
-                        continue
+                if not self._wait_if_paused():
                     break
 
-                pending = [
-                    row for row in queue 
-                    if row.get('status') is None or row.get('status') == 'pending' or row.get('status') == ''
-                ]
-                
+                pending = self._pending_rows()
                 if not pending:
                     if continuous:
-                        time.sleep(10)
+                        if not idle_announced:
+                            idle_announced = True
+                            self._emit('waiting', {"message": "الطابور فارغ - بانتظار رسائل جديدة..."})
+                            logging.info("📭 Queue empty — waiting for new messages (continuous mode).")
+                        if not self._sleep(5):
+                            break
                         continue
+                    logging.info("📭 Queue drained — mission complete.")
                     break
+                idle_announced = False
 
+                self.progress["total"] = self.progress["current"] + len(pending)
                 logging.info(f"📨 {len(pending)} messages pending in queue.")
 
                 for i, row in enumerate(pending):
-                    if not self.running:
+                    if not self.sending:
                         break
+                    if not self._wait_if_paused():
+                        break
+                    self._service_focus_request()
 
                     # Periodic browser refresh
-                    if (
-                        self.message_count > 0
-                        and self.message_count % self.refresh_threshold == 0
-                    ):
+                    if self.message_count > 0 and self.message_count % self.refresh_threshold == 0:
                         logging.info("🔄 Refreshing browser to maintain performance…")
                         try:
                             self.driver.refresh()
-                            time.sleep(random.uniform(8, 15))
-                            if not self.check_login():
+                            self._sleep(random.uniform(8, 15))
+                            if not self.wait_for_login(timeout=60, should_continue=lambda: self.sending):
                                 logging.error("❌ Session lost after refresh — stopping.")
-                                self.running = False
+                                result["session_lost"] = True
+                                self.sending = False
                                 break
                         except WebDriverException as refresh_err:
                             logging.error(f"Browser error after refresh: {refresh_err}")
-                            self.running = False
+                            result["session_lost"] = True
+                            self.sending = False
                             break
 
                     self.last_activity_time = time.time()
-                    self._send_single_message(row, i + 1, len(pending))
+                    self.progress["current"] += 1
+                    self.progress["last_phone"] = str(row.get('phone', ''))
+                    self.progress["last_name"] = str(row.get('student_name') or '')
+                    self._emit_progress()
+
+                    outcome = self._send_single_message(row, self.progress["current"], self.progress["total"])
                     self.message_count += 1
                     self.last_activity_time = time.time()
+                    self.progress["sent"] = self.stats["sent"]
+                    self.progress["failed"] = self.stats["failed"]
+                    self.progress["skipped"] = self.stats["skipped"]
+                    self._emit_progress()
 
-                    # Session time window check between messages
-                    if not self._is_within_session_window():
+                    if outcome == 'session_lost':
+                        result["session_lost"] = True
+                        self.sending = False
+                        break
+
+                    if respect_session_window and not self._is_within_session_window():
                         logging.info("🌙 Entering night hours — pausing until morning…")
-                        while not self._is_within_session_window() and self.running:
-                            time.sleep(300)  # Check every 5 minutes
-                        if not self.running:
+                        if not self._wait_for_session_window():
                             break
                         logging.info("☀️ Morning — resuming mission.")
-                        # Re-warm after long sleep
-                        time.sleep(random.uniform(30, 90))
+                        if not self._sleep(random.uniform(30, 90)):
+                            break
 
                     # Batch break vs normal inter-message delay
-                    if (i + 1) % batch_size == 0 and (i + 1) < len(pending):
+                    is_last = (i + 1) >= len(pending)
+                    if (i + 1) % batch_size == 0 and not is_last:
                         jitter     = random.uniform(0.8, 1.2)
                         sleep_time = long_break * jitter
                         logging.info(
-                            f"☕ Batch #{(i + 1) // batch_size} done — "
-                            f"human-like break: {int(sleep_time)}s"
+                            f"☕ Batch #{(i + 1) // batch_size} done — human-like break: {int(sleep_time)}s"
                         )
-                        # Idle browsing during batch break
                         self._idle_browsing()
-                        time.sleep(sleep_time)
-                    else:
+                        if not self._sleep(sleep_time):
+                            break
+                    elif not is_last:
                         sleep_time = random.uniform(min_delay, max_delay)
                         logging.info(f"   ⏱  Next message in {int(sleep_time)}s…")
-                        time.sleep(sleep_time)
+                        if not self._sleep(sleep_time):
+                            break
+
+            if not self.sending and not result["session_lost"]:
+                result["stopped"] = True
 
         except Exception as exc:
             logging.error(f"💥 Critical mission error: {exc}", exc_info=True)
-        finally:
-            if self.driver:
-                try:
-                    self.driver.quit()
-                except Exception:
-                    pass
-                logging.info("🔒 Browser closed safely.")
+            result["error"] = str(exc)
+        return self._finish_mission(result)
+
+    def _finish_mission(self, result: dict) -> dict:
+        was_stopped_by_user = not self.sending
+        self.sending = False
+        self.running = False
+        self.paused = False
+        self._pause_event.clear()
+        result.update({
+            "sent": self.stats["sent"],
+            "failed": self.stats["failed"],
+            "skipped": self.stats["skipped"],
+        })
+        if "stopped" not in result:
+            result["stopped"] = was_stopped_by_user
+        logging.info(
+            f"🏁 Mission finished — sent={result['sent']} failed={result['failed']} "
+            f"skipped={result['skipped']} stopped={result['stopped']}"
+        )
+        return result
+
+    def _wait_for_session_window(self) -> bool:
+        while not self._is_within_session_window() and self.sending:
+            if not self._sleep(60):
+                return False
+        return self.sending
 
     # ── Single message ─────────────────────────────────────────────
 
@@ -599,10 +1034,11 @@ class WhatsAppProTool:
                 return 'invalid_phone'
 
             logging.info(f"[{current}/{total}] Processing: {phone}")
+            self._update_status(msg_id, 'sending')
 
             # 1. محاولة فتح المحادثة كالبشر دون إعادة تحميل
             chat_opened = self._open_chat_human_like(phone)
-            
+
             # Wait for input box OR invalid popup (whichever appears first)
             input_xpath   = " | ".join(_SELECTORS["input_box"])
             invalid_xpath = " | ".join(_SELECTORS["invalid_popup"])
@@ -677,6 +1113,10 @@ class WhatsAppProTool:
             self.stats["sent"] += 1
             return 'sent'
 
+        except NoSuchWindowException:
+            logging.error("  ❌ WhatsApp window was closed — session lost.")
+            self._update_status(row.get('id', ''), 'pending')
+            return 'session_lost'
         except StaleElementReferenceException:
             logging.warning(f"  ⚠️  Stale element for {row.get('phone', '?')} — retrying skipped")
             self._update_status(row.get('id', ''), 'failed')
@@ -754,7 +1194,7 @@ class WhatsAppProTool:
                 for char in word:
                     element.send_keys(char)
                     # Arabic characters are typed slower than digits/English
-                    if '\u0600' <= char <= '\u06FF' or '\u0750' <= char <= '\u077F':
+                    if '؀' <= char <= 'ۿ' or 'ݐ' <= char <= 'ݿ':
                         delay = random.uniform(0.02, 0.10) * speed_factor
                     elif char.isdigit():
                         delay = random.uniform(0.01, 0.05) * speed_factor
@@ -811,7 +1251,6 @@ class WhatsAppProTool:
     def _open_chat_human_like(self, phone: str) -> bool:
         """فتح المحادثة عبر واجهة المستخدم لمحاكاة البشر ومنع إعادة تحميل الصفحة."""
         _mod_key = Keys.COMMAND if PLATFORM == 'Darwin' else Keys.CONTROL
-        short_wait = WebDriverWait(self.driver, 10)
 
         try:
             # ── الخطوة 1: النقر على أيقونة محادثة جديدة ──
@@ -1015,7 +1454,7 @@ class WhatsAppProTool:
     def _is_within_session_window(self) -> bool:
         """
         Check if current time is within a realistic session window.
-        Returns False during 1:00 AM – 6:00 AM to avoid suspicious activity.
+        Returns False during 1:00 AM – 6:00 AM (only used when respect_session_window=True).
         """
         hour = datetime.now().hour
         return not (1 <= hour < 6)
@@ -1031,6 +1470,19 @@ class WhatsAppProTool:
         except Exception as exc:
             logging.error(f"Queue read error: {exc}")
             return []
+
+    def _pending_rows(self):
+        return [
+            row for row in self._read_queue()
+            if (row.get('status') or '') in ('', 'pending', 'sending')
+        ]
+
+    def _reset_stuck_rows(self):
+        if self.file_lock:
+            with self.file_lock:
+                sqlite_db.reset_stuck_sending()
+        else:
+            sqlite_db.reset_stuck_sending()
 
     def _update_status(self, msg_id: str, status: str):
         if not self.file_lock:
@@ -1063,10 +1515,14 @@ if __name__ == "__main__":
     target = "contacts.db"
     if os.path.exists(target):
         tool = WhatsAppProTool(target)
-        if tool.init_browser() and tool.check_login():
-            tool.run_mission(
-                batch_size=5,
-                min_delay=25,
-                max_delay=60,
-                long_break=180,
-            )
+        try:
+            if tool.init_browser() and tool.open_whatsapp() and tool.wait_for_login(timeout=15 * 60):
+                tool.bring_to_front()
+                tool.run_mission(
+                    batch_size=8,
+                    min_delay=10,
+                    max_delay=25,
+                    long_break=90,
+                )
+        finally:
+            tool.close()

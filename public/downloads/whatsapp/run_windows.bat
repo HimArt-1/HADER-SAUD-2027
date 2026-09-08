@@ -1,161 +1,92 @@
 @echo off
-setlocal enabledelayedexpansion
-chcp 65001 > nul 2>&1
-title Hader WhatsApp Pro Server v3.0 — Windows Edition
-color 0B
+setlocal DisableDelayedExpansion
+chcp 65001 >nul 2>&1
+title Hader WhatsApp Server
+pushd "%~dp0"
+if errorlevel 1 goto folder_error
 
-:: ======================================================
-::   HADER WHATSAPP PRO SERVER — WINDOWS RUNNER v3.0
-:: ======================================================
+echo ======================================================
+echo HADER WHATSAPP SERVER - Windows
+echo Keep this window open while using WhatsApp in Hader.
+echo ======================================================
 echo.
-echo    =======================================================
-echo       HADER WHATSAPP PRO SERVER  [Windows Edition v3.0]
-echo    =======================================================
+echo [1/4] Checking package files...
+if not exist "server.py" goto missing_files
+if not exist "whatsapp_pro_tool.py" goto missing_files
+if not exist "sqlite_db.py" goto missing_files
+if not exist "requirements.txt" goto missing_files
+
+echo [2/4] Preparing Python...
+if exist "venv\Scripts\python.exe" goto check_venv
+py -3 -c "import sys; sys.exit(sys.version_info.major != 3)" >nul 2>&1
+if not errorlevel 1 goto create_with_py
+python -c "import sys; sys.exit(sys.version_info.major != 3)" >nul 2>&1
+if errorlevel 1 goto python_error
+python -m venv venv
+if errorlevel 1 goto venv_error
+goto check_venv
+
+:create_with_py
+py -3 -m venv venv
+if errorlevel 1 goto venv_error
+
+:check_venv
+"venv\Scripts\python.exe" --version
+if errorlevel 1 goto venv_error
+
+echo [3/4] Installing dependencies. First setup needs Internet.
+"venv\Scripts\python.exe" -m pip install -r requirements.txt --disable-pip-version-check
+if errorlevel 1 goto dependencies_error
+
+set "WHATSAPP_SERVER_HOST=127.0.0.1"
+set "WHATSAPP_SERVER_PORT=5001"
+set "FLASK_ENV=production"
+set "PYTHONIOENCODING=utf-8"
+set "PYTHONUTF8=1"
 echo.
-
-:: Resolve script directory
-cd /d "%~dp0"
-
-:: ══════════════════════════════════════════════════════
-:: PHASE 1 — Environment Cleanup
-:: ══════════════════════════════════════════════════════
-echo [1/6] Cleaning up previous sessions...
-taskkill /F /IM chromedriver.exe /T  > nul 2>&1
-:: Only kill python processes running server.py to avoid killing other python apps
-wmic process where "name='python.exe' and CommandLine like '%%server.py%%'" call terminate > nul 2>&1
-echo [OK] Cleanup done.
-
-:: ══════════════════════════════════════════════════════
-:: PHASE 2 — Port Check
-:: ══════════════════════════════════════════════════════
-echo [2/6] Checking Port 5001...
-netstat -ano | findstr ":5001 " | findstr "LISTENING" > nul 2>&1
-if %errorlevel% == 0 (
-    echo [!] Port 5001 is in use — freeing it...
-    for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5001 " ^| findstr "LISTENING"') do (
-        if not "%%a"=="" taskkill /F /PID %%a > nul 2>&1
-    )
-    timeout /t 1 /nobreak > nul
-    echo [OK] Port 5001 released.
-) else (
-    echo [OK] Port 5001 is available.
-)
-
-:: ══════════════════════════════════════════════════════
-:: PHASE 3 — Verify Required Files
-:: ══════════════════════════════════════════════════════
-echo [3/6] Verifying required files...
-if not exist "server.py" (
-    echo.
-    echo [ERROR] server.py not found in: %cd%
-    echo         Make sure you extracted all files correctly.
-    echo.
-    pause
-    exit /b 1
-)
-if not exist "whatsapp_pro_tool.py" (
-    echo.
-    echo [ERROR] whatsapp_pro_tool.py not found.
-    echo.
-    pause
-    exit /b 1
-)
-if not exist "requirements.txt" (
-    echo.
-    echo [ERROR] requirements.txt not found.
-    echo.
-    pause
-    exit /b 1
-)
-echo [OK] All required files present.
-
-:: ══════════════════════════════════════════════════════
-:: PHASE 4 — Python Detection
-:: ══════════════════════════════════════════════════════
-echo [4/6] Detecting Python...
-where python > nul 2>&1
-if %errorlevel% neq 0 (
-    echo.
-    echo [ERROR] Python 3 is NOT installed or not in PATH.
-    echo         Download from: https://www.python.org/
-    echo         IMPORTANT: Check "Add Python to PATH" during installation!
-    echo.
-    pause
-    exit /b 1
-)
-
-for /f "tokens=*" %%v in ('python --version 2^>^&1') do set PYTHON_VER=%%v
-echo [OK] Found: %PYTHON_VER%
-
-:: ══════════════════════════════════════════════════════
-:: PHASE 5 — Virtual Environment & Dependencies
-:: ══════════════════════════════════════════════════════
-if not exist "venv" (
-    echo [5/6] Creating virtual environment (first run only)...
-    python -m venv venv
-    if %errorlevel% neq 0 (
-        echo.
-        echo [ERROR] Failed to create virtual environment.
-        echo         Make sure Python 3 is installed correctly.
-        echo.
-        pause
-        exit /b 1
-    )
-)
-
-echo [5/6] Activating virtual environment...
-call "venv\Scripts\activate.bat"
-if %errorlevel% neq 0 (
-    echo [ERROR] Failed to activate virtual environment.
-    pause
-    exit /b 1
-)
-
-echo [5/6] Installing / verifying dependencies from requirements.txt...
-python -m pip install --upgrade pip --quiet --disable-pip-version-check
-pip install -r requirements.txt --quiet --disable-pip-version-check
-
-if %errorlevel% neq 0 (
-    echo.
-    echo [ERROR] Dependency installation failed.
-    echo         Try running manually: pip install -r requirements.txt
-    echo.
-    pause
-    exit /b 1
-)
-echo [OK] Dependencies ready.
-
-:: Create required directories
-if not exist "uploads"          mkdir uploads
-if not exist "certificates"     mkdir certificates
-if not exist "logs"             mkdir logs
-if not exist "whatsapp_session" mkdir whatsapp_session
-
-:: ══════════════════════════════════════════════════════
-:: PHASE 6 — Launch Server
-:: ══════════════════════════════════════════════════════
+echo [4/4] Starting server at http://127.0.0.1:5001
+echo After startup, check http://127.0.0.1:5001/api/status
+echo Then open Hader and start the WhatsApp engine from the dashboard.
 echo.
-echo    =======================================================
-echo    [OK] SYSTEM READY — Starting server on port 5001
-echo    Keep this window open. Minimise for background work.
-echo    =======================================================
+"venv\Scripts\python.exe" server.py
+set "HADER_EXIT_CODE=%errorlevel%"
 echo.
+echo Server stopped. Exit code: %HADER_EXIT_CODE%
+echo If an error appears above, copy it before closing this window.
+goto finish
 
-set FLASK_ENV=production
-set WHATSAPP_SERVER_PORT=5001
-set PYTHONIOENCODING=utf-8
-set PYTHONUTF8=1
+:missing_files
+echo [ERROR] Required package files are missing.
+echo Extract ALL files from the ZIP into one folder, then try again.
+goto failed
 
-echo [6/6] Launching server...
-python server.py
+:python_error
+echo [ERROR] A working Python 3 installation was not found.
+echo Install Python 3 from https://www.python.org/downloads/windows/
+echo Enable Add Python to PATH, then close this window and try again.
+goto failed
 
-if %errorlevel% neq 0 (
-    echo.
-    echo [CRITICAL ERROR] Server exited with code %errorlevel%.
-    echo                  Check logs\server.log for details.
-    echo.
-)
+:venv_error
+echo [ERROR] The Python virtual environment could not be created or used.
+echo Copy the error above. If this package was moved from another PC,
+echo rename only its venv folder to venv-old and try again.
+goto failed
 
-echo.
-echo [INFO] Session ended.
+:dependencies_error
+echo [ERROR] Dependency installation failed. Details appear above.
+echo Check your Internet connection and try again.
+goto failed
+
+:folder_error
+echo [ERROR] Cannot open the package folder. Extract the ZIP first.
 pause
+exit /b 1
+
+:failed
+set "HADER_EXIT_CODE=1"
+
+:finish
+echo.
+pause
+popd
+exit /b %HADER_EXIT_CODE%
