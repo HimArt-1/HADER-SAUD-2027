@@ -307,7 +307,7 @@ class WhatsAppProTool:
         return opts
 
     def _get_stealth_js(self) -> str:
-        """Return comprehensive stealth JavaScript to inject on every page load."""
+        """Return lightweight stealth JS — avoids breaking WhatsApp Web internals."""
         return """
         // ═══════════════════════════════════════════════════════
         // 1. Hide navigator.webdriver
@@ -317,62 +317,14 @@ class WhatsAppProTool:
         });
 
         // ═══════════════════════════════════════════════════════
-        // 2. Realistic navigator.plugins (Chrome PDF Viewer etc.)
-        // ═══════════════════════════════════════════════════════
-        const fakePluginData = [
-            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer',
-              description: 'Portable Document Format',
-              mimeTypes: [{type: 'application/x-google-chrome-pdf', suffixes: 'pdf', description: 'Portable Document Format'}] },
-            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai',
-              description: '',
-              mimeTypes: [{type: 'application/pdf', suffixes: 'pdf', description: ''}] },
-            { name: 'Native Client', filename: 'internal-nacl-plugin',
-              description: '',
-              mimeTypes: [{type: 'application/x-nacl', suffixes: '', description: 'Native Client Executable'},
-                          {type: 'application/x-pnacl', suffixes: '', description: 'Portable Native Client Executable'}] }
-        ];
-
-        const fakePluginArray = fakePluginData.map(p => {
-            const plugin = Object.create(Plugin.prototype);
-            Object.defineProperties(plugin, {
-                name:        { value: p.name, enumerable: true },
-                filename:    { value: p.filename, enumerable: true },
-                description: { value: p.description, enumerable: true },
-                length:      { value: p.mimeTypes.length, enumerable: true }
-            });
-            p.mimeTypes.forEach((mt, i) => {
-                const mimeType = Object.create(MimeType.prototype);
-                Object.defineProperties(mimeType, {
-                    type:           { value: mt.type, enumerable: true },
-                    suffixes:       { value: mt.suffixes, enumerable: true },
-                    description:    { value: mt.description, enumerable: true },
-                    enabledPlugin:  { value: plugin, enumerable: true }
-                });
-                Object.defineProperty(plugin, i, { value: mimeType, enumerable: true });
-            });
-            return plugin;
-        });
-
-        const fakePlugins = Object.create(PluginArray.prototype);
-        fakePluginArray.forEach((p, i) => {
-            Object.defineProperty(fakePlugins, i, { value: p, enumerable: true });
-            Object.defineProperty(fakePlugins, p.name, { value: p });
-        });
-        Object.defineProperty(fakePlugins, 'length', { value: fakePluginArray.length, enumerable: true });
-        fakePlugins.item = function(i) { return this[i] || null; };
-        fakePlugins.namedItem = function(name) { return this[name] || null; };
-        fakePlugins.refresh = function() {};
-        Object.defineProperty(navigator, 'plugins', { get: () => fakePlugins });
-
-        // ═══════════════════════════════════════════════════════
-        // 3. Languages
+        // 2. Languages
         // ═══════════════════════════════════════════════════════
         Object.defineProperty(navigator, 'languages', {
             get: () => ['ar', 'ar-SA', 'en-US', 'en']
         });
 
         // ═══════════════════════════════════════════════════════
-        // 4. Realistic window.chrome object
+        // 3. Realistic window.chrome object
         // ═══════════════════════════════════════════════════════
         window.chrome = {
             app: { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
@@ -380,7 +332,7 @@ class WhatsAppProTool:
         };
 
         // ═══════════════════════════════════════════════════════
-        // 5. Permissions API — return realistic results
+        // 4. Permissions API — return realistic results
         // ═══════════════════════════════════════════════════════
         const origPermQuery = window.navigator.permissions.query;
         window.navigator.permissions.query = (params) =>
@@ -389,7 +341,7 @@ class WhatsAppProTool:
                 : origPermQuery.call(navigator.permissions, params);
 
         // ═══════════════════════════════════════════════════════
-        // 6. Hardware concurrency & device memory
+        // 5. Hardware concurrency & device memory
         // ═══════════════════════════════════════════════════════
         Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
         if (navigator.deviceMemory !== undefined) {
@@ -397,76 +349,17 @@ class WhatsAppProTool:
         }
 
         // ═══════════════════════════════════════════════════════
-        // 7. Canvas fingerprint protection (subtle noise)
+        // 6. Hide CDP (Chrome DevTools Protocol) indicators
         // ═══════════════════════════════════════════════════════
-        const origGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function(type, attrs) {
-            const ctx = origGetContext.call(this, type, attrs);
-            if (type === '2d' && ctx) {
-                const origGetImageData = ctx.getImageData;
-                ctx.getImageData = function(...args) {
-                    const imageData = origGetImageData.apply(this, args);
-                    // Add very subtle noise to a few pixels
-                    for (let i = 0; i < Math.min(imageData.data.length, 40); i += 4) {
-                        imageData.data[i] = imageData.data[i] ^ (Math.random() > 0.5 ? 1 : 0);
-                    }
-                    return imageData;
-                };
-            }
-            return ctx;
-        };
-
-        const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
-        HTMLCanvasElement.prototype.toDataURL = function(type) {
-            // Create subtle variation in canvas output
-            const ctx = this.getContext('2d');
-            if (ctx) {
-                const style = ctx.fillStyle;
-                ctx.fillStyle = 'rgba(0,0,0,0.004)';
-                ctx.fillRect(0, 0, 1, 1);
-                ctx.fillStyle = style;
-            }
-            return origToDataURL.apply(this, arguments);
-        };
-
-        // ═══════════════════════════════════════════════════════
-        // 8. WebGL fingerprint protection
-        // ═══════════════════════════════════════════════════════
-        const origGetParameter = WebGLRenderingContext.prototype.getParameter;
-        WebGLRenderingContext.prototype.getParameter = function(param) {
-            // UNMASKED_VENDOR_WEBGL
-            if (param === 37445) return 'Google Inc. (NVIDIA)';
-            // UNMASKED_RENDERER_WEBGL
-            if (param === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)';
-            return origGetParameter.call(this, param);
-        };
-        if (typeof WebGL2RenderingContext !== 'undefined') {
-            const origGetParameter2 = WebGL2RenderingContext.prototype.getParameter;
-            WebGL2RenderingContext.prototype.getParameter = function(param) {
-                if (param === 37445) return 'Google Inc. (NVIDIA)';
-                if (param === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)';
-                return origGetParameter2.call(this, param);
-            };
-        }
-
-        // ═══════════════════════════════════════════════════════
-        // 9. Hide CDP (Chrome DevTools Protocol) indicators
-        // ═══════════════════════════════════════════════════════
-        // Remove Runtime.enable leak
         delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
         delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
         delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
-        // Remove all cdc_ prefixed properties
         for (const key of Object.keys(window)) {
             if (/^cdc_/.test(key)) { delete window[key]; }
         }
 
-        // ═══════════════════════════════════════════════════════
-        // 10. Prevent iframe detection (safe version)
-        // ═══════════════════════════════════════════════════════
-        // NOTE: Do NOT override HTMLIFrameElement.prototype.contentWindow
-        // as WhatsApp Web relies heavily on iframes for its UI.
-        // Overriding it causes blank pages.
+        // NOTE: Canvas, WebGL, Plugins, and iframe overrides are
+        // intentionally excluded — they break WhatsApp Web rendering.
         """
 
     def init_browser(self) -> bool:
@@ -717,11 +610,27 @@ class WhatsAppProTool:
 
             # 2. خطة بديلة (Fallback) إذا فشل البحث في الواجهة
             if not chat_opened:
-                logging.warning(f"  ⚠️  UI Search failed for {phone}, using fallback URL (page will reload)...")
-                self.driver.get(f"https://web.whatsapp.com/send?phone={phone}")
+                logging.warning(f"  ⚠️  UI Search failed for {phone}, using fallback URL…")
+                try:
+                    self.driver.get(f"https://web.whatsapp.com/send?phone={phone}")
+                except WebDriverException as nav_err:
+                    logging.error(f"  ❌ Navigation failed: {nav_err}")
+                    self._update_status(msg_id, 'failed')
+                    self.stats["failed"] += 1
+                    return 'failed'
+
+                # انتظار تحميل الصفحة فعلياً
+                try:
+                    WebDriverWait(self.driver, 20).until(
+                        lambda d: d.execute_script(
+                            "return document.readyState === 'complete'"
+                        )
+                    )
+                except (TimeoutException, WebDriverException):
+                    pass
 
                 try:
-                    WebDriverWait(self.driver, 40).until(
+                    WebDriverWait(self.driver, 45).until(
                         EC.presence_of_element_located((By.XPATH, combined))
                     )
                 except TimeoutException:
@@ -900,56 +809,110 @@ class WhatsAppProTool:
             self._human_typing(input_box, text)
 
     def _open_chat_human_like(self, phone: str) -> bool:
-        """فتح المحادثة عبر واجهة المستخدم لمحاكاة البشر ومنع إعادة تحميل الصفحة"""
+        """فتح المحادثة عبر واجهة المستخدم لمحاكاة البشر ومنع إعادة تحميل الصفحة."""
+        _mod_key = Keys.COMMAND if PLATFORM == 'Darwin' else Keys.CONTROL
+        short_wait = WebDriverWait(self.driver, 10)
+
         try:
-            # النقر على أيقونة محادثة جديدة
-            try:
-                new_chat_btn = self.wait.until(EC.element_to_be_clickable((By.XPATH, '//div[@title="New chat"] | //span[@data-icon="new-chat-outline"] | //span[@data-icon="chat"]')))
+            # ── الخطوة 1: النقر على أيقونة محادثة جديدة ──
+            new_chat_xpaths = [
+                '//span[@data-icon="new-chat-outline"]',
+                '//div[@data-testid="chat-list-header-menu-new"]',
+                '//span[@data-icon="chat"]',
+                '//div[@title="New chat"]',
+                '//div[@aria-label="New chat"]',
+                '//div[@aria-label="محادثة جديدة"]',
+            ]
+            new_chat_btn = _find_first(self.driver, new_chat_xpaths, timeout=8)
+            if new_chat_btn:
                 new_chat_btn.click()
                 time.sleep(random.uniform(0.8, 1.5))
-            except TimeoutException:
-                pass  # قد نكون بالفعل في شاشة تسمح بالبحث
 
-            # البحث عن مربع البحث
-            search_box = self.wait.until(EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab="3"] | //div[@id="side"]//div[@contenteditable="true"]')))
+            # ── الخطوة 2: إيجاد مربع البحث ──
+            search_xpaths = [
+                '//div[@data-testid="chat-list-search"]',
+                '//div[@contenteditable="true"][@data-tab="3"]',
+                '//div[@id="side"]//div[@contenteditable="true"]',
+                '//div[@role="textbox"][@title="Search input textbox"]',
+                '//div[@role="textbox"][@title]',
+            ]
+            search_box = _find_first(self.driver, search_xpaths, timeout=8)
+            if not search_box:
+                logging.warning(f"  ⚠️  Search box not found for {phone}")
+                return False
+
             search_box.click()
+            time.sleep(random.uniform(0.3, 0.6))
 
-            # مسح المربع
-            _mod_key = Keys.COMMAND if PLATFORM == 'Darwin' else Keys.CONTROL
-            ActionChains(self.driver).key_down(_mod_key).send_keys('a').key_up(_mod_key).send_keys(Keys.BACKSPACE).perform()
-            time.sleep(random.uniform(0.3, 0.7))
+            # ── مسح أي نص سابق ──
+            ActionChains(self.driver).key_down(_mod_key).send_keys('a').key_up(_mod_key).perform()
+            time.sleep(0.1)
+            ActionChains(self.driver).send_keys(Keys.DELETE).perform()
+            time.sleep(random.uniform(0.3, 0.5))
 
-            # كتابة الرقم ببطء كالبشر (أرقام أسرع قليلاً)
+            # ── الخطوة 3: كتابة الرقم ببطء كالبشر ──
             for char in phone:
                 search_box.send_keys(char)
                 time.sleep(random.uniform(0.04, 0.12))
 
-            # انتظار ظهور النتائج من الخادم
-            time.sleep(random.uniform(2.0, 3.5))
+            # ── انتظار ظهور نتائج البحث ──
+            time.sleep(random.uniform(2.5, 4.0))
 
-            # محاولة ضغط إنتر لفتح المحادثة مباشرة
-            search_box.send_keys(Keys.ENTER)
-            time.sleep(random.uniform(1.2, 2.0))
+            # ── الخطوة 4: النقر على أول نتيجة بحث (بدلاً من Enter) ──
+            contact_xpaths = [
+                # نتائج البحث في واتساب ويب الحديث
+                f'//span[contains(@title, "{phone}")]',
+                f'//span[@dir="auto"][contains(text(), "{phone}")]',
+                # آخر أرقام الهاتف
+                f'//span[contains(text(), "{phone[-4:]}")]',
+                # أي عنصر listitem قابل للنقر في نتائج البحث
+                '//div[@data-testid="cell-frame-container"]',
+                '//div[@data-testid="chat-list-item"]',
+                # Fallback: أول عنصر في القائمة
+                '//div[@id="pane-side"]//div[@role="listitem"][1]',
+                '//div[@role="listitem"]',
+            ]
 
-            # التحقق من أن المحادثة فُتحت
-            input_xpath = " | ".join(_SELECTORS["input_box"])
-            try:
-                self.driver.find_element(By.XPATH, input_xpath)
-                return True
-            except NoSuchElementException:
-                # إذا لم تُفتح، البحث عن الرقم في القائمة والنقر عليه
+            contact = _find_first(self.driver, contact_xpaths, timeout=3)
+            if contact:
                 try:
-                    contact = self.driver.find_element(By.XPATH, f'//span[contains(@title, "{phone}")] | //span[contains(text(), "{phone}")] | //div[@role="button"]//span[contains(text(), "{phone}")]')
                     contact.click()
-                    time.sleep(random.uniform(1.0, 2.0))
+                except WebDriverException:
+                    # أحياناً العنصر ليس قابلاً للنقر مباشرة، نحاول العنصر الأب
+                    try:
+                        self.driver.execute_script("arguments[0].click();", contact)
+                    except WebDriverException:
+                        pass
+
+                time.sleep(random.uniform(1.5, 2.5))
+
+                # ── التحقق من أن المحادثة فُتحت فعلاً ──
+                input_xpath = " | ".join(_SELECTORS["input_box"])
+                try:
+                    WebDriverWait(self.driver, 8).until(
+                        EC.presence_of_element_located((By.XPATH, input_xpath))
+                    )
                     return True
-                except NoSuchElementException:
-                    # تفريغ المربع والخروج إذا لم يوجد
-                    _mod_key = Keys.COMMAND if PLATFORM == 'Darwin' else Keys.CONTROL
-                    ActionChains(self.driver).key_down(_mod_key).send_keys('a').key_up(_mod_key).send_keys(Keys.BACKSPACE).send_keys(Keys.ESCAPE).perform()
-                    return False
+                except TimeoutException:
+                    logging.warning(f"  ⚠️  Chat opened but input box not found for {phone}")
+            else:
+                logging.warning(f"  ⚠️  No search result found for {phone}")
+
+            # ── تنظيف: مسح البحث والخروج ──
+            try:
+                ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+                time.sleep(0.3)
+                ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+            except WebDriverException:
+                pass
+            return False
+
         except Exception as e:
             logging.error(f"UI Search failed for {phone}: {e}")
+            try:
+                ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+            except WebDriverException:
+                pass
             return False
 
     # ── Bezier curve mouse movement ────────────────────────────────
