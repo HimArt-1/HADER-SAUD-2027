@@ -35,8 +35,16 @@ function pinOrigin(origin = ORIGIN): void {
   });
 }
 
+beforeEach(() => {
+  // Developer deployment settings must not override this suite's fake origin.
+  vi.resetModules();
+  vi.stubEnv('VITE_APP_URL', '');
+  vi.stubEnv('VITE_DESKTOP_RELEASE_URL', '');
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('Desktop download — lightweight bundle', () => {

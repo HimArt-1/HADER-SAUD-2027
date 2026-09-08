@@ -224,6 +224,7 @@ export interface IDatabaseProvider {
     bulkMarkAbsent(params: {
         student_ids: string[];
         date: string;
+        only_unmarked?: boolean;
     }): Promise<{
         success: boolean;
         message: string;

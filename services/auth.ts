@@ -187,7 +187,7 @@ export const auth = {
           const localUsers = await db.getUsers();
           const found = localUsers.find(u => u.username === username);
 
-          if (found) {
+          if (found && found.is_active !== false) {
             // Check password (support both hashed and plain text)
             const isValid = await this.verifyUserPassword(found.password || '', password);
 
@@ -274,7 +274,7 @@ export const auth = {
           }
         });
         const data = loginData?.user ?? loginData;
-        if (error || !data?.id) {
+        if (error || !data?.id || data.is_active === false) {
           const message = await getHaderAuthFailureMessage(response, supabaseStatus.isConfigured);
           return {
             success: false,
@@ -557,6 +557,10 @@ export const auth = {
     const session = secureSessionStorage.get();
     if (!session) return;
     const timeLeft = session.expiresAt - Date.now();
+    if (timeLeft <= 0) {
+      this.logout({ reason: 'SESSION_EXPIRED' });
+      return;
+    }
     if (!force && timeLeft > SESSION_RENEW_THRESHOLD) return;
     const renewedExpiry = Date.now() + SESSION_TIMEOUT;
     secureSessionStorage.save({
@@ -624,7 +628,7 @@ export const auth = {
       } else {
         window.location.hash = '/';
       }
-      return user;
+      return null;
     }
 
     // Refresh session on activity

@@ -117,6 +117,8 @@ export default defineConfig({
     strictPort: true,
   },
   build: {
+    // Preserve the previous Vite browser targets when upgrading the build tool.
+    target: ['es2020', 'chrome87', 'edge88', 'firefox78', 'safari14'],
     // Ensure assets work with file:// protocol in Electron
     assetsDir: 'assets',
     chunkSizeWarningLimit: 500,

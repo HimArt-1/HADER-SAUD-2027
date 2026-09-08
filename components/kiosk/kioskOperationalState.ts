@@ -33,7 +33,7 @@ const normalizeWorkDays = (value: unknown): number[] => {
     if (!Array.isArray(value)) return [...ATTENDANCE_DEFAULTS.WORK_DAYS];
     const days = [...new Set(value.filter(day => Number.isInteger(day) && day >= 0 && day <= 6) as number[])]
         .sort((a, b) => a - b);
-    return days.length > 0 ? days : [...ATTENDANCE_DEFAULTS.WORK_DAYS];
+    return days;
 };
 
 export const buildKioskOperationalConfig = (systemSettings: SystemSettings = {}): KioskOperationalConfig => {

@@ -60,6 +60,14 @@ describe('kiosk daily operational state', () => {
         });
     });
 
+    it('keeps an explicitly empty workweek closed on every day', () => {
+        const policy = buildKioskOperationalConfig({ attendance_settings: { work_days: [] } }).policy;
+        expect(policy.workDays).toEqual([]);
+        for (const date of ['2026-09-06', '2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10']) {
+            expect(resolveKioskDayState(date, policy).allowsAttendance).toBe(false);
+        }
+    });
+
     it('gives system readiness and school activation priority over the calendar', () => {
         const notReady = buildKioskOperationalConfig({ system_ready: false }).policy;
         const inactive = buildKioskOperationalConfig({ school_active: false }).policy;

@@ -343,7 +343,7 @@ const App: React.FC = () => {
   );
 
   return (
-    <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+    <Router>
       <ElectronMenuHandler>
         <Suspense fallback={pageFallback}>
           {!user ? (

@@ -53,6 +53,7 @@ import {
 } from '../types';
 import {
     buildClassSectionTargetId,
+    isActiveStudent,
     getLocalISODate,
     mapSettingsFromDB,
     normalizeAssignedClasses,
@@ -660,6 +661,10 @@ export class HybridProvider {
         const student = await localDb.students.get(id);
         if (!student) {
             return { success: false, message: 'الطالب غير موجود' };
+        }
+
+        if (!isActiveStudent(student)) {
+            return { success: false, message: 'الطالب غير مفعّل. راجع إدارة المدرسة.' };
         }
 
         const now = new Date();

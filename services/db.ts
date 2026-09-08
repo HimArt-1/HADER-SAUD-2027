@@ -29,7 +29,7 @@ import { CloudProvider, cloudProviderRef } from './cloudProvider';
 import { LocalProvider } from './localProvider';
 import {
   getLocalISODate, getLocalDateStr,
-  getSyncedDate, mapAttendance, mapNotificationRow
+  getSyncedDate, mapAttendance, mapNotificationRow, isActiveStudent
 } from './dbHelpers';
 import { resolveRecorder } from './recorderResolver';
 
@@ -828,7 +828,10 @@ class Database implements IDatabaseProvider, IStudentAffairsProvider {
   getStudentById(id: string) { return this.provider.getStudentById(id); }
   getRosterModule() { return this.rosterModule; }
 
-  async getStudentByAnyId(inputId: string): Promise<Student | null> {
+  async getStudentByAnyId(inputId: string, options?: { localOnly?: boolean }): Promise<Student | null> {
+    if (options?.localOnly && this.provider instanceof CloudProvider) {
+      return this.provider.findKioskStudent(inputId);
+    }
     return this.rosterModule.findStudent(inputId);
   }
 
@@ -883,6 +886,16 @@ class Database implements IDatabaseProvider, IStudentAffairsProvider {
   // ═══════════════════════════════════════════════════════════════
   // 📱 Smart WhatsApp Triggers - Instant Notifications
   // ═══════════════════════════════════════════════════════════════
+  async notifyAutomaticAbsences(records: AttendanceRecord[]): Promise<void> {
+    const students = new Map((await this.getStudents()).map(student => [student.id, student]));
+    for (const record of records) {
+      const student = students.get(record.student_id);
+      if (record.status === 'absent' && student?.guardian_phone) {
+        await this._triggerWhatsApp(record, student);
+      }
+    }
+  }
+
   private async _triggerWhatsApp(record: AttendanceRecord, student: Student) {
     try {
       if (typeof window === 'undefined') return;
@@ -926,7 +939,7 @@ class Database implements IDatabaseProvider, IStudentAffairsProvider {
 
       // 3. Process Content & Placeholders
       let content = template.content;
-      const dateStr = getLocalISODate();
+      const dateStr = record.date || getLocalISODate();
       const now = new Date();
       const timeStr = now.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
       const minutesLate = record.minutes_late || 0;
@@ -1031,7 +1044,10 @@ class Database implements IDatabaseProvider, IStudentAffairsProvider {
   bulkMarkAllPresent(params: { class_name: string; section: string; date: string }) {
     return this.provider.bulkMarkAllPresent(params);
   }
-  bulkMarkAbsent(params: { student_ids: string[]; date: string }) {
+  bulkMarkAbsent(params: { student_ids: string[]; date: string; only_unmarked?: boolean }) {
+    if (params.only_unmarked && this.mode !== 'local') {
+      throw new Error('Automatic cloud absence must use mark_hader_automatic_absence');
+    }
     return this.provider.bulkMarkAbsent(params);
   }
 
@@ -1434,6 +1450,10 @@ class Database implements IDatabaseProvider, IStudentAffairsProvider {
         code: 'not_found' as const,
         message: 'الطالب غير موجود. تحقق من المعرف أو الرمز.'
       };
+    }
+
+    if (!isActiveStudent(student)) {
+      return { ok: false, code: 'not_found', message: 'الطالب غير مفعّل. راجع إدارة المدرسة.' };
     }
 
     // Apply the school-day policy before duplicate lookup so a holiday scan

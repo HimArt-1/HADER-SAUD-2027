@@ -40,6 +40,34 @@ async function openReadyKiosk() {
 }
 
 describe('kiosk refresh stability', () => {
+  it('opens from complete cached settings without waiting for a settings cloud request', async () => {
+    mocks.preload.mockResolvedValue({ ...ready, usedLocalSnapshot: true, cloudAvailable: false,
+      settings: { system_ready: true, school_active: true } });
+    mocks.settings.mockReturnValue(new Promise(() => {}));
+    await openReadyKiosk();
+    expect(screen.getByRole('textbox')).toBeTruthy();
+  });
+
+  it('waits for school settings before accepting the first scan', async () => {
+    let resolveSettings!: (value: object) => void;
+    mocks.settings.mockReturnValue(new Promise(resolve => { resolveSettings = resolve; }));
+    await act(async () => { render(<MemoryRouter><Kiosk /></MemoryRouter>); });
+    expect(screen.queryByRole('textbox')).toBeNull();
+    await act(async () => { resolveSettings({ system_ready: true, school_active: false }); });
+    expect(screen.getAllByText('المدرسة متوقفة مؤقتًا').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('blocks first startup when settings fail and recovers on retry', async () => {
+    mocks.settings.mockRejectedValue(new Error('settings unavailable'));
+    await act(async () => { render(<MemoryRouter><Kiosk /></MemoryRouter>); });
+    expect(screen.getByText('تعذر تهيئة وضع الكشك')).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    mocks.settings.mockResolvedValue({ system_ready: true, school_active: true });
+    await act(async () => { fireEvent.click(screen.getByText('إعادة المحاولة')); });
+    expect(screen.getByRole('textbox')).toBeTruthy();
+  });
+
   it('keeps the ready scanner mounted while refreshing after focus returns', async () => {
     await openReadyKiosk();
     const input = screen.getByRole('textbox');

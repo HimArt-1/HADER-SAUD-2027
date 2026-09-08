@@ -2,7 +2,8 @@ import { db, getLocalISODate } from './db';
 import { isDateHoliday, getCachedHolidays } from './academicCalendarService';
 import { logger } from './logger';
 import { ATTENDANCE_DEFAULTS } from '../types';
-import { acquireDistributedLock } from './distributedLock';
+import { supabaseStatus } from './supabase';
+import { markCloudAutomaticAbsence } from './automaticAbsenceWriter';
 
 /**
  * AutoAbsenceService
@@ -53,8 +54,23 @@ class AutoAbsenceService {
      */
     private async checkAndProcess() {
         if (this.isRunning) return;
+        this.isRunning = true;
 
         try {
+            // The server uses its own clock, roster and transaction-scoped lock.
+            // Never queue a cloud-wide absence decision based on an offline roster.
+            if (supabaseStatus.isConfigured) {
+                const result = await markCloudAutomaticAbsence();
+                if (result.success && result.completed && result.date) {
+                    localStorage.setItem('hader:auto_absence:last_run', result.date);
+                    if (result.records?.length) {
+                        void db.notifyAutomaticAbsences(result.records).catch(error =>
+                            logger.warn('AutoAbsence', 'Automatic absence notifications failed:', error));
+                    }
+                }
+                return;
+            }
+
             const now = new Date();
             const todayStr = getLocalISODate();
             
@@ -64,6 +80,7 @@ class AutoAbsenceService {
 
             // 2. Load Settings
             const settings = await db.getSettings();
+            if (settings?.school_active === false || settings?.system_ready === false) return;
 
             // Get cutoff time (priority: absence_time > auto_mark_time > default)
             const cutoffTimeStr = settings?.absence_time || settings?.attendance_settings?.auto_mark_time || '09:00';
@@ -76,14 +93,6 @@ class AutoAbsenceService {
             const isPastCutoff = (currentH > cutoffH) || (currentH === cutoffH && currentM >= cutoffM);
             if (!isPastCutoff) return;
 
-            // Acquire a distributed daily lock to avoid running on multiple devices.
-            const lockAcquired = await acquireDistributedLock(`auto-absence:${todayStr}`);
-            if (!lockAcquired) {
-                localStorage.setItem('hader:auto_absence:last_run', todayStr);
-                return;
-            }
-
-            this.isRunning = true;
             logger.info('AutoAbsence', `Cutoff reached (${cutoffTimeStr}). Checking for unmarked students...`);
 
             // 4. Check if Today is a Holiday/Weekend
@@ -93,7 +102,6 @@ class AutoAbsenceService {
             if (isDateHoliday(todayStr, workDays, holidays)) {
                 logger.info('AutoAbsence', 'Today is a holiday. Skipping auto-absence.');
                 localStorage.setItem('hader:auto_absence:last_run', todayStr);
-                this.isRunning = false;
                 return;
             }
 
@@ -101,7 +109,6 @@ class AutoAbsenceService {
             // We need all active students
             const allStudents = await db.getStudents();
             if (allStudents.length === 0) {
-                this.isRunning = false;
                 return;
             }
 
@@ -111,7 +118,7 @@ class AutoAbsenceService {
             
             // Filter students who have no record at all today
             const unmarkedIds = allStudents
-                .filter(s => !markedIds.has(s.id))
+                .filter(s => s.is_active !== false && (s.is_active as unknown) !== 0 && !markedIds.has(s.id))
                 .map(s => s.id);
 
             if (unmarkedIds.length > 0) {
@@ -119,13 +126,15 @@ class AutoAbsenceService {
                 
                 const result = await db.bulkMarkAbsent({
                     student_ids: unmarkedIds,
-                    date: todayStr
+                    date: todayStr,
+                    only_unmarked: true
                 });
 
                 if (result.success) {
                     logger.info('AutoAbsence', `Successfully marked ${result.count} unmarked students as absent.`);
                 } else {
                     logger.warn('AutoAbsence', `Auto-absence did not complete: ${result.message}`);
+                    return;
                 }
             } else {
                 logger.info('AutoAbsence', 'All students are already marked.');
@@ -145,6 +154,7 @@ class AutoAbsenceService {
      * Manual trigger for debugging or forced run
      */
     async forceRun() {
+        if (this.isRunning) return;
         localStorage.removeItem('hader:auto_absence:last_run');
         return this.checkAndProcess();
     }

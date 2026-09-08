@@ -3,6 +3,9 @@ import { logger } from './logger';
 
 const LOCAL_LOCK_PREFIX = 'hader:distributed-lock:';
 const LOCK_ACTION = 'distributed_lock';
+// Only release locks acquired by this instance, using the backend that granted them.
+const ownedLocks = new Map<string, 'local' | 'cloud'>();
+const pendingReleases = new Set<string>();
 
 function fnv1a(input: string, seed = 0x811c9dc5): number {
   let hash = seed >>> 0;
@@ -42,6 +45,7 @@ function acquireLocalLock(key: string): boolean {
     const existing = localStorage.getItem(storageKey);
     if (existing === '1') return false;
     localStorage.setItem(storageKey, '1');
+    ownedLocks.set(key, 'local');
     return true;
   } catch {
     return true;
@@ -75,6 +79,10 @@ function isMissingTableError(error: any): boolean {
 export async function acquireDistributedLock(key: string): Promise<boolean> {
   const normalizedKey = key.trim();
   if (!normalizedKey) return false;
+  if (pendingReleases.has(normalizedKey)) {
+    await releaseDistributedLock(normalizedKey);
+    if (pendingReleases.has(normalizedKey)) return false;
+  }
 
   if (!supabaseStatus.isConfigured || (typeof navigator !== 'undefined' && !navigator.onLine)) {
     return acquireLocalLock(normalizedKey);
@@ -104,7 +112,10 @@ export async function acquireDistributedLock(key: string): Promise<boolean> {
     created_at: now
   });
 
-  if (!error) return true;
+  if (!error) {
+    ownedLocks.set(normalizedKey, 'cloud');
+    return true;
+  }
   if (isDuplicateKeyError(error)) return false;
 
   if (isMissingTableError(error)) {
@@ -114,4 +125,28 @@ export async function acquireDistributedLock(key: string): Promise<boolean> {
 
   logger.warn('DistributedLock', 'Cloud lock acquisition failed; using local lock fallback', error);
   return acquireLocalLock(normalizedKey);
+}
+
+/** Release an unfinished operation so the next scheduled check can retry it. */
+export async function releaseDistributedLock(key: string): Promise<void> {
+  const normalizedKey = key.trim();
+  const backend = ownedLocks.get(normalizedKey);
+  if (!backend) return;
+
+  try {
+    if (backend === 'local') {
+      localStorage.removeItem(`${LOCAL_LOCK_PREFIX}${normalizedKey}`);
+    } else {
+      const { error } = await supabase.from('activity_logs')
+        .delete()
+        .eq('id', keyToDeterministicUuid(normalizedKey))
+        .eq('action', LOCK_ACTION);
+      if (error) throw error;
+    }
+    ownedLocks.delete(normalizedKey);
+    pendingReleases.delete(normalizedKey);
+  } catch (error) {
+    pendingReleases.add(normalizedKey);
+    logger.warn('DistributedLock', 'Could not release unfinished operation lock', error);
+  }
 }

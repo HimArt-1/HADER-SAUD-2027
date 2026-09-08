@@ -8,8 +8,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![React](https://img.shields.io/badge/React-18.2-61DAFB?logo=react)](https://reactjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.2-3178C6?logo=typescript)](https://www.typescriptlang.org/)
-[![Vite](https://img.shields.io/badge/Vite-5.1-646CFF?logo=vite)](https://vitejs.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-7.3-646CFF?logo=vite)](https://vitejs.dev/)
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase)](https://supabase.com/)
 
 [العربية](#arabic) | [English](#english)
@@ -105,11 +105,11 @@
 
 ### Frontend
 - ⚛️ **React 18.2** - مكتبة UI الحديثة
-- 📘 **TypeScript 5.2** - Type Safety كامل
-- ⚡ **Vite 5.1** - Build Tool سريع
+- 📘 **TypeScript 5.9** - Type Safety كامل
+- ⚡ **Vite 7.3** - Build Tool سريع
 - 🎨 **TailwindCSS 3.4** - Utility-first CSS
 - 📊 **Recharts 2.12** - رسوم بيانية تفاعلية
-- 🔀 **React Router 6.22** - Routing
+- 🔀 **React Router 7.18** - Routing
 
 ### Backend & Database
 - 🗄️ **Supabase** - PostgreSQL Database
@@ -134,7 +134,7 @@
 ## 📦 متطلبات التشغيل
 
 ### الحد الأدنى
-- **Node.js**: 20.0 أو أعلى
+- **Node.js**: 22.13 أو أحدث ضمن السلسلة 22، أو 24 فأعلى (يوصى بالسلسلة 22 مثل CI)
 - **npm**: 9.0 أو أعلى (أو yarn/pnpm)
 - **متصفح حديث**: Chrome 90+, Firefox 88+, Safari 14+
 

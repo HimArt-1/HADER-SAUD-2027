@@ -7,6 +7,9 @@
   "author": "Hader Team",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
+  },
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -18,6 +21,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest --run",
+    "test:postgres": "python3 scripts/verify-auto-absence-postgres.py",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "cross-env ELECTRON=true npm run build && electron-builder",
     "electron:build:mac": "npm run electron:icons && cross-env ELECTRON=true npm run build && electron-builder --mac",
@@ -43,10 +47,10 @@
     "qrcode": "^1.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.30.3",
+    "react-router-dom": "^7.18.3",
     "recharts": "^2.12.0",
     "sql.js": "^1.10.3",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -55,12 +59,12 @@
     "@types/node": "^25.0.3",
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",
-    "@vitejs/plugin-react": "^4.2.1",
+    "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.22",
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
-    "electron": "^29.0.0",
-    "electron-builder": "^24.13.3",
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.6.0",
@@ -70,9 +74,9 @@
     "tailwindcss": "^3.4.13",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.2",
-    "vite": "^5.1.4",
+    "vite": "^7.3.6",
     "vite-plugin-pwa": "^1.2.0",
-    "vitest": "^1.6.0",
+    "vitest": "^3.2.7",
     "wait-on": "^7.2.0"
   },
   "build": {
@@ -135,7 +139,9 @@
           ]
         }
       ],
-      "publisherName": "Hader Team"
+      "signtoolOptions": {
+        "publisherName": "Hader Team"
+      }
     },
     "nsis": {
       "oneClick": false,

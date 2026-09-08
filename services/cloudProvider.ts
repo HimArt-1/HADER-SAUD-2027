@@ -32,7 +32,7 @@ import { ensurePasswordForCloud } from './security';
 import { applySettingsRowToCloud, rememberRemoteSettingsPk, resolveSettingsUpsertId } from './settingsRemoteId';
 import {
   mapStudent, mapAttendance, mapSettingsFromDB, mapSettingsToDB,
-  mapNotificationRow, getLocalISODate, getLocalDateStr,
+  mapNotificationRow, getLocalISODate, getLocalDateStr, isActiveStudent,
   getSyncedNow, getSyncedDate, getSyncedISOString,
   normalizeStudentId, normalizeClassName, normalizeSectionName,
   normalizeAssignedClasses, normalizeAssignedSections,
@@ -52,6 +52,11 @@ const { notificationMatchesUser } = accessPolicy;
 
 // Module-level reference to CloudProvider for cross-tab cache invalidation
 export let cloudProviderRef: CloudProvider | null = null;
+
+const KIOSK_BOOTSTRAP_KEY = 'hader:kiosk:bootstrap:v1';
+const KIOSK_PROJECT_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const KIOSK_REFRESH_TIMEOUT_MS = 15000;
+type KioskPreloadResult = { ok: boolean; usedLocalSnapshot: boolean; cloudAvailable: boolean; studentCount: number; message?: string; settings?: SystemSettings };
 
 const EXIT_REQUESTER_COLUMNS = ['requester_relation', 'requester_relation_other'];
 
@@ -107,11 +112,7 @@ export class LocalKioskStorage implements KioskStorage {
 
   private write(key: string, value: any) {
     if (!isBrowser) return;
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch (error) {
-      console.warn('[KioskStorage] Failed to write', key, error);
-    }
+    localStorage.setItem(key, JSON.stringify(value));
   }
 
   async loadSnapshot(): Promise<Student[] | null> {
@@ -124,8 +125,8 @@ export class LocalKioskStorage implements KioskStorage {
   }
 
   async saveSnapshot(students: Student[]): Promise<void> {
-    this.memorySnapshot = students;
     this.write(KIOSK_CACHE_KEY, students);
+    this.memorySnapshot = students;
   }
 
   async loadAttendanceCache(): Promise<string[]> {
@@ -153,8 +154,8 @@ export class LocalKioskStorage implements KioskStorage {
   }
 
   async saveQueue(events: KioskAttendanceEvent[]): Promise<void> {
-    this.memoryQueue = events;
     this.write(KIOSK_QUEUE_KEY, events);
+    this.memoryQueue = events;
   }
 }
 
@@ -189,6 +190,15 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
 
   // Offline-First: Local cache for instant kiosk access
   private localStudentsCache: Student[] = [];
+  private kioskStudentIndex = new Map<string, Student>();
+  private kioskIndexSource: Student[] | null = null;
+  private kioskRefreshPromise: Promise<KioskPreloadResult> | null = null;
+  private kioskRefreshAbort: AbortController | null = null;
+  private queueWriteTail: Promise<void> = Promise.resolve();
+  private attendanceWriteTail: Promise<void> = Promise.resolve();
+  private kioskTickRunning = false;
+  private kioskPushes = new Set<string>();
+  private syncQueuePending = 0;
   private attendanceCache: string[] = [];
   private queueCache: KioskAttendanceEvent[] = [];
   private kioskStorage: KioskStorage = new LocalKioskStorage();
@@ -273,6 +283,7 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
    * Should be called when the provider is no longer needed
    */
   cleanup(): void {
+    this.kioskRefreshAbort?.abort();
     // Clear intervals
     if (this.periodicSyncInterval) {
       clearInterval(this.periodicSyncInterval);
@@ -318,6 +329,7 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   }
 
   private setSyncStatus(next: SyncState) {
+    if (Object.keys(next).every(key => next[key as keyof SyncState] === this.syncState[key as keyof SyncState])) return;
     this.syncState = next;
     this.syncListeners.forEach(l => l(next));
   }
@@ -349,14 +361,26 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
     // Always reload from storage to avoid stale cache
     const cached = await this.kioskStorage.loadQueue();
     this.queueCache = cached;
-    this.setSyncStatus({ ...this.syncState, pending: cached.length });
+    this.setSyncStatus({ ...this.syncState, pending: cached.length + this.syncQueuePending });
     return cached;
   }
 
-  private async setQueue(queue: KioskAttendanceEvent[]) {
-    this.queueCache = queue;
-    await this.kioskStorage.saveQueue(queue);
-    this.setSyncStatus({ ...this.syncState, pending: queue.length });
+  private mutateQueue(change: (current: KioskAttendanceEvent[]) => KioskAttendanceEvent[]): Promise<KioskAttendanceEvent[]> {
+    const update = async () => {
+      const queue = change(await this.kioskStorage.loadQueue());
+      await this.kioskStorage.saveQueue(queue);
+      this.queueCache = queue;
+      this.setSyncStatus({ ...this.syncState, pending: queue.length + this.syncQueuePending });
+      return queue;
+    };
+    const operation = this.queueWriteTail.then(async () => {
+      if (navigator.locks?.request) {
+        return await navigator.locks.request(`hader:kiosk:queue:${KIOSK_PROJECT_URL}`, update);
+      }
+      return update();
+    });
+    this.queueWriteTail = operation.then(() => undefined, () => undefined);
+    return operation;
   }
 
   private async getAttendanceCache(): Promise<string[]> {
@@ -398,6 +422,10 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
       this.kioskSettings = payload;
       if (isBrowser) {
         localStorage.setItem(KIOSK_SETTINGS_KEY, JSON.stringify(payload));
+        const saved = safeParse<{ projectUrl: string }>(localStorage.getItem(KIOSK_BOOTSTRAP_KEY));
+        if (saved?.projectUrl === KIOSK_PROJECT_URL) {
+          localStorage.setItem(KIOSK_BOOTSTRAP_KEY, JSON.stringify({ projectUrl: KIOSK_PROJECT_URL, settings, savedAt: getSyncedISOString() }));
+        }
         cacheHolidays(holidays);
       }
     } catch (error) {
@@ -408,10 +436,8 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   /** Clear the kioskSettings in-memory + localStorage cache so next read fetches fresh values */
   invalidateKioskSettingsCache(): void {
     this.kioskSettings = null;
-    if (isBrowser) {
-      localStorage.removeItem(KIOSK_SETTINGS_KEY);
-    }
-    logger.debug('Kiosk', 'Settings cache invalidated');
+    // Keep the durable copy: scans must never fetch settings from the cloud.
+    logger.debug('Kiosk', 'Settings memory cache invalidated');
   }
 
   private async getCachedKioskSettings(): Promise<KioskSettingsType> {
@@ -423,29 +449,7 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
         return cached;
       }
     }
-    try {
-      const settings = await this.getSettings();
-      const attendanceSettings = settings.attendance_settings || {};
-      this.kioskSettings = {
-        assembly_time: settings.assembly_time,
-        grace_period: settings.grace_period,
-        absence_time: settings.absence_time,
-        work_days: attendanceSettings.work_days ?? settings.work_days,
-        academic_holidays: normalizeAcademicHolidays(attendanceSettings.academic_holidays),
-        late_message: settings.kiosk_settings?.late_message ?? settings.late_message,
-        early_message: settings.kiosk_settings?.early_message ?? settings.early_message,
-        late_messages: settings.kiosk_settings?.late_messages ?? settings.late_messages,
-        early_messages: settings.kiosk_settings?.early_messages ?? settings.early_messages
-      };
-      return this.kioskSettings;
-    } catch {
-      return { 
-        assembly_time: ATTENDANCE_DEFAULTS.ASSEMBLY_TIME, 
-        grace_period: ATTENDANCE_DEFAULTS.GRACE_PERIOD, 
-        absence_time: ATTENDANCE_DEFAULTS.ABSENCE_TIME,
-        work_days: [...ATTENDANCE_DEFAULTS.WORK_DAYS] 
-      };
-    }
+    throw new Error('لا توجد إعدادات محفوظة للكشك. حمّل بيانات المدرسة أولًا.');
   }
 
   /**
@@ -461,168 +465,112 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   // ═══════════════════════════════════════════════════════════════
   // Preload students for Kiosk (Turbo Kiosk - Offline-First)
   // ═══════════════════════════════════════════════════════════════
-  async preloadForKiosk(): Promise<{ ok: boolean; usedLocalSnapshot: boolean; cloudAvailable: boolean; studentCount: number; message?: string; }> {
-    const startedAt = performance.now();
-    const result = { ok: false, usedLocalSnapshot: false, cloudAvailable: false, studentCount: 0, message: '' as string | undefined };
-
-    try {
-      // ═══════════════════════════════════════════════════════════════
-      // Step 1: Try to load students from Supabase (explicit columns only)
-      // ═══════════════════════════════════════════════════════════════
-      try {
-        const { data, error } = await supabase
-          .from('students')
-          .select('id, name, class_name, section, guardian_phone')
-          .eq('is_active', true); // Only active students
-
-        if (!error && data && data.length > 0) {
-          this.localStudentsCache = data.map(mapStudent);
-          await this.kioskStorage.saveSnapshot(this.localStudentsCache);
-          result.cloudAvailable = true;
-          result.ok = true;
-          result.studentCount = this.localStudentsCache.length;
-        } else if (error) {
-          console.warn('[Kiosk] Failed to load students from cloud, will fallback', error);
-        }
-      } catch (cloudError: any) {
-        console.warn('[Kiosk] Cloud fetch error, trying local snapshot', cloudError);
-      }
-
-      // ═══════════════════════════════════════════════════════════════
-      // Step 2: Fallback to local snapshot if cloud failed
-      // ═══════════════════════════════════════════════════════════════
-      if (!result.ok) {
-        const snapshot = await this.kioskStorage.loadSnapshot();
-        if (snapshot && snapshot.length > 0) {
-          this.localStudentsCache = snapshot;
-          result.usedLocalSnapshot = true;
-          result.ok = true;
-          result.studentCount = snapshot.length;
-          result.message = 'استخدام البيانات المحلية لعدم توفر الاتصال';
-        }
-      }
-
-      // ═══════════════════════════════════════════════════════════════
-      // Step 3: If no data available, throw error
-      // ═══════════════════════════════════════════════════════════════
-      if (!result.ok) {
-        throw new Error('لا يوجد اتصال ولا توجد نسخة محلية للطلاب');
-      }
-
-      // Ensure snapshot is saved (even if from cloud)
-      await this.kioskStorage.saveSnapshot(this.localStudentsCache);
-
-      // ═══════════════════════════════════════════════════════════════
-      // Step 4: Load and persist system settings (assembly time + grace period)
-      // ═══════════════════════════════════════════════════════════════
-      let settings: SystemSettings | null = null;
-      try {
-        settings = await this.getSettings();
-        await this.saveKioskSettings(settings);
-      } catch (error) {
-        console.warn('[Kiosk] Unable to fetch settings from cloud, using cached', error);
-        const cachedSettings = safeParse<SystemSettings | null>(isBrowser ? localStorage.getItem(KIOSK_SETTINGS_KEY) : null);
-        if (cachedSettings) {
-          settings = cachedSettings;
-        } else {
-          // Fallback to defaults
-          settings = {
-            assembly_time: ATTENDANCE_DEFAULTS.ASSEMBLY_TIME,
-            grace_period: ATTENDANCE_DEFAULTS.GRACE_PERIOD
-          } as SystemSettings;
-          await this.saveKioskSettings(settings);
-        }
-      }
-
-      // ═══════════════════════════════════════════════════════════════
-      // Step 5: Load today's attendance (only student_id for today's date)
-      // ═══════════════════════════════════════════════════════════════
-      let todayAttendanceIds: string[] = [];
-      if (result.cloudAvailable) {
-        try {
-          const today = getLocalISODate();
-          const { data: attendanceData, error: attendanceError } = await supabase
-            .from('attendance_logs')
-            .select('student_id, status')
-            .eq('date', today);
-
-          if (!attendanceError && attendanceData) {
-            // ✅ استثناء الغائبين من الكاش لأنهم قابلين لإعادة التسجيل
-            todayAttendanceIds = attendanceData
-              .filter((r: any) => r.status !== 'absent')
-              .map((r: any) => String(r.student_id));
-          }
-        } catch (error) {
-          console.warn('[Kiosk] Failed to load today attendance from cloud', error);
-        }
-      } else {
-        // Use cached attendance if cloud unavailable
-        todayAttendanceIds = await this.kioskStorage.loadAttendanceCache();
-      }
-
-      // Merge local queue into attendance IDs to avoid re-marking locally queued students
-      const localQueue = await this.kioskStorage.loadQueue();
-      const today = getLocalISODate();
-      const localQueueIds = localQueue
-        .filter(q => q.date === today)
-        .map(q => q.student_id);
-      const mergedIds = [...new Set([...todayAttendanceIds, ...localQueueIds])];
-
-      // Save attendance cache
-      await this.setAttendanceCache(mergedIds);
-
-      // ═══════════════════════════════════════════════════════════════
-      // Step 6: Initialize sync status and start background sync
-      // ═══════════════════════════════════════════════════════════════
-      const queue = await this.getQueue();
-      this.setSyncStatus({
-        status: result.cloudAvailable ? 'online' : 'offline',
-        pending: queue.length,
-        lastSync: result.cloudAvailable ? getSyncedISOString() : undefined
-      });
-
-      // Start background sync engine
+  async preloadForKiosk(): Promise<KioskPreloadResult> {
+    const saved = safeParse<{ projectUrl: string; settings: SystemSettings }>(localStorage.getItem(KIOSK_BOOTSTRAP_KEY));
+    const snapshot = saved?.projectUrl === KIOSK_PROJECT_URL ? await this.kioskStorage.loadSnapshot() : null;
+    if (snapshot && saved?.settings) {
+      this.localStudentsCache = snapshot;
+      await this.saveKioskSettings(saved.settings);
+      await this.getQueue();
       this.startBackgroundSync();
-
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      const level = elapsedMs > CloudProvider.PERF_THRESHOLDS_MS.kioskPreloadWarn ? 'warn' : 'info';
-      logger[level](
-        'Performance',
-        `[Kiosk] preloadForKiosk completed in ${elapsedMs}ms (cloud=${result.cloudAvailable}, snapshot=${result.usedLocalSnapshot}, students=${result.studentCount})`
-      );
-
-      return result;
-    } catch (e: any) {
-      console.error('[Kiosk] Preload failed:', e);
-      const queue = await this.getQueue().catch(() => []);
-      this.setSyncStatus({
-        status: 'error',
-        pending: queue.length,
-        lastError: e?.message || 'تعذر تهيئة وضع الكشك'
-      });
-      return {
-        ...result,
-        ok: false,
-        message: e?.message || 'تعذر تهيئة وضع الكشك',
-        studentCount: this.localStudentsCache.length || 0
-      };
-    } finally {
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      if (elapsedMs > CloudProvider.PERF_THRESHOLDS_MS.kioskPreloadWarn) {
-        logger.warn('Performance', `[Kiosk] preloadForKiosk slow path detected: ${elapsedMs}ms`);
-      }
+      // A slow/unreachable server must not delay opening the saved school roster.
+      if (navigator.onLine) void this.refreshKioskData();
+      return { ok: true, usedLocalSnapshot: true, cloudAvailable: false, studentCount: snapshot.length, settings: saved.settings };
     }
+    return this.refreshKioskData();
+  }
+
+  private refreshKioskData(): Promise<KioskPreloadResult> {
+    if (this.kioskRefreshPromise) return this.kioskRefreshPromise;
+    const controller = new AbortController();
+    this.kioskRefreshAbort = controller;
+    const timeout = setTimeout(() => controller.abort(), KIOSK_REFRESH_TIMEOUT_MS);
+    const aborted = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener('abort', () => reject(new Error('تعذر تحديث بيانات الكشك خلال المهلة. تحقق من الاتصال ثم أعد المحاولة.')), { once: true });
+    });
+    const fetchRows = async (table: 'students' | 'attendance_logs') => {
+      const rows: any[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        let query = supabase.from(table).select(table === 'students'
+          ? 'id, name, class_name, section, guardian_phone, is_active'
+          : 'student_id, status').order(table === 'students' ? 'id' : 'student_id');
+        if (table === 'attendance_logs') query = query.eq('date', getLocalISODate());
+        const { data, error } = await query.range(offset, offset + 999).abortSignal(controller.signal);
+        if (controller.signal.aborted) throw new Error('Kiosk refresh cancelled');
+        if (error) throw error;
+        if (!data) throw new Error('تعذر تحميل بيانات الكشك');
+        rows.push(...data);
+        if (data.length < 1000) return rows;
+      }
+    };
+    const load = Promise.all([
+      fetchRows('students'),
+      supabase.from('settings').select('*').limit(1).maybeSingle().abortSignal(controller.signal),
+      fetchRows('attendance_logs')
+    ]);
+    this.kioskRefreshPromise = Promise.race([load, aborted]).then(async ([rows, settingsResult, attendance]) => {
+      if (settingsResult.error) throw settingsResult.error;
+      if (!settingsResult.data) throw new Error('لا توجد إعدادات مدرسة. أكمل التهيئة أولًا.');
+      const settings = mapSettingsFromDB(settingsResult.data);
+      const students = rows.map(mapStudent);
+      await this.kioskStorage.saveSnapshot(students);
+      await this.saveKioskSettings(settings);
+      localStorage.setItem(KIOSK_BOOTSTRAP_KEY, JSON.stringify({ projectUrl: KIOSK_PROJECT_URL, settings, savedAt: getSyncedISOString() }));
+      staticCache.set(CACHE_KEYS.SETTINGS, settings, CACHE_TTL.SETTINGS);
+      this.localStudentsCache = students;
+      // Include scans made during the refresh, not just the server's older snapshot.
+      const queue = await this.getQueue();
+      const today = getLocalISODate();
+      const currentIds = await this.getAttendanceCache();
+      await this.setAttendanceCache([...new Set([
+        ...currentIds, ...attendance.filter(row => row.status !== 'absent').map(row => String(row.student_id)),
+        ...queue.filter(row => row.date === today).map(row => row.student_id)
+      ])]);
+      this.startBackgroundSync();
+      this.setSyncStatus({ ...this.syncState, status: queue.length ? 'syncing' : 'online', pending: queue.length, lastSync: getSyncedISOString() });
+      window.dispatchEvent(new CustomEvent('hader:kiosk-refreshed', { detail: { settings } }));
+      return { ok: true, usedLocalSnapshot: false, cloudAvailable: true, studentCount: students.length, settings };
+    }).catch((error): KioskPreloadResult => {
+      logger.warn('Kiosk', 'Background refresh failed; retaining saved data', error);
+      return { ok: false, usedLocalSnapshot: false, cloudAvailable: false, studentCount: this.localStudentsCache.length, message: error?.message || 'تعذر تحميل بيانات الكشك' };
+    }).finally(() => {
+      clearTimeout(timeout);
+      this.kioskRefreshPromise = null;
+      this.kioskRefreshAbort = null;
+    });
+    return this.kioskRefreshPromise;
+  }
+
+  async findKioskStudent(input: string): Promise<Student | null> {
+    if (!this.kioskIndexSource && !this.localStudentsCache.length) {
+      this.localStudentsCache = await this.kioskStorage.loadSnapshot() || [];
+    }
+    if (this.kioskIndexSource !== this.localStudentsCache) {
+      this.kioskStudentIndex = new Map();
+      for (const student of this.localStudentsCache) {
+        const key = normalizeStudentId(student.id);
+        if (!this.kioskStudentIndex.has(key)) this.kioskStudentIndex.set(key, student);
+      }
+      this.kioskIndexSource = this.localStudentsCache;
+    }
+    return this.kioskStudentIndex.get(normalizeStudentId(input)) || null;
   }
 
   // ═══════════════════════════════════════════════════════════════
   // Fast attendance marking (PURE LOCAL - No Supabase calls)
   // ═══════════════════════════════════════════════════════════════
   async markAttendanceFast(inputId: string): Promise<MarkAttendanceFastResult> {
+    const operation = this.attendanceWriteTail.then(() => this.markKioskAttendanceLocally(inputId));
+    this.attendanceWriteTail = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private async markKioskAttendanceLocally(inputId: string): Promise<MarkAttendanceFastResult> {
     // ═══════════════════════════════════════════════════════════════
     // Step 1: Validate and normalize input
     // ═══════════════════════════════════════════════════════════════
-    const id = inputId?.trim();
-    if (!id) {
+    const lookupId = inputId?.trim();
+    if (!lookupId) {
       return { ok: false, code: 'not_found', message: 'الطالب غير موجود. تحقق من المعرف أو الرمز.' };
     }
 
@@ -653,14 +601,13 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
     // ═══════════════════════════════════════════════════════════════
     // Step 2: Load student from cache (fallback to snapshot if needed)
     // ═══════════════════════════════════════════════════════════════
-    if (!this.localStudentsCache.length) {
-      const cached = await this.kioskStorage.loadSnapshot();
-      this.localStudentsCache = cached || [];
-    }
-
-    const student = this.localStudentsCache.find(s => s.id === id);
+    const student = await this.findKioskStudent(lookupId);
     if (!student) {
       return { ok: false, code: 'not_found', message: 'الطالب غير موجود. تحقق من المعرف أو الرمز.' };
+    }
+    const id = student.id;
+    if (!isActiveStudent(student)) {
+      return { ok: false, code: 'not_found', message: 'الطالب غير مفعّل. راجع إدارة المدرسة.' };
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -721,8 +668,7 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
     // ═══════════════════════════════════════════════════════════════
     // Step 6: Update queue and attendance cache (PURE LOCAL)
     // ═══════════════════════════════════════════════════════════════
-    const updatedQueue = [...queue, event];
-    await this.setQueue(updatedQueue);
+    const updatedQueue = await this.mutateQueue(current => [...current, event]);
 
     const updatedAttendance = [...attendanceIds, id];
     await this.setAttendanceCache(updatedAttendance);
@@ -731,9 +677,12 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
     // Step 6.1: إرسال فوري إلى Supabase (fire-and-forget)
     // هذا يُفعّل Supabase Realtime لباقي الأجهزة عبر الشبكة
     // ═══════════════════════════════════════════════════════════════
-    this.pushAttendanceToCloud(event).catch(err => {
-      console.warn('[Kiosk] فشل الإرسال الفوري، سيُعاد عبر sync:', err);
-    });
+    if (navigator.onLine && this.kioskPushes.size < 3) {
+      this.kioskPushes.add(event.id);
+      void this.pushAttendanceToCloud(event).catch(err => {
+        logger.warn('Kiosk', 'Cloud push deferred; attendance remains saved locally', err);
+      }).finally(() => this.kioskPushes.delete(event.id));
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Step 6.5: Notify other pages/tabs about the new attendance (REALTIME LOCAL)
@@ -823,13 +772,12 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
 
     const { error } = await supabase
       .from('attendance_logs')
-      .upsert(payload, { onConflict: 'student_id,date', ignoreDuplicates: false });
+      .upsert(payload, { onConflict: 'student_id,date', ignoreDuplicates: false })
+      .abortSignal(AbortSignal.timeout(10000));
 
     if (!error || error.code === '23505') {
       // نجح الإرسال أو مكرر — نحذف من الكيوش المحلي لتجنب الإرسال المزدوج
-      const queue = await this.getQueue();
-      const filtered = queue.filter(q => q.id !== event.id);
-      await this.setQueue(filtered);
+      await this.mutateQueue(current => current.filter(q => q.id !== event.id));
       if (error?.code === '23505') {
         logger.debug('Kiosk', 'سجل مكرر في السحابة، تم تجاهله');
       } else {
@@ -849,9 +797,8 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
       try {
         await queueChange('attendance_logs', 'INSERT', payload);
         // حذف من kiosk queue لتجنب الازدواج — syncService سيتولى الأمر
-        const queue = await this.getQueue();
-        const filtered = queue.filter(q => q.id !== event.id);
-        await this.setQueue(filtered);
+        this.syncQueuePending += 1;
+        await this.mutateQueue(current => current.filter(q => q.id !== event.id));
         logger.debug('Kiosk', '🔄 تمت إضافة السجل إلى طابور المزامنة للمحاولة لاحقاً');
       } catch (queueErr) {
         console.error('[Kiosk] فشل إضافة السجل إلى طابور المزامنة:', queueErr);
@@ -871,15 +818,20 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
 
     // Set a lightweight status-check timer + kiosk queue drain
     this.syncInterval = setInterval(async () => {
+      if (this.kioskTickRunning) return;
+      this.kioskTickRunning = true;
       const tickStartedAt = performance.now();
       try {
         const remaining = await localDb.sync_queue.count();
-        const status = !navigator.onLine ? 'offline' : remaining > 0 ? 'syncing' : 'online';
+        this.syncQueuePending = remaining;
+        const kioskPending = (await this.getQueue()).length;
+        const pending = remaining + kioskPending;
+        const status = !navigator.onLine ? 'offline' : pending > 0 ? 'syncing' : 'online';
         this.setSyncStatus({
           ...this.syncState,
           status,
-          pending: remaining,
-          ...(remaining === 0 ? { lastSync: new Date().toISOString() } : {})
+          pending,
+          ...(pending === 0 ? { lastSync: new Date().toISOString() } : {})
         });
 
         // ═══════════════════════════════════════════════════════════════
@@ -889,7 +841,8 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
           const kioskQueue = await this.getQueue();
           if (kioskQueue.length > 0) {
             logger.debug('Kiosk', `🔄 Draining ${kioskQueue.length} stuck kiosk queue items to sync_queue`);
-            for (const event of kioskQueue) {
+            // Drain bounded batches; remove only IDs copied successfully.
+            for (const event of kioskQueue.slice(0, 100)) {
               const recorder = await resolveRecorder('kiosk');
               await queueChange('attendance_logs', 'INSERT', {
                 student_id: event.student_id,
@@ -898,16 +851,18 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
                 status: event.status,
                 minutes_late: event.minutes_late,
                 recorded_by: recorder.recorded_by,
-                recorded_by_label: recorder.recorded_by_label,
+                recorded_by_label: 'kiosk',
                 device_id: event.device_id,
               });
+              this.syncQueuePending += 1;
+              await this.mutateQueue(current => current.filter(row => row.id !== event.id));
             }
-            await this.setQueue([]); // Clear kiosk queue after draining
             logger.debug('Kiosk', '✅ Kiosk queue drained successfully');
           }
         }
       } catch { /* ignore */ }
       finally {
+        this.kioskTickRunning = false;
         const elapsedMs = Math.round(performance.now() - tickStartedAt);
         if (elapsedMs > CloudProvider.PERF_THRESHOLDS_MS.backgroundTickWarn) {
           logger.warn('Performance', `[Sync] background status tick took ${elapsedMs}ms`);
@@ -1480,6 +1435,9 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
       if (!student) {
         // Fallback: Verify online if possible? For now, offline-first means trust local.
         return { success: false, message: 'رقم الطالب غير صحيح (تأكد من تحديث البيانات)' };
+      }
+      if (!isActiveStudent(student)) {
+        return { success: false, message: 'الطالب غير مفعّل. راجع إدارة المدرسة.' };
       }
 
       // 2. Logic (Local)
@@ -2857,6 +2815,7 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
     if (data) {
       rememberRemoteSettingsPk((data as { id?: string | number }).id);
       const mappedSettings = mapSettingsFromDB(data);
+      await this.saveKioskSettings(mappedSettings);
       staticCache.set(CACHE_KEYS.SETTINGS, mappedSettings, CACHE_TTL.SETTINGS);
       return mappedSettings;
     }
@@ -2871,8 +2830,7 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
       if (error) throw new Error(error.message);
       // Invalidate cache
       staticCache.delete(CACHE_KEYS.SETTINGS);
-      // Also invalidate kiosk settings cache so markAttendanceFast picks up new values
-      this.invalidateKioskSettingsCache();
+      await this.saveKioskSettings(settings);
       // Broadcast to other tabs
       broadcastSettingsUpdate(settings);
     } catch (e) {

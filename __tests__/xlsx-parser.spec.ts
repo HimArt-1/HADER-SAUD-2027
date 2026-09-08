@@ -16,6 +16,19 @@ const workbookFile = (rows: Record<string, unknown>[], name = 'students.xlsx') =
 };
 
 describe('xlsx import parser hardening', () => {
+  it('round-trips Arabic roster data and preserves leading zeros in identifiers', async () => {
+    const rows = [{
+      'اسم الطالب': 'أحمد محمد',
+      'رقم الطالب': '001234',
+      'جوال ولي الأمر': '0500123456',
+      'الفصل': 'الأول / أ',
+      'أيام الغياب': 0
+    }];
+    const parsed = await parseXlsxFile(workbookFile(rows));
+    expect(parsed.rows).toEqual(rows);
+    expect(parsed.columns).toEqual(Object.keys(rows[0]));
+  });
+
   it('rejects oversized workbooks before parsing', async () => {
     const file = new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'large.xlsx');
 

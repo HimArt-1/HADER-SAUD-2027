@@ -13,15 +13,26 @@ import { logError } from '../types/errors';
 import { logger } from '../services/logger';
 import { useCleanup } from '../hooks/useResourceManagement';
 import { useToast } from '../components/Toast';
-import { getSyncedDate, getLocalISODate, normalizeStudentId } from '../services/dbHelpers';
+import { getSyncedDate, getLocalISODate, normalizeStudentId, isActiveStudent } from '../services/dbHelpers';
 import { cacheHolidays } from '../services/academicCalendarService';
 import { useAutoReload } from '../hooks/useAutoReload';
 import BarcodeWorker from '../utils/barcodeWorker?worker';
+import scanSoundUrl from '../assets/kiosk-scan.wav';
 import {
   buildKioskOperationalConfig,
   KioskOperatingPolicy,
   resolveKioskDayState
 } from '../components/kiosk/kioskOperationalState';
+
+// Keep the scan sound available offline and handle browser autoplay restrictions.
+const playScanSound = () => {
+  const fallback = () => { window.navigator.vibrate?.(200); };
+  try {
+    void new Audio(scanSoundUrl).play().catch(fallback);
+  } catch {
+    fallback();
+  }
+};
 
 // Enhanced attendance result type
 interface AttendanceResult {
@@ -292,6 +303,16 @@ const Kiosk: React.FC = () => {
   const [inputId, setInputId] = useState('');
   const [inputVisible, setInputVisible] = useState(false);
   const [attendanceResult, setAttendanceResult] = useState<AttendanceResult | null>(null);
+  useEffect(() => {
+    if (!attendanceResult) return;
+    const delay = attendanceResult.mode === 'emergency' ? 4000
+      : ['closed', 'duplicate'].includes(attendanceResult.mode || '') ? 6000
+        : attendanceResult.type === 'success' ? 8000 : 5000;
+    const timer = setTimeout(() => {
+      setAttendanceResult(current => current === attendanceResult ? null : current);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [attendanceResult]);
   const [loading, setLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(getSyncedDate());
   const currentDayRef = useRef(getLocalISODate());
@@ -370,6 +391,9 @@ const Kiosk: React.FC = () => {
   const controlPanelHeaderRef = useRef<HTMLDivElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraGenerationRef = useRef(0);
+  const cameraStartingRef = useRef(false);
+  const attendanceInFlightRef = useRef(false);
   const barcodeDetectorRef = useRef<any>(null);
   const barcodeWorkerRef = useRef<Worker | null>(null);
   const barcodeWorkerReadyRef = useRef(false);
@@ -617,6 +641,9 @@ const Kiosk: React.FC = () => {
       const res = await db.preloadForKiosk();
 
       if (res.ok) {
+        const systemSettings = 'settings' in res && res.settings
+          ? res.settings as SystemSettings : await appSettings.load({ refresh: true });
+        applySystemSettings(systemSettings);
         hasReadyDataRef.current = true;
         setInitStatus('ready');
         setInitMessage(null);
@@ -657,7 +684,7 @@ const Kiosk: React.FC = () => {
     } finally {
       preloadRunningRef.current = false;
     }
-  }, []);
+  }, [applySystemSettings]);
 
   // Load kiosk settings and preload students for offline-first on mount
   useEffect(() => {
@@ -674,15 +701,18 @@ const Kiosk: React.FC = () => {
       });
     };
 
-    // Load settings immediately
-    loadSettings();
-
     // Periodic cross-device safety refresh; same-device changes arrive by subscription below.
     const settingsInterval = setInterval(() => loadSettings(true), 30000);
+    const onKioskRefreshed = (event: Event) => {
+      applySystemSettings((event as CustomEvent<{ settings: SystemSettings }>).detail.settings);
+      setInitMessage(null);
+    };
+    window.addEventListener('hader:kiosk-refreshed', onKioskRefreshed);
 
     return () => {
       unsubscribe();
       clearInterval(settingsInterval);
+      window.removeEventListener('hader:kiosk-refreshed', onKioskRefreshed);
     };
   }, [applySystemSettings, runPreload, authChecked]);
 
@@ -891,7 +921,7 @@ const Kiosk: React.FC = () => {
       }
       // Play audio/simple beep
       else if (notif.type === 'command' && /play audio/i.test(notif.message)) {
-        try { new Audio('/beep.mp3').play(); } catch (e) { /* fallback beep */ window.navigator.vibrate?.(200); }
+        playScanSound();
       }
     });
     const handleDismiss = (e: KeyboardEvent | MouseEvent) => screensaverActive && setScreensaverActive(false);
@@ -959,7 +989,7 @@ const Kiosk: React.FC = () => {
   };
 
   const handleAttendance = useCallback(async (value: string) => {
-    if (!value || loading || initStatus !== 'ready') return;
+    if (!value || loading || attendanceInFlightRef.current || initStatus !== 'ready') return;
 
     if (!kioskDayState.allowsAttendance) {
       setAttendanceResult({
@@ -968,13 +998,13 @@ const Kiosk: React.FC = () => {
         message: kioskDayState.helper
       });
       setInputId('');
-      setTimeout(() => setAttendanceResult(null), 6000);
       return;
     }
 
+    attendanceInFlightRef.current = true;
     setLoading(true);
     try {
-      const resolvedStudent = await db.getStudentByAnyId(value);
+      const resolvedStudent = await db.getStudentByAnyId(value, { localOnly: true });
       if (!resolvedStudent) {
         // ═══════════════════════════════════════════════════════════════
         // 🚨 Emergency Mode: إذا كان وضع الطوارئ مفعّل، أضف للقائمة
@@ -987,7 +1017,6 @@ const Kiosk: React.FC = () => {
             resolved: false
           };
           setEmergencyQueue(prev => [...prev, newEntry]);
-          setLoading(false);
           setAttendanceResult({
             type: 'success',
             message: `حُفظ الرمز "${value}" في قائمة الطوارئ للمراجعة لاحقًا.`,
@@ -996,26 +1025,28 @@ const Kiosk: React.FC = () => {
           });
           setInputId('');
           inputRef.current?.focus();
-          setTimeout(() => setAttendanceResult(null), 4000);
           return;
         }
 
         // الوضع العادي: رفض الباركود غير المعروف
-        setLoading(false);
         setAttendanceResult({
           type: 'error',
           message: 'الطالب غير موجود. تحقق من المعرف أو الرمز.'
         });
         setInputId('');
         inputRef.current?.focus();
-        setTimeout(() => setAttendanceResult(null), 5000);
+        return;
+      }
+      if (!isActiveStudent(resolvedStudent)) {
+        setAttendanceResult({ type: 'error', message: 'الطالب غير مفعّل. راجع إدارة المدرسة.' });
+        setInputId('');
+        inputRef.current?.focus();
         return;
       }
       // ═══════════════════════════════════════════════════════════════
       // Use markAttendanceFast for instant response (PURE LOCAL)
       // ═══════════════════════════════════════════════════════════════
       const result = await db.markAttendanceFast(resolvedStudent.id);
-      setLoading(false);
 
       // ═══════════════════════════════════════════════════════════════
       // Handle result based on code
@@ -1078,12 +1109,7 @@ const Kiosk: React.FC = () => {
       setInputId('');
       // Keep focus after submission
       inputRef.current?.focus();
-
-      // Auto-dismiss after appropriate delay
-      const dismissDelay = result.code === 'duplicate' ? 6000 : result.ok ? 8000 : 5000;
-      setTimeout(() => setAttendanceResult(null), dismissDelay);
     } catch (error) {
-      setLoading(false);
       logError(error, 'Kiosk - Register Attendance');
       setAttendanceResult({
         type: 'error',
@@ -1091,7 +1117,9 @@ const Kiosk: React.FC = () => {
       });
       setInputId('');
       inputRef.current?.focus();
-      setTimeout(() => setAttendanceResult(null), 5000);
+    } finally {
+      attendanceInFlightRef.current = false;
+      setLoading(false);
     }
   }, [emergencyMode, initStatus, kioskDayState.allowsAttendance, kioskDayState.helper, loading, surveyOpen]);
 
@@ -1161,6 +1189,8 @@ const Kiosk: React.FC = () => {
   }, []);
 
   const stopCameraScan = useCallback(() => {
+    cameraGenerationRef.current += 1;
+    cameraStartingRef.current = false;
     if (scanFrameRef.current) {
       cancelAnimationFrame(scanFrameRef.current);
       scanFrameRef.current = null;
@@ -1178,12 +1208,13 @@ const Kiosk: React.FC = () => {
       barcodeWorkerReadyRef.current = false;
       isWorkerScanningRef.current = false;
     }
+    barcodeDetectorRef.current = null;
     setCameraReady(false);
   }, []);
 
   const startCameraScan = useCallback(async () => {
     // Prevent multiple simultaneous starts
-    if (cameraStreamRef.current) return;
+    if (cameraStreamRef.current || cameraStartingRef.current) return;
     setCameraScanError(null);
     lastScanValueRef.current = null;
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -1195,6 +1226,8 @@ const Kiosk: React.FC = () => {
       return;
     }
 
+    const generation = ++cameraGenerationRef.current;
+    cameraStartingRef.current = true;
     try {
       const mobileConstraints = {
         video: {
@@ -1217,30 +1250,53 @@ const Kiosk: React.FC = () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia(mobileConstraints);
       } catch (error) {
+        if (generation !== cameraGenerationRef.current) return;
+        // Retry constraints only. Permission/security failures need user action.
+        if (!(error instanceof DOMException)
+          || !['OverconstrainedError', 'NotFoundError'].includes(error.name)) throw error;
         stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
       }
 
+      if (generation !== cameraGenerationRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
       cameraStreamRef.current = stream;
       if (cameraVideoRef.current) {
         cameraVideoRef.current.srcObject = stream;
         cameraVideoRef.current.setAttribute('playsinline', 'true');
         await cameraVideoRef.current.play();
       }
+      if (generation !== cameraGenerationRef.current) return;
+
+      const initializeMainDetector = () => {
+        if (generation !== cameraGenerationRef.current) return;
+        barcodeWorkerRef.current?.terminate();
+        barcodeWorkerRef.current = null;
+        barcodeWorkerReadyRef.current = false;
+        isWorkerScanningRef.current = false;
+        try {
+          barcodeDetectorRef.current = new (window as any).BarcodeDetector({
+            formats: ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'qr_code', 'upc_e', 'upc_a', 'itf']
+          });
+          setCameraReady(true);
+        } catch (error) {
+          logError(error, 'Kiosk - Initialize Barcode Detector');
+          setCameraScanError('تعذر تهيئة قارئ الباركود. استخدم قارئ الباركود الخارجي أو الإدخال اليدوي.');
+          stopCameraScan();
+        }
+      };
 
       // Initialize Web Worker for Barcode Detection
       if (!barcodeWorkerRef.current) {
         barcodeWorkerRef.current = new BarcodeWorker();
         barcodeWorkerRef.current.onmessage = (e) => {
+          if (generation !== cameraGenerationRef.current) return;
           if (e.data.type === 'INIT_SUCCESS') {
             barcodeWorkerReadyRef.current = true;
+            setCameraReady(true);
           } else if (e.data.type === 'INIT_ERROR') {
-            barcodeWorkerReadyRef.current = false;
-            // Fallback to main thread
-            if (!barcodeDetectorRef.current && (window as any).BarcodeDetector) {
-              barcodeDetectorRef.current = new (window as any).BarcodeDetector({
-                formats: ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'qr_code', 'upc_e', 'upc_a', 'itf']
-              });
-            }
+            initializeMainDetector();
           } else if (e.data.type === 'DETECT_SUCCESS') {
             const rawValues = e.data.barcodes;
             if (rawValues?.length) {
@@ -1252,7 +1308,7 @@ const Kiosk: React.FC = () => {
                 if (!isSameBarcode || !cooldownActive) {
                   lastScanValueRef.current = rawValue;
                   cameraScanCooldownRef.current = now;
-                  try { new Audio('/beep.mp3').play(); } catch { /* silent */ }
+                  playScanSound();
                   setAttendanceResult(null);
                   handleAttendanceRef.current(rawValue);
                 }
@@ -1263,13 +1319,15 @@ const Kiosk: React.FC = () => {
             isWorkerScanningRef.current = false;
           }
         };
+        barcodeWorkerRef.current.onerror = (event) => {
+          event.preventDefault();
+          initializeMainDetector();
+        };
         barcodeWorkerRef.current.postMessage({ type: 'INIT' });
       }
 
-      setCameraReady(true);
-
       const scanFrame = async () => {
-        if (!cameraVideoRef.current) return;
+        if (generation !== cameraGenerationRef.current || !cameraVideoRef.current) return;
         if (cameraVideoRef.current.readyState < 2) {
           scanFrameRef.current = requestAnimationFrame(scanFrame);
           return;
@@ -1287,13 +1345,18 @@ const Kiosk: React.FC = () => {
             if (!isWorkerScanningRef.current) {
               isWorkerScanningRef.current = true;
               createImageBitmap(cameraVideoRef.current).then(bmp => {
+                if (generation !== cameraGenerationRef.current || !barcodeWorkerRef.current) {
+                  bmp.close();
+                  return;
+                }
                 barcodeWorkerRef.current?.postMessage({ type: 'DETECT', imageBitmap: bmp }, [bmp]);
               }).catch(() => {
-                isWorkerScanningRef.current = false;
+                if (generation === cameraGenerationRef.current) isWorkerScanningRef.current = false;
               });
             }
           } else if (barcodeDetectorRef.current) {
             const barcodes = await barcodeDetectorRef.current.detect(cameraVideoRef.current);
+            if (generation !== cameraGenerationRef.current) return;
             if (barcodes?.length) {
               const rawValue = barcodes[0]?.rawValue?.trim();
               if (rawValue) {
@@ -1303,7 +1366,7 @@ const Kiosk: React.FC = () => {
                 if (!isSameBarcode || !cooldownActive) {
                   lastScanValueRef.current = rawValue;
                   cameraScanCooldownRef.current = now;
-                  try { new Audio('/beep.mp3').play(); } catch { /* silent */ }
+                  playScanSound();
                   setAttendanceResult(null);
                   handleAttendanceRef.current(rawValue);
                 }
@@ -1315,14 +1378,17 @@ const Kiosk: React.FC = () => {
           isWorkerScanningRef.current = false;
         }
 
-        scanFrameRef.current = requestAnimationFrame(scanFrame);
+        if (generation === cameraGenerationRef.current) scanFrameRef.current = requestAnimationFrame(scanFrame);
       };
 
       scanFrameRef.current = requestAnimationFrame(scanFrame);
     } catch (error) {
+      if (generation !== cameraGenerationRef.current) return;
       logError(error, 'Kiosk - Start Camera');
       setCameraScanError('تعذر تشغيل الكاميرا. تأكد من منح الإذن.');
       stopCameraScan();
+    } finally {
+      if (generation === cameraGenerationRef.current) cameraStartingRef.current = false;
     }
   }, [isBarcodeDetectorSupported, stopCameraScan]);
 
@@ -1334,7 +1400,7 @@ const Kiosk: React.FC = () => {
     }
 
     return () => stopCameraScan();
-  }, [cameraScanOpen]);
+  }, [cameraScanOpen, startCameraScan, stopCameraScan]);
 
   useEffect(() => {
     if (screensaverActive && cameraScanOpen) {
@@ -1881,6 +1947,7 @@ const Kiosk: React.FC = () => {
         onClick={(e) => e.stopPropagation()}
       >
         <button
+          aria-label="إغلاق الكاميرا"
           onClick={() => setCameraScanOpen(false)}
           className="absolute top-4 right-4 z-20 p-2.5 rounded-full bg-black/50 hover:bg-black/70 text-white/80 hover:text-white transition-all backdrop-blur-sm"
         >

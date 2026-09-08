@@ -20,7 +20,7 @@ import { broadcastSettingsUpdate } from './settingsBroadcast';
 import { buildBootstrapAdminUser, validateBootstrapAdmin } from './bootstrapAdmin';
 import {
   mapStudent, mapAttendance, mapSettingsFromDB, mapSettingsToDB,
-  mapNotificationRow,
+  mapNotificationRow, isActiveStudent,
   getLocalISODate, getLocalDateStr,
   normalizeStudentId, normalizeAssignedClasses, normalizeAssignedSections, buildStructureFromStudents,
   DEFAULT_LOCAL_ADMINS,
@@ -335,6 +335,7 @@ export class LocalProvider implements IDatabaseProvider, IStudentAffairsProvider
     const students = await this.getStudents();
     const student = students.find(s => s.id === id);
     if (!student) return Promise.resolve({ success: false, message: 'رقم الطالب غير صحيح' });
+    if (!isActiveStudent(student)) return { success: false, message: 'الطالب غير مفعّل. راجع إدارة المدرسة.' };
 
     const now = getSyncedDate();
     const allLogs = this.get<AttendanceRecord>(STORAGE_KEYS.ATTENDANCE);
@@ -713,6 +714,7 @@ export class LocalProvider implements IDatabaseProvider, IStudentAffairsProvider
   async bulkMarkAbsent(params: {
     student_ids: string[];
     date: string;
+    only_unmarked?: boolean;
   }): Promise<{
     success: boolean;
     message: string;
@@ -741,13 +743,22 @@ export class LocalProvider implements IDatabaseProvider, IStudentAffairsProvider
 
       const attendance = this.get<AttendanceRecord>(STORAGE_KEYS.ATTENDANCE);
 
+      // Re-read at the write boundary, after settings have loaded: a scanner may
+      // have recorded attendance since the background checker read its roster.
+      const activeIds = new Set(this.get<Student>(STORAGE_KEYS.STUDENTS)
+        .filter(student => student.is_active !== false && (student.is_active as unknown) !== 0)
+        .map(student => student.id));
+      const markedIds = new Set(attendance.filter(record => record.date === params.date).map(record => record.student_id));
+      const targetIds = [...new Set(params.student_ids)].filter(id => !params.only_unmarked || (activeIds.has(id) && !markedIds.has(id)));
+      if (!targetIds.length) return { success: true, message: 'لا يوجد طلاب دون سجل حضور', count: 0 };
+
       // Remove existing records for these students on this date
       const filtered = attendance.filter(
-        (r: AttendanceRecord) => !(r.date === params.date && params.student_ids.includes(r.student_id))
+        (r: AttendanceRecord) => !(r.date === params.date && targetIds.includes(r.student_id))
       );
 
       // Add new absence records
-      const absenceRecords: AttendanceRecord[] = params.student_ids.map(student_id => ({
+      const absenceRecords: AttendanceRecord[] = targetIds.map(student_id => ({
         id: `att_${getSyncedNow()}_${student_id}`,
         student_id,
         date: params.date,
@@ -764,8 +775,8 @@ export class LocalProvider implements IDatabaseProvider, IStudentAffairsProvider
 
       return {
         success: true,
-        message: `تم تسجيل ${params.student_ids.length} طالب غائبين`,
-        count: params.student_ids.length
+        message: `تم تسجيل ${targetIds.length} طالب غائبين`,
+        count: targetIds.length
       };
     } catch (e) {
       console.error(e);

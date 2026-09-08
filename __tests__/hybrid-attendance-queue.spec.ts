@@ -199,6 +199,16 @@ describe('HybridProvider attendance queued payloads', () => {
     );
   });
 
+  it.each([false, 0])('rejects an inactive student (%s) without a write or notification', async isActive => {
+    localDbMock.students._setRows([{ ...student, is_active: isActive } as Student]);
+    const result = await new HybridProvider().markAttendance(student.id);
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/الطالب غير مفعّل/);
+    expect(localDbMock.attendance_logs.put).not.toHaveBeenCalled();
+    expect(queueChangeMock).not.toHaveBeenCalled();
+    expect(liveNotificationMock).not.toHaveBeenCalled();
+  });
+
   it('queues manual late attendance with the generated local id', async () => {
     const provider = new HybridProvider();
 

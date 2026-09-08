@@ -1,0 +1,22 @@
+{
+  "isolated": {
+    "students": 10000,
+    "scans": 1000,
+    "startupMs": 3.7714579999999387,
+    "p50Ms": 0.5703340000000026,
+    "p95Ms": 1.2374170000000504,
+    "maxMs": 3.3047920000000204,
+    "totalMs": 610.5710450000007
+  },
+  "full_suite_with_build_running": {
+    "students": 10000,
+    "scans": 1000,
+    "startupMs": 3.0179169999996702,
+    "p50Ms": 0.7241250000001855,
+    "p95Ms": 5.907666999999947,
+    "maxMs": 60.35966600000029,
+    "totalMs": 1698.5260970000018
+  },
+  "scope": "CloudProvider local lookup + localStorage persistence in Vitest/jsdom on this host, not camera decoding, UI frame time or physical device performance.",
+  "node": "22.22.1"
+}
