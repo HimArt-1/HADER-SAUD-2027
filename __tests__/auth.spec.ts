@@ -69,7 +69,9 @@ describe('Authentication flows', () => {
       const failedLogin = await auth.login('supervisorUser', 'wrong-pass', 'staff');
       expect(failedLogin.success).toBe(false);
     },
-    15000
+    // Each login runs PBKDF2 key derivation, which is deliberately CPU-heavy. With eight
+    // workers sharing the machine these three logins take far longer than the default budget.
+    60_000
   );
 
   it('supports guardian (student/parent) login and fails on incorrect PIN', async () => {
@@ -79,5 +81,5 @@ describe('Authentication flows', () => {
 
     const failedGuardian = await auth.login('0501112222', '9999', 'guardian');
     expect(failedGuardian.success).toBe(false);
-  });
+  }, 60_000);
 });

@@ -35,7 +35,9 @@ describe('admin academic calendar tab', () => {
             { date: '2026-08-25', label: 'عطلة اختبار', type: 'exceptional' }
         ]);
         expect(showToast).toHaveBeenCalledWith('تمت إضافة 2 يوم عطلة بنجاح', 'success');
-    });
+        // Rendering the full calendar grid and waiting on its async saves exceeds the default
+        // budget once eight workers share the CPU, though it takes about a second alone.
+    }, 60_000);
 
     it('requires confirmation and reports success only after holiday deletion persists', async () => {
         const onSaveHolidays = vi.fn(async () => true);
@@ -57,5 +59,5 @@ describe('admin academic calendar tab', () => {
 
         await waitFor(() => expect(onSaveHolidays).toHaveBeenCalledWith([]));
         expect(showToast).toHaveBeenCalledWith('تم حذف 1 عطلة', 'success');
-    });
+    }, 60_000);
 });
