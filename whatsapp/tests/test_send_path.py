@@ -127,6 +127,19 @@ def make_tool(element, send_button=None):
     return tool
 
 
+def find_first_stub(element):
+    """
+    Stand in for _find_first: returns the composer for every lookup EXCEPT the
+    invalid-number dialog, which must stay absent or the send path would treat every
+    row as an unreachable number.
+    """
+    def _stub(driver, selectors, timeout=0):
+        if list(selectors) == list(wpt._SELECTORS['invalid_popup']):
+            return None
+        return element
+    return _stub
+
+
 class ComposeMessageTest(unittest.TestCase):
     def setUp(self):
         FakeActionChains.performed.clear()
@@ -251,7 +264,7 @@ class SendSingleMessageTest(unittest.TestCase):
         tool = self._tool(element)
         row = {'id': 'row-1', 'phone': '0501234567', 'message': 'اختبار'}
 
-        with mock.patch.object(wpt, '_find_first', return_value=element):
+        with mock.patch.object(wpt, '_find_first', find_first_stub(element)):
             outcome = tool._send_single_message(row, 1, 1)
 
         self.assertEqual(outcome, 'failed')
@@ -264,7 +277,7 @@ class SendSingleMessageTest(unittest.TestCase):
         tool = self._tool(element)
         row = {'id': 'row-2', 'phone': '0501234567', 'message': 'اختبار'}
 
-        with mock.patch.object(wpt, '_find_first', return_value=element), \
+        with mock.patch.object(wpt, '_find_first', find_first_stub(element)), \
              mock.patch.object(tool, '_press_send', return_value=False):
             outcome = tool._send_single_message(row, 1, 1)
 
@@ -277,7 +290,7 @@ class SendSingleMessageTest(unittest.TestCase):
         tool = self._tool(element)
         row = {'id': 'row-3', 'phone': '0501234567', 'message': 'اختبار'}
 
-        with mock.patch.object(wpt, '_find_first', return_value=element), \
+        with mock.patch.object(wpt, '_find_first', find_first_stub(element)), \
              mock.patch.object(tool, '_press_send', return_value=True):
             outcome = tool._send_single_message(row, 1, 1)
 
@@ -377,6 +390,118 @@ class OpenChatRoutingTest(unittest.TestCase):
         with mock.patch.object(wpt.WebDriverWait, 'until', lambda *_a, **_k: True), \
              mock.patch.object(wpt, '_find_first', return_value=None):
             self.assertFalse(self.tool._open_chat('966501234567'))
+
+
+class UnreachableNumberDialogTest(unittest.TestCase):
+    """
+    WhatsApp raises a modal for a number it cannot reach. The modal stays on top of the app,
+    so leaving it open made every following message in the batch fail as well.
+    """
+
+    def setUp(self):
+        patcher_sleep = mock.patch.object(wpt.time, 'sleep', lambda *_: None)
+        patcher_sleep.start()
+        self.addCleanup(patcher_sleep.stop)
+
+        self.element = FakeElement(accepts=('keys',))
+        self.tool = make_tool(self.element)
+        self.tool.statuses = {}
+        self.tool._update_status = lambda i, s: self.tool.statuses.__setitem__(i, s)
+        self.tool._simulate_human_activity = lambda: None
+        self.tool._reading_pause = lambda: None
+        self.dialog_open = True
+        self.dismissals = 0
+
+    def _wire(self, retry_succeeds, dialog_already_open=False):
+        """
+        Models reality: the modal appears when WhatsApp refuses the number during the open,
+        not before it.
+        """
+        outer = self
+        outer.dialog_open = dialog_already_open
+
+        class DismissButton:
+            def click(self_inner):
+                outer.dialog_open = False
+                outer.dismissals += 1
+
+        def _stub(driver, selectors, timeout=0):
+            selectors = list(selectors)
+            if selectors == list(wpt._SELECTORS['invalid_popup']):
+                return object() if outer.dialog_open else None
+            if any('role="dialog"' in s for s in selectors):
+                return DismissButton()
+            return outer.element
+
+        def open_chat(phone):
+            outer.dialog_open = True      # WhatsApp rejects the number
+            return True
+
+        def retry(phone):
+            outer.dialog_open = not retry_succeeds
+            return retry_succeeds
+
+        self.tool._open_chat = open_chat
+        self.tool._open_chat_via_search = retry
+        return _stub
+
+    def test_dismisses_the_dialog_and_sends_when_the_retry_opens_the_chat(self):
+        row = {'id': 'r1', 'phone': '0501234567', 'message': 'مرحبا'}
+        with mock.patch.object(wpt, '_find_first', self._wire(retry_succeeds=True)), \
+             mock.patch.object(self.tool, '_press_send', return_value=True):
+            outcome = self.tool._send_single_message(row, 1, 1)
+
+        self.assertEqual(outcome, 'sent')
+        self.assertEqual(self.tool.statuses['r1'], 'sent')
+        self.assertGreaterEqual(self.dismissals, 1, 'the dialog must be closed')
+        self.assertFalse(self.dialog_open)
+
+    def test_marks_the_number_unreachable_only_after_the_retry_also_fails(self):
+        row = {'id': 'r2', 'phone': '0501234567', 'message': 'مرحبا'}
+        with mock.patch.object(wpt, '_find_first', self._wire(retry_succeeds=False)):
+            outcome = self.tool._send_single_message(row, 1, 1)
+
+        self.assertEqual(outcome, 'invalid_phone')
+        self.assertEqual(self.tool.statuses['r2'], 'invalid_phone')
+        self.assertEqual(self.tool.stats['skipped'], 1)
+        self.assertEqual(self.tool.stats['sent'], 0)
+        # Crucially the modal is gone, so the next row in the batch is not blocked.
+        self.assertFalse(self.dialog_open)
+
+    def test_clears_a_dialog_left_behind_by_the_previous_row(self):
+        row = {'id': 'r3', 'phone': '0501234567', 'message': 'مرحبا'}
+        with mock.patch.object(wpt, '_find_first', self._wire(retry_succeeds=True, dialog_already_open=True)), \
+             mock.patch.object(self.tool, '_press_send', return_value=True):
+            outcome = self.tool._send_single_message(row, 1, 1)
+
+        self.assertEqual(outcome, 'sent')
+        self.assertGreaterEqual(self.dismissals, 2, 'the stale modal and the new one are both closed')
+
+
+class AwaitMatchingRowTest(unittest.TestCase):
+    """The unsaved-number row arrives late, after WhatsApp asks its servers about the number."""
+
+    def setUp(self):
+        patcher_sleep = mock.patch.object(wpt.time, 'sleep', lambda *_: None)
+        patcher_sleep.start()
+        self.addCleanup(patcher_sleep.stop)
+        self.tool = make_tool(FakeElement())
+
+    def test_keeps_polling_until_the_late_row_appears(self):
+        late_row = FakeRow(text='+966 50 123 4567')
+        calls = {'n': 0}
+
+        def find_elements(by, value):
+            calls['n'] += 1
+            return [late_row] if calls['n'] > 6 else []
+
+        self.tool.driver.find_elements = find_elements
+        self.assertIs(self.tool._await_matching_row('966501234567', timeout=5), late_row)
+
+    def test_gives_up_rather_than_returning_someone_else(self):
+        other = FakeRow(text='+966 55 999 8877')
+        self.tool.driver.find_elements = lambda by, value: [other]
+        self.assertIsNone(self.tool._await_matching_row('966501234567', timeout=1))
 
 
 class InvalidPopupSelectorTest(unittest.TestCase):

@@ -1053,20 +1053,31 @@ class WhatsAppProTool:
             logging.info(f"[{current}/{total}] Processing: {phone}")
             self._update_status(msg_id, 'sending')
 
+            # A dialog left over from an earlier row would block this one too.
+            if self._invalid_dialog() is not None:
+                self._dismiss_dialog()
+
             # فتح المحادثة: بحث الواجهة أولاً، ثم رابط الإرسال للأرقام غير المحفوظة
             if not self._open_chat(phone):
                 logging.warning(f"  ⚠️  Could not open a chat with {phone}")
+                self._dismiss_dialog()
                 self._update_status(msg_id, 'failed')
                 self.stats["failed"] += 1
                 return 'failed'
 
-            # Check invalid popup
-            for xpath in _SELECTORS["invalid_popup"]:
-                if self.driver.find_elements(By.XPATH, xpath):
-                    logging.warning(f"  ❌ Phone {phone} not on WhatsApp.")
+            # WhatsApp raises this dialog for a number it cannot reach. The send link also
+            # raises it spuriously while the app is still booting, so it is dismissed and the
+            # in-app search is tried once before the number is written off as unreachable.
+            if self._invalid_dialog() is not None:
+                logging.warning(f"  ⚠️  WhatsApp rejected {phone} — retrying through the in-app search…")
+                self._dismiss_dialog()
+                if not self._open_chat_via_search(phone) or self._invalid_dialog() is not None:
+                    logging.warning(f"  ❌ {phone} has no WhatsApp account — skipping.")
+                    self._dismiss_dialog()
                     self._update_status(msg_id, 'invalid_phone')
                     self.stats["skipped"] += 1
                     return 'invalid_phone'
+                logging.info(f"  ✅ {phone} opened on the retry — the first rejection was spurious.")
 
             # Simulate reading / thinking time
             time.sleep(random.uniform(2, 5))
@@ -1368,6 +1379,88 @@ class WhatsAppProTool:
             return False
         return target in self._digits(haystack)
 
+    # Rows that can appear in the "new chat" search results.
+    _SEARCH_ROW_XPATHS = (
+        '//div[@data-testid="cell-frame-container"]',
+        '//div[@data-testid="chat-list-item"]',
+        '//div[@id="pane-side"]//div[@role="listitem"]',
+        '//div[@role="listitem"]',
+        '//div[@role="button"][@aria-label]',
+    )
+
+    def _await_matching_row(self, phone: str, timeout: float = 9):
+        """
+        Wait for a search-result row that really belongs to ``phone``.
+
+        The row for a number that is not in the address book arrives late: WhatsApp has to ask
+        its servers whether the number has an account first. A single look right after typing
+        usually happens before that answer lands, which is why unsaved numbers looked absent.
+        """
+        deadline = time.time() + timeout
+        while True:
+            rows = []
+            for xpath in self._SEARCH_ROW_XPATHS:
+                try:
+                    rows.extend(self.driver.find_elements(By.XPATH, xpath))
+                except WebDriverException:
+                    continue
+            match = next((row for row in rows if self._row_matches_phone(row, phone)), None)
+            if match is not None:
+                return match
+            if time.time() >= deadline:
+                return None
+            time.sleep(0.6)
+
+    def _invalid_dialog(self):
+        """Return WhatsApp's "this number is not on WhatsApp" dialog if it is on screen."""
+        return _find_first(self.driver, _SELECTORS["invalid_popup"])
+
+    def _dismiss_dialog(self) -> bool:
+        """
+        Close a blocking WhatsApp dialog.
+
+        This matters far beyond the message that triggered it: a modal stays on top of the
+        app, so leaving it open made every later message in the batch fail too — one number
+        without WhatsApp used to poison the whole run.
+        """
+        button_xpaths = [
+            '//div[@role="dialog"]//button[normalize-space()="OK"]',
+            '//div[@role="dialog"]//button[normalize-space()="Ok"]',
+            '//div[@role="dialog"]//button[normalize-space()="حسنًا"]',
+            '//div[@role="dialog"]//button[normalize-space()="حسناً"]',
+            '//div[@role="dialog"]//button[normalize-space()="موافق"]',
+            '//div[@role="dialog"]//button[normalize-space()="إغلاق"]',
+            '//div[@role="dialog"]//div[@role="button"]',
+            '//div[@role="dialog"]//button',
+        ]
+        button = _find_first(self.driver, button_xpaths, timeout=2)
+        if button is not None:
+            try:
+                button.click()
+            except WebDriverException:
+                try:
+                    self.driver.execute_script("arguments[0].click();", button)
+                except WebDriverException:
+                    pass
+        else:
+            try:
+                ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+            except WebDriverException:
+                pass
+
+        deadline = time.time() + 6
+        while time.time() < deadline:
+            time.sleep(0.4)
+            if self._invalid_dialog() is None:
+                logging.info("  🧹 Dismissed the WhatsApp dialog.")
+                return True
+            try:
+                ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+            except WebDriverException:
+                break
+        logging.warning("  ⚠️  A WhatsApp dialog is still on screen.")
+        return False
+
     def _open_chat(self, phone: str) -> bool:
         """
         Open the conversation for ``phone``, saved in the address book or not.
@@ -1461,23 +1554,9 @@ class WhatsAppProTool:
             # ── الخطوة 4: اختيار النتيجة التي تطابق الرقم فعلاً ──
             # لا يُنقر على أول صف مهما كان: ذلك كان يفتح محادثة شخص آخر حين لا تظهر
             # نتيجة للرقم، ويتخطى الأرقام غير المحفوظة لأنها تُعرض بصيغة منسّقة.
-            row_xpaths = [
-                '//div[@data-testid="cell-frame-container"]',
-                '//div[@data-testid="chat-list-item"]',
-                '//div[@id="pane-side"]//div[@role="listitem"]',
-                '//div[@role="listitem"]',
-                '//div[@role="button"][@aria-label]',
-            ]
-            seen_rows = []
-            for xpath in row_xpaths:
-                try:
-                    seen_rows.extend(self.driver.find_elements(By.XPATH, xpath))
-                except WebDriverException:
-                    continue
-
-            contact = next((row for row in seen_rows if self._row_matches_phone(row, phone)), None)
+            contact = self._await_matching_row(phone)
             if contact is None:
-                logging.info(f"  ℹ️  {phone} is not in the contact list — will use the send link.")
+                logging.info(f"  ℹ️  No search result matched {phone} — will use the send link.")
             if contact:
                 try:
                     contact.click()
