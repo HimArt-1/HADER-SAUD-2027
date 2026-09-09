@@ -75,6 +75,8 @@ whatsapp/contacts.csv
 
 # Build/Release files (Electron)
 release/
+# Generated hand-off packages (rebuilt by npm run bundle:whatsapp into public/downloads/)
+deliverables/
 *.dmg
 *.zip
 # Shipped WhatsApp bridge archives (built by scripts/bundle-whatsapp-launcher.mjs)
