@@ -272,6 +272,17 @@ file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(messa
 file_handler.addFilter(OptionsFilter())
 logging.root.addHandler(file_handler)
 
+# Per-day engine log, free of HTTP chatter — this is the file to read when a message did not
+# go out. whatsapp_pro_tool opens it via basicConfig, but the clear() above drops that handler,
+# which is why the dated file used to stay empty.
+engine_log_handler = logging.FileHandler(
+    os.path.join(LOG_DIR, f"whatsapp_{datetime.now().strftime('%Y%m%d')}.log"), encoding='utf-8'
+)
+engine_log_handler.setLevel(logging.INFO)
+engine_log_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+engine_log_handler.addFilter(NoiseFilter())
+logging.root.addHandler(engine_log_handler)
+
 # معالج الطرفية
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)

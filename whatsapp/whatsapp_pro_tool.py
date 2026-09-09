@@ -241,13 +241,20 @@ _SELECTORS = {
         '//div[@aria-label="Chats"]',
         '//div[@aria-label="محادثات"]',
     ],
-    # Invalid-number popup
+    # Invalid-number popup.
+    # Scoped to the modal/alert containers on purpose: a bare //*[contains(text(),"invalid")]
+    # matches any stray text node anywhere in WhatsApp Web's DOM, which made every message look
+    # like an unreachable number and skipped it without ever typing.
     "invalid_popup": [
-        '//*[contains(text(),"invalid")]',
-        '//*[contains(text(),"غير صحيح")]',
-        '//*[contains(text(),"Phone number shared via url is invalid")]',
+        '//div[@role="dialog"][contains(., "Phone number shared via url is invalid")]',
+        '//div[@role="dialog"][contains(., "رقم الهاتف الذي تمت مشاركته عبر عنوان url غير صحيح")]',
+        '//div[@role="alert"][contains(., "Phone number shared via url is invalid")]',
+        '//div[contains(@class,"_3J6wB")][contains(., "invalid")]',
     ],
 }
+
+# Composer text is read back after typing to prove the message really landed in the editor.
+_COMPOSER_TEXT_JS = "return (arguments[0].innerText || arguments[0].textContent || '').trim();"
 
 
 def _find_first(driver, selectors: list, timeout: float = 0):
@@ -280,9 +287,16 @@ class WhatsAppProTool:
     pause() / resume() / stop_sending()                       queue controls
     close()                                                   "إيقاف اضطراري"
 
+    Composing (every step is verified — a silent no-op is treated as a failure)
+    ──────────────────────────────────────────────────────────────────────────
+    • _compose_message – tries human typing, then direct keys, then insertText,
+                         reading the editor back after each until the text is really there
+    • _press_send      – send button first, ENTER as fallback, confirmed by the
+                         composer emptying; otherwise the row is marked failed
+
     Human-simulation highlights
     ───────────────────────────
-    • _human_typing   – character-level delays, word pauses, sentence rest, rare typo
+    • _type_like_human – character-level delays, word pauses, sentence rest, rare typo
     • _simulate_human_activity – random mouse micro-jitter + small scroll
     • _reading_pause  – variable delay before sending (simulates reading the draft)
 
@@ -1102,11 +1116,19 @@ class WhatsAppProTool:
                 return 'failed'
 
             logging.info("  → Typing message…")
-            self._human_typing(input_box, message)
+            if not self._compose_message(input_box, message):
+                logging.error(f"  ❌ Message never reached the composer for {phone} — not sending.")
+                self._update_status(msg_id, 'failed')
+                self.stats["failed"] += 1
+                return 'failed'
+
             self._reading_pause()          # look at the typed text before sending
 
-            input_box.send_keys(Keys.ENTER)
-            time.sleep(random.uniform(1.5, 3.0))   # wait for send confirmation
+            if not self._press_send(input_box):
+                logging.error(f"  ❌ Message stayed in the composer for {phone} — send failed.")
+                self._update_status(msg_id, 'failed')
+                self.stats["failed"] += 1
+                return 'failed'
 
             logging.info(f"  ✅ Sent → {phone}")
             self._update_status(msg_id, 'sent')
@@ -1166,30 +1188,84 @@ class WhatsAppProTool:
             except Exception:
                 pass
 
-    # ── Human simulation ───────────────────────────────────────────
+    # ── Composing & sending ────────────────────────────────────────
 
-    def _human_typing(self, element, text: str):
-        """
-        Simulate natural typing with diversified patterns:
-        - Arabic chars: slower (0.02–0.10s)
-        - Digits: faster (0.01–0.05s)
-        - Sentence pauses at punctuation
-        - Occasional typo + correction
-        - Variable burst speed
-        """
+    @staticmethod
+    def _normalize_for_compare(value: str) -> str:
+        """Collapse whitespace so composer text can be compared with the intended message."""
+        return re.sub(r'\s+', ' ', (value or '')).strip()
+
+    def _composer_text(self, element) -> str:
+        """Read back what the editor currently holds."""
+        try:
+            return str(self.driver.execute_script(_COMPOSER_TEXT_JS, element) or '')
+        except WebDriverException:
+            return ''
+
+    def _clear_composer(self, element) -> None:
+        _mod_key = Keys.COMMAND if PLATFORM == 'Darwin' else Keys.CONTROL
         try:
             element.click()
-            time.sleep(random.uniform(0.5, 1.2))  # Pause to show "typing..." indicator
+            ActionChains(self.driver).key_down(_mod_key).send_keys('a').key_up(_mod_key).perform()
+            time.sleep(0.1)
+            ActionChains(self.driver).send_keys(Keys.BACKSPACE).perform()
+            time.sleep(0.2)
+        except WebDriverException:
+            pass
 
-            # If message is very long, paste it to save time, but act human
-            if len(text) > 150:
-                self._paste_message(element, text)
-                return
+    def _compose_message(self, input_box, message: str) -> bool:
+        """
+        Put ``message`` into the composer and PROVE it landed there.
 
-            # Randomize overall typing speed profile for this message
-            speed_factor = random.uniform(0.7, 1.3)
+        WhatsApp Web's editor rejects some synthetic input silently, which used to leave the
+        composer empty while the caller happily pressed Enter and recorded a successful send.
+        Each strategy is therefore verified by reading the editor back; only a verified
+        composer is allowed to proceed to the send step.
+        """
+        expected = self._normalize_for_compare(message)
+        strategies = (
+            ('human typing', self._type_like_human),
+            ('direct keys', self._type_direct),
+            ('insertText command', self._insert_text_via_command),
+        )
 
-            words = text.split(' ')
+        for label, strategy in strategies:
+            try:
+                strategy(input_box, message)
+            except StaleElementReferenceException:
+                raise
+            except Exception as exc:
+                logging.warning(f"  ⚠️  Compose via {label} raised: {exc}")
+
+            actual = self._normalize_for_compare(self._composer_text(input_box))
+            if actual and (actual == expected or expected in actual):
+                logging.info(f"  ✎ Composer holds the message ({label}).")
+                return True
+
+            logging.warning(
+                f"  ⚠️  Composer still wrong after {label} "
+                f"(holds {len(actual)} chars, expected {len(expected)}) — retrying."
+            )
+            self._clear_composer(input_box)
+
+        return False
+
+    def _type_like_human(self, element, text: str) -> None:
+        """
+        Human-like key-by-key typing.
+
+        Newlines are sent as SHIFT+ENTER: a bare ENTER would submit the message halfway.
+        """
+        element.click()
+        time.sleep(random.uniform(0.4, 1.0))  # Pause to show the "typing…" indicator
+
+        speed_factor = random.uniform(0.7, 1.3)
+        for line_index, line in enumerate(text.split('\n')):
+            if line_index > 0:
+                ActionChains(self.driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
+                time.sleep(random.uniform(0.1, 0.3))
+
+            words = line.split(' ')
             for i, word in enumerate(words):
                 for char in word:
                     element.send_keys(char)
@@ -1220,33 +1296,75 @@ class WhatsAppProTool:
                 if random.random() < 0.03:
                     time.sleep(random.uniform(0.4, 1.0))
 
-        except Exception as exc:
-            logging.error(f"Human typing error: {exc}")
-            try:
-                element.send_keys(text)   # Fallback: paste entire text
-            except Exception:
-                pass
+    def _type_direct(self, element, text: str) -> None:
+        """One send_keys per line — faster, still real key events."""
+        element.click()
+        time.sleep(random.uniform(0.2, 0.5))
+        for line_index, line in enumerate(text.split('\n')):
+            if line_index > 0:
+                ActionChains(self.driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
+            if line:
+                element.send_keys(line)
+            time.sleep(random.uniform(0.1, 0.3))
 
-    def _paste_message(self, input_box, text):
-        """Paste full message using JavaScript to preserve formatting and look human-ish"""
+    def _insert_text_via_command(self, element, text: str) -> None:
+        """
+        Last resort: `insertText` fires the same beforeinput/input events the editor listens
+        for, so the rich-text editor accepts it. A dispatched ClipboardEvent does not work —
+        the editor ignores untrusted paste events, which is what silently dropped messages.
+        """
+        element.click()
+        time.sleep(random.uniform(0.2, 0.5))
+        self.driver.execute_script(
+            "arguments[0].focus();"
+            "document.execCommand('insertText', false, arguments[1]);",
+            element, text
+        )
+        time.sleep(random.uniform(0.3, 0.7))
+
+    def _press_send(self, input_box) -> bool:
+        """
+        Send the composed message and confirm it actually left the composer.
+        Prefers the send button, falls back to ENTER.
+        """
+        before = self._normalize_for_compare(self._composer_text(input_box))
+        if not before:
+            logging.warning("  ⚠️  Nothing to send — composer is empty.")
+            return False
+
+        send_btn = _find_first(self.driver, _SELECTORS["send_btn"], timeout=3)
+        if send_btn is not None:
+            try:
+                send_btn.click()
+            except WebDriverException:
+                try:
+                    self.driver.execute_script("arguments[0].click();", send_btn)
+                except WebDriverException:
+                    send_btn = None
+        if send_btn is None:
+            try:
+                input_box.send_keys(Keys.ENTER)
+            except WebDriverException as exc:
+                logging.warning(f"  ⚠️  ENTER failed: {exc}")
+                return False
+
+        # The composer empties once WhatsApp accepts the message.
+        deadline = time.time() + 12
+        while time.time() < deadline:
+            time.sleep(0.4)
+            if not self._normalize_for_compare(self._composer_text(input_box)):
+                time.sleep(random.uniform(0.6, 1.4))   # let the bubble render
+                return True
+
+        # One last attempt with ENTER in case the button click was swallowed.
         try:
-            input_box.click()
-            time.sleep(random.uniform(0.3, 0.8))
-            escaped = text.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
-            self.driver.execute_script(f"""
-                const text = `{escaped}`;
-                const dt = new DataTransfer();
-                dt.setData('text/plain', text);
-                const pasteEvent = new ClipboardEvent('paste', {{
-                    clipboardData: dt,
-                    bubbles: true,
-                    cancelable: true
-                }});
-                arguments[0].dispatchEvent(pasteEvent);
-            """, input_box)
-            time.sleep(random.uniform(0.5, 1.0))
-        except Exception:
-            self._human_typing(input_box, text)
+            input_box.send_keys(Keys.ENTER)
+            time.sleep(1.5)
+            return not self._normalize_for_compare(self._composer_text(input_box))
+        except WebDriverException:
+            return False
+
+    # ── Human simulation ───────────────────────────────────────────
 
     def _open_chat_human_like(self, phone: str) -> bool:
         """فتح المحادثة عبر واجهة المستخدم لمحاكاة البشر ومنع إعادة تحميل الصفحة."""
