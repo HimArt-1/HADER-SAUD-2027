@@ -337,7 +337,7 @@ const App: React.FC = () => {
   const pageFallback = <SplashScreen title="جاري تحميل الصفحة..." mode="page" />;
 
   if (loading) return (
-    <SplashScreen title="نظام حاضر" subtitle="جاري الاتصال بالنظام السحابي..." />
+    <SplashScreen title="نظام حاضر" subtitle="جاري فتح الواجهة..." />
   );
 
   return (

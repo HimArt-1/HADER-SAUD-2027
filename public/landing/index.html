@@ -17,10 +17,13 @@
   <link rel="preload" href="assets/fonts/arsenica-extrabold.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="../brand/hader-motion.css">
+  <link rel="stylesheet" href="../brand/entry-intro.css">
   <script src="script.js" defer></script>
   <script src="campus.js" defer></script>
+  <script src="../brand/entry-intro.js" defer></script>
 </head>
 <body>
+<hader-entry-intro variant="landing" focus-target="heroTitle"></hader-entry-intro>
 <a class="skip-link" href="#main-content" data-en="Skip to content">انتقل إلى المحتوى</a>
 <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
@@ -210,7 +213,7 @@
 <footer class="container footer">
   <div class="footer-brand"><a class="brand" href="#hero" aria-label="حاضر — الرئيسية" data-en-aria="Hader — home"><span class="hader-mark" data-motion="quiet" data-tone="auto"><img class="hader-mark-image" src="../brand/hader-logo.png" alt="حاضر" width="1024" height="490"><span class="hader-mark-light" aria-hidden="true"></span></span></a><span data-en="Attendance. Dismissal. Follow-up.">حضور. انصراف. متابعة.</span></div>
   <div class="footer-contact"><a href="mailto:himcodeing@gmail.com"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-mail"/></svg><span>himcodeing@gmail.com</span></a><a href="tel:+966541399911" dir="ltr">+966 54 139 9911</a></div>
-  <div class="footer-bottom"><span>© <span id="year">2026</span> <span data-en="Hader. All rights reserved.">حاضر. جميع الحقوق محفوظة.</span></span><a href="../index.html#/login" data-app-route="/login" data-en="Log in to your account">الدخول إلى حسابك</a></div>
+  <div class="footer-bottom"><button class="intro-replay" type="button" data-replay-intro="landing" data-en="Replay intro">إعادة المقدمة</button><span>© <span id="year">2026</span> <span data-en="Hader. All rights reserved.">حاضر. جميع الحقوق محفوظة.</span></span><a href="../index.html#/login" data-app-route="/login" data-en="Log in to your account">الدخول إلى حسابك</a></div>
 </footer>
 </body>
 </html>

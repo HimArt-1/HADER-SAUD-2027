@@ -1894,6 +1894,8 @@ h2 {
 }
 
 /* The shared animated mark reserves exactly the previous navigation footprint. */
+.footer-bottom { flex-wrap: wrap; align-items: center; }
+.footer-bottom .intro-replay { font-size: inherit; min-height: 28px; padding-block: 0; }
 .brand > .hader-mark { width: 112px; height: 55px; }
 .brand .hader-mark > .hader-mark-image { width: 100%; height: 100%; }
 .footer .brand > .hader-mark { width: 94px; height: 46px; }

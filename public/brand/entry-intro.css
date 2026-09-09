@@ -1,0 +1,184 @@
+/* Two brief openings; neither is a loader or an authentication status. */
+hader-entry-intro { display: contents; }
+.hader-entry {
+  --entry-bg: #f7f9f7;
+  --entry-ink: #0b5361;
+  --entry-muted: #5c7879;
+  --entry-line: #0b53612b;
+  --entry-glow: #93c6b5;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: var(--entry-bg);
+  color: var(--entry-ink);
+  font-family: Hader, 'Cairo', Arial, sans-serif;
+  text-align: center;
+  isolation: isolate;
+  animation: hader-entry-appear .2s ease-out both;
+}
+.hader-entry::backdrop { background: var(--entry-bg); }
+.hader-entry *, .hader-entry *::before, .hader-entry *::after { box-sizing: border-box; }
+.hader-entry [hidden] { display: none !important; }
+.hader-entry--system {
+  --entry-bg: #061b22;
+  --entry-ink: #d5f5ec;
+  --entry-muted: #94b8b6;
+  --entry-line: #7ad5c13b;
+  --entry-glow: #218d89;
+}
+.hader-entry-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  height: 100%;
+  padding: 90px 24px;
+}
+.hader-entry-top, .hader-entry-bottom {
+  position: absolute;
+  inset-inline: clamp(24px, 5vw, 76px);
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  font-size: 11px;
+  color: var(--entry-muted);
+}
+.hader-entry-top { top: max(28px, env(safe-area-inset-top)); }
+.hader-entry-top > span:first-child { font: 600 12px Arial, sans-serif; letter-spacing: .24em; }
+.hader-entry-bottom { bottom: max(26px, env(safe-area-inset-bottom)); }
+.hader-entry-eyebrow { margin: 0 0 5px; font-size: 12px; font-weight: 500; color: var(--entry-muted); animation: hader-entry-rise .7s .15s both; }
+.hader-entry-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(600px, 88vw);
+  aspect-ratio: 600 / 260;
+  margin-block: 14px;
+}
+.hader-entry-logo {
+  position: relative;
+  width: 64%;
+  height: auto;
+  z-index: 1;
+  animation: hader-entry-logo-draw 1.05s .15s cubic-bezier(.65, 0, .35, 1) both;
+}
+.hader-entry--system .hader-entry-logo {
+  filter: brightness(0) invert(1);
+  animation: hader-entry-logo-system 1.1s .2s cubic-bezier(.22, 1, .36, 1) both;
+}
+.hader-entry-logo-fallback { position: absolute; font-size: clamp(56px, 10vw, 96px); font-weight: 800; }
+.hader-entry-title { margin: 15px 0 0; font-size: clamp(22px, 2.5vw, 30px); font-weight: 700; line-height: 1.6; animation: hader-entry-rise .7s .6s both; }
+.hader-entry-subtitle { margin: 9px 0 0; font-size: 14px; line-height: 1.8; color: var(--entry-muted); animation: hader-entry-rise .7s .8s both; }
+.hader-entry-skip {
+  font: inherit;
+  font-size: 12px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 44px;
+  padding: 9px 20px;
+  border: 1px solid var(--entry-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--entry-ink);
+  cursor: pointer;
+  transition: background .2s;
+}
+.hader-entry-skip:hover { background: var(--entry-line); }
+.hader-entry-skip:focus-visible { outline: 2px solid var(--entry-ink); outline-offset: 4px; }
+.hader-entry-grid {
+  position: absolute;
+  inset: 0;
+  opacity: .3;
+  background-image: radial-gradient(var(--entry-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse, #000 10%, transparent 72%);
+  pointer-events: none;
+}
+.hader-entry--system .hader-entry-grid {
+  background-image: linear-gradient(var(--entry-line) 1px, transparent 1px), linear-gradient(90deg, var(--entry-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  animation: hader-entry-grid-settle 2s ease-out both;
+}
+.hader-entry-aura {
+  position: absolute;
+  inset: 5%;
+  opacity: .18;
+  background: radial-gradient(ellipse at center, var(--entry-glow), transparent 65%);
+  animation: hader-entry-aura 2.2s ease-out both;
+  pointer-events: none;
+}
+.hader-entry-ring { position: absolute; inset: -18% 20%; border: 1px solid var(--entry-line); border-radius: 50%; transform: rotate(-25deg); opacity: .6; animation: hader-entry-ring 1.5s .2s both; }
+.hader-entry--system .hader-entry-ring { inset: -20% 16%; border-radius: 10px; border-block-color: transparent; transform: none; }
+.hader-entry-circuit { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--entry-ink); opacity: .45; }
+.hader-entry--landing .hader-entry-circuit { display: none; }
+.hader-entry-circuit path { stroke: currentColor; stroke-width: 1; stroke-dasharray: 1; stroke-dashoffset: 1; animation: hader-entry-wire 1.3s .1s ease-out forwards; }
+.hader-entry-circuit circle { stroke: currentColor; animation: hader-entry-rise .4s 1.2s both; }
+.hader-entry-scan { position: absolute; inset-block: 5%; left: 0; width: 1px; background: linear-gradient(transparent, var(--entry-glow), transparent); box-shadow: 0 0 16px var(--entry-glow); animation: hader-entry-scan 1.4s .1s ease-in-out both; }
+.hader-entry-signals { display: flex; gap: 7px; margin-top: 26px; }
+.hader-entry-signals i { width: 4px; height: 4px; border-radius: 50%; background: var(--entry-ink); animation: hader-entry-rise .5s 1s both; }
+.hader-entry-signals i:nth-child(2) { animation-delay: 1.15s; }
+.hader-entry-signals i:nth-child(3) { animation-delay: 1.3s; }
+.hader-entry--leaving { animation: hader-entry-depart .32s ease-in both; pointer-events: none; }
+@keyframes hader-entry-appear { from { opacity: 0; } to { opacity: 1; } }
+@keyframes hader-entry-depart { to { opacity: 0; transform: translateY(-10px); } }
+@keyframes hader-entry-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes hader-entry-logo-draw { from { clip-path: inset(0 0 0 100%); } to { clip-path: inset(0); } }
+@keyframes hader-entry-logo-system { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: scale(1); } }
+@keyframes hader-entry-grid-settle { from { opacity: 0; transform: scale(1.08); } to { opacity: .3; transform: scale(1); } }
+@keyframes hader-entry-aura { from { opacity: 0; transform: scale(.8); } to { opacity: .18; transform: scale(1); } }
+@keyframes hader-entry-ring { from { opacity: 0; scale: .85; } to { opacity: .6; scale: 1; } }
+@keyframes hader-entry-wire { to { stroke-dashoffset: 0; } }
+@keyframes hader-entry-scan { 0% { transform: translateX(70px); opacity: 0; } 25% { opacity: .7; } 100% { transform: translateX(480px); opacity: 0; } }
+@media (max-width: 600px) {
+  .hader-entry-top-label { display: none; }
+  .hader-entry-stage { width: min(460px, 92vw); }
+  .hader-entry-logo { width: 74%; }
+  .hader-entry-title { font-size: 22px; }
+  .hader-entry-subtitle { font-size: 12px; }
+  .hader-entry-bottom { inset-inline: 22px; }
+  .hader-entry-caption { font-size: 10px; }
+}
+@media (max-height: 500px) {
+  .hader-entry-content { padding-block: 55px; }
+  .hader-entry-stage { width: 260px; margin-block: 0; }
+  .hader-entry-title { margin-top: 0; font-size: 18px; }
+  .hader-entry-eyebrow, .hader-entry-signals { display: none; }
+}
+.hader-entry--still, .hader-entry--still *, .hader-entry--still *::after { animation: none !important; transition: none !important; }
+.hader-entry--still .hader-entry-scan { display: none; }
+.hader-entry--still .hader-entry-circuit path { stroke-dashoffset: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .hader-entry, .hader-entry *, .hader-entry *::after { animation: none !important; transition: none !important; }
+  .hader-entry-scan { display: none; }
+  .hader-entry-circuit path { stroke-dashoffset: 0; }
+}
+
+.intro-replay {
+  display: none;
+  border: 0;
+  padding: 8px 0;
+  min-height: 36px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 5px;
+  opacity: .8;
+}
+html[data-entry-intros=ready] .intro-replay { display: inline-flex; align-items: center; }
+.intro-replay:hover { opacity: 1; }
+.intro-replay:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }

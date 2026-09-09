@@ -1,4 +1,5 @@
 import AnimatedLogo from '../components/AnimatedLogo';
+import EntryIntro from '../components/EntryIntro';
 import React, { useCallback, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { User, SystemSettings } from '../types';
@@ -97,6 +98,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
   return (
     <main className="hader-auth relative min-h-[100dvh] overflow-hidden bg-[#06191e] text-slate-100">
+      <EntryIntro variant="system" focusTarget="loginHeading" />
       <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(6,25,30,0.98),rgba(10,85,93,0.76)_52%,rgba(6,47,53,0.96))]" />
       <div className="absolute inset-0 opacity-[0.11] [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:48px_48px]" />
 
@@ -148,10 +150,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 <AnimatedLogo motion="assemble" size="login" tone="inverse" />
               </div>
 
+              <button type="button" className="intro-replay mb-4" data-replay-intro="system">إعادة المقدمة</button>
+
               <div className="mb-6 flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold text-primary-100">تسجيل الدخول</p>
-                  <h2 className="mt-2 text-2xl font-extrabold leading-tight text-slate-50">
+                  <h2 id="loginHeading" className="mt-2 text-2xl font-extrabold leading-tight text-slate-50">
                     {activeTab === 'staff' ? 'بوابة الموظفين' : 'بوابة ولي الأمر'}
                   </h2>
                 </div>

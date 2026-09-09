@@ -21,3 +21,19 @@ failure in React displays the word حاضر instead of removing the brand.
 
 The original source logo is retained as `public/brand/hader-logo.png`. The landing
 page keeps the original favicon and social image URLs for compatibility.
+
+## Entry introductions
+
+`public/brand/entry-intro.js` defines a shared `hader-entry-intro` custom element.
+The landing document uses it directly; `components/EntryIntro.tsx` mounts it in
+Login. `entry-intro.css` keeps the landing opening light and the sign-in opening
+technical and dark. These are brand introductions, not authentication checks.
+
+Each variant runs once per tab session (2.2 s landing / 2.6 s portal, plus a
+320 ms exit). The `data-replay-intro` buttons can replay it. Native dialogs handle
+background inertness and focus containment; Skip and Escape dismiss immediately.
+Focus returns to the replay button or the designated page heading. Disconnecting
+the element clears timers and restores scrolling. Reduced motion bypasses
+an automatic intro; a deliberate replay shows a static version. Landing section
+links also bypass the automatic opening. Missing storage or unsupported dialogs
+never prevent using the page. Neither intro submits or delays an auth request.
