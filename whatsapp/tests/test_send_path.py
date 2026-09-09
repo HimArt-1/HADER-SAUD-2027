@@ -241,7 +241,7 @@ class SendSingleMessageTest(unittest.TestCase):
         tool = make_tool(element)
         tool.statuses = {}
         tool._update_status = lambda msg_id, status: tool.statuses.__setitem__(msg_id, status)
-        tool._open_chat_human_like = lambda phone: True
+        tool._open_chat = lambda phone: True
         tool._simulate_human_activity = lambda: None
         tool._reading_pause = lambda: None
         return tool
@@ -285,6 +285,98 @@ class SendSingleMessageTest(unittest.TestCase):
         self.assertEqual(tool.statuses['row-3'], 'sent')
         self.assertEqual(tool.stats['sent'], 1)
         self.assertEqual(tool.stats['failed'], 0)
+
+
+class FakeRow:
+    """A search-result row as WhatsApp renders it."""
+
+    def __init__(self, text='', title=None, aria=None):
+        self.text = text
+        self._attrs = {'title': title, 'aria-label': aria}
+        self.clicks = 0
+
+    def get_attribute(self, name):
+        return self._attrs.get(name)
+
+    def click(self):
+        self.clicks += 1
+
+
+class UnsavedNumberTest(unittest.TestCase):
+    """
+    An unsaved number is printed formatted ("+966 50 123 4567"), so matching the raw digits
+    as a substring never fired. The old code then fell through to "click the first row",
+    which either opened somebody else's chat or nothing at all.
+    """
+
+    def setUp(self):
+        self.tool = make_tool(FakeElement())
+
+    def test_recognises_an_unsaved_number_shown_in_formatted_style(self):
+        row = FakeRow(text='+966 50 123 4567')
+        self.assertTrue(self.tool._row_matches_phone(row, '966501234567'))
+
+    def test_recognises_the_number_when_it_only_appears_in_the_title(self):
+        row = FakeRow(text='رسالة جديدة', title='‪+966 50 123 4567‬')
+        self.assertTrue(self.tool._row_matches_phone(row, '966501234567'))
+
+    def test_matches_a_saved_contact_row_carrying_the_number(self):
+        row = FakeRow(text='أبو أحمد', aria='966501234567')
+        self.assertTrue(self.tool._row_matches_phone(row, '966501234567'))
+
+    def test_matches_a_row_rendered_with_arabic_indic_numerals(self):
+        row = FakeRow(text='‪+٩٦٦ ٥٠ ١٢٣ ٤٥٦٧‬')
+        self.assertTrue(self.tool._row_matches_phone(row, '966501234567'))
+
+    def test_refuses_an_unrelated_row_so_nobody_else_is_messaged(self):
+        self.assertFalse(self.tool._row_matches_phone(FakeRow(text='مجموعة الصف الأول'), '966501234567'))
+        self.assertFalse(self.tool._row_matches_phone(FakeRow(text='+966 55 999 8877'), '966501234567'))
+        self.assertFalse(self.tool._row_matches_phone(FakeRow(text=''), '966501234567'))
+
+    def test_survives_a_row_that_went_stale(self):
+        class StaleRow(FakeRow):
+            @property
+            def text(self):
+                raise wpt.StaleElementReferenceException('gone')
+
+            @text.setter
+            def text(self, _value):
+                pass
+
+        self.assertFalse(self.tool._row_matches_phone(StaleRow(), '966501234567'))
+
+
+class OpenChatRoutingTest(unittest.TestCase):
+    """The send link is the route that works for a number missing from the address book."""
+
+    def setUp(self):
+        patcher_sleep = mock.patch.object(wpt.time, 'sleep', lambda *_: None)
+        patcher_sleep.start()
+        self.addCleanup(patcher_sleep.stop)
+
+        self.element = FakeElement()
+        self.tool = make_tool(self.element)
+        self.navigations = []
+        self.tool.driver.get = lambda url: self.navigations.append(url)
+
+    def test_uses_the_send_link_when_the_number_is_not_in_the_contacts(self):
+        self.tool._open_chat_via_search = lambda phone: False
+        with mock.patch.object(wpt.WebDriverWait, 'until', lambda *_a, **_k: True), \
+             mock.patch.object(wpt, '_find_first', return_value=self.element):
+            self.assertTrue(self.tool._open_chat('966501234567'))
+
+        self.assertEqual(self.navigations, ['https://web.whatsapp.com/send?phone=966501234567'])
+
+    def test_keeps_the_search_result_and_never_reloads_when_it_matched(self):
+        self.tool._open_chat_via_search = lambda phone: True
+        self.assertTrue(self.tool._open_chat('966501234567'))
+        self.assertEqual(self.navigations, [], 'a matched search must not reload the page')
+
+    def test_reports_failure_when_the_link_never_opens_a_composer(self):
+        self.tool._open_chat_via_search = lambda phone: False
+        with mock.patch.object(wpt.WebDriverWait, 'until', lambda *_a, **_k: True), \
+             mock.patch.object(wpt, '_find_first', return_value=None):
+            self.assertFalse(self.tool._open_chat('966501234567'))
 
 
 class InvalidPopupSelectorTest(unittest.TestCase):

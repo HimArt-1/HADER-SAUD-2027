@@ -245,11 +245,14 @@ _SELECTORS = {
     # Scoped to the modal/alert containers on purpose: a bare //*[contains(text(),"invalid")]
     # matches any stray text node anywhere in WhatsApp Web's DOM, which made every message look
     # like an unreachable number and skipped it without ever typing.
+    # Matching on the wording alone would break whenever WhatsApp rephrases the notice, so the
+    # scope (a dialog or alert) carries the meaning and only a keyword is looked for inside it.
     "invalid_popup": [
-        '//div[@role="dialog"][contains(., "Phone number shared via url is invalid")]',
-        '//div[@role="dialog"][contains(., "رقم الهاتف الذي تمت مشاركته عبر عنوان url غير صحيح")]',
-        '//div[@role="alert"][contains(., "Phone number shared via url is invalid")]',
-        '//div[contains(@class,"_3J6wB")][contains(., "invalid")]',
+        '//div[@role="dialog"][contains(., "invalid")]',
+        '//div[@role="dialog"][contains(., "غير صحيح")]',
+        '//div[@role="dialog"][contains(., "غير صالح")]',
+        '//div[@role="alert"][contains(., "invalid")]',
+        '//div[@role="alert"][contains(., "غير صحيح")]',
     ],
 }
 
@@ -1050,44 +1053,12 @@ class WhatsAppProTool:
             logging.info(f"[{current}/{total}] Processing: {phone}")
             self._update_status(msg_id, 'sending')
 
-            # 1. محاولة فتح المحادثة كالبشر دون إعادة تحميل
-            chat_opened = self._open_chat_human_like(phone)
-
-            # Wait for input box OR invalid popup (whichever appears first)
-            input_xpath   = " | ".join(_SELECTORS["input_box"])
-            invalid_xpath = " | ".join(_SELECTORS["invalid_popup"])
-            combined = f"{input_xpath} | {invalid_xpath}"
-
-            # 2. خطة بديلة (Fallback) إذا فشل البحث في الواجهة
-            if not chat_opened:
-                logging.warning(f"  ⚠️  UI Search failed for {phone}, using fallback URL…")
-                try:
-                    self.driver.get(f"https://web.whatsapp.com/send?phone={phone}")
-                except WebDriverException as nav_err:
-                    logging.error(f"  ❌ Navigation failed: {nav_err}")
-                    self._update_status(msg_id, 'failed')
-                    self.stats["failed"] += 1
-                    return 'failed'
-
-                # انتظار تحميل الصفحة فعلياً
-                try:
-                    WebDriverWait(self.driver, 20).until(
-                        lambda d: d.execute_script(
-                            "return document.readyState === 'complete'"
-                        )
-                    )
-                except (TimeoutException, WebDriverException):
-                    pass
-
-                try:
-                    WebDriverWait(self.driver, 45).until(
-                        EC.presence_of_element_located((By.XPATH, combined))
-                    )
-                except TimeoutException:
-                    logging.warning(f"  ⚠️  Timeout waiting for chat with {phone}")
-                    self._update_status(msg_id, 'failed')
-                    self.stats["failed"] += 1
-                    return 'failed'
+            # فتح المحادثة: بحث الواجهة أولاً، ثم رابط الإرسال للأرقام غير المحفوظة
+            if not self._open_chat(phone):
+                logging.warning(f"  ⚠️  Could not open a chat with {phone}")
+                self._update_status(msg_id, 'failed')
+                self.stats["failed"] += 1
+                return 'failed'
 
             # Check invalid popup
             for xpath in _SELECTORS["invalid_popup"]:
@@ -1366,7 +1337,79 @@ class WhatsAppProTool:
 
     # ── Human simulation ───────────────────────────────────────────
 
-    def _open_chat_human_like(self, phone: str) -> bool:
+    # ── Opening a conversation ─────────────────────────────────────
+
+    # Arabic-Indic and Persian numerals, so a row rendered as ٩٦٦٥٠… still matches 96650…
+    _DIGIT_TRANSLATION = str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789')
+
+    @classmethod
+    def _digits(cls, value: str) -> str:
+        return re.sub(r'\D', '', (value or '').translate(cls._DIGIT_TRANSLATION))
+
+    def _row_matches_phone(self, row, phone: str) -> bool:
+        """
+        True when a search-result row really belongs to ``phone``.
+
+        WhatsApp prints an unsaved number formatted ("+966 50 123 4567"), so a raw
+        substring match on the digits never fires. Comparing digit-only text instead
+        recognises the unsaved-number row, and — just as important — stops the bot from
+        opening whatever row happens to sit at the top of the list.
+        """
+        target = phone[-9:]
+        if not target:
+            return False
+        try:
+            haystack = ' '.join(filter(None, [
+                row.text or '',
+                row.get_attribute('title') or '',
+                row.get_attribute('aria-label') or ''
+            ]))
+        except (StaleElementReferenceException, WebDriverException):
+            return False
+        return target in self._digits(haystack)
+
+    def _open_chat(self, phone: str) -> bool:
+        """
+        Open the conversation for ``phone``, saved in the address book or not.
+
+        The UI search is tried first because it keeps the session looking human and avoids
+        a page reload, but its result is only accepted when the row's own digits match the
+        target. Anything unverified goes to the send link, which is the one route that
+        always works for a number that is not in the contact list.
+        """
+        if self._open_chat_via_search(phone):
+            return True
+        return self._open_chat_via_link(phone)
+
+    def _open_chat_via_link(self, phone: str) -> bool:
+        """Open a chat through WhatsApp's send link — the reliable route for unsaved numbers."""
+        logging.info(f"  🔗 Opening {phone} through the send link (works for unsaved numbers)…")
+        try:
+            self.driver.get(f"https://web.whatsapp.com/send?phone={phone}")
+        except WebDriverException as nav_err:
+            logging.error(f"  ❌ Navigation failed: {nav_err}")
+            return False
+
+        try:
+            WebDriverWait(self.driver, 25).until(
+                lambda d: d.execute_script("return document.readyState === 'complete'")
+            )
+        except (TimeoutException, WebDriverException):
+            pass
+
+        input_xpath = " | ".join(_SELECTORS["input_box"])
+        invalid_xpath = " | ".join(_SELECTORS["invalid_popup"])
+        try:
+            WebDriverWait(self.driver, 60).until(
+                EC.presence_of_element_located((By.XPATH, f"{input_xpath} | {invalid_xpath}"))
+            )
+        except TimeoutException:
+            logging.warning(f"  ⚠️  Timed out waiting for the chat with {phone}")
+            return False
+
+        return bool(_find_first(self.driver, _SELECTORS["input_box"]))
+
+    def _open_chat_via_search(self, phone: str) -> bool:
         """فتح المحادثة عبر واجهة المستخدم لمحاكاة البشر ومنع إعادة تحميل الصفحة."""
         _mod_key = Keys.COMMAND if PLATFORM == 'Darwin' else Keys.CONTROL
 
@@ -1415,22 +1458,26 @@ class WhatsAppProTool:
             # ── انتظار ظهور نتائج البحث ──
             time.sleep(random.uniform(2.5, 4.0))
 
-            # ── الخطوة 4: النقر على أول نتيجة بحث (بدلاً من Enter) ──
-            contact_xpaths = [
-                # نتائج البحث في واتساب ويب الحديث
-                f'//span[contains(@title, "{phone}")]',
-                f'//span[@dir="auto"][contains(text(), "{phone}")]',
-                # آخر أرقام الهاتف
-                f'//span[contains(text(), "{phone[-4:]}")]',
-                # أي عنصر listitem قابل للنقر في نتائج البحث
+            # ── الخطوة 4: اختيار النتيجة التي تطابق الرقم فعلاً ──
+            # لا يُنقر على أول صف مهما كان: ذلك كان يفتح محادثة شخص آخر حين لا تظهر
+            # نتيجة للرقم، ويتخطى الأرقام غير المحفوظة لأنها تُعرض بصيغة منسّقة.
+            row_xpaths = [
                 '//div[@data-testid="cell-frame-container"]',
                 '//div[@data-testid="chat-list-item"]',
-                # Fallback: أول عنصر في القائمة
-                '//div[@id="pane-side"]//div[@role="listitem"][1]',
+                '//div[@id="pane-side"]//div[@role="listitem"]',
                 '//div[@role="listitem"]',
+                '//div[@role="button"][@aria-label]',
             ]
+            seen_rows = []
+            for xpath in row_xpaths:
+                try:
+                    seen_rows.extend(self.driver.find_elements(By.XPATH, xpath))
+                except WebDriverException:
+                    continue
 
-            contact = _find_first(self.driver, contact_xpaths, timeout=3)
+            contact = next((row for row in seen_rows if self._row_matches_phone(row, phone)), None)
+            if contact is None:
+                logging.info(f"  ℹ️  {phone} is not in the contact list — will use the send link.")
             if contact:
                 try:
                     contact.click()
@@ -1452,8 +1499,6 @@ class WhatsAppProTool:
                     return True
                 except TimeoutException:
                     logging.warning(f"  ⚠️  Chat opened but input box not found for {phone}")
-            else:
-                logging.warning(f"  ⚠️  No search result found for {phone}")
 
             # ── تنظيف: مسح البحث والخروج ──
             try:
