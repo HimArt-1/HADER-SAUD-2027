@@ -6,9 +6,7 @@
 // typically block cross-origin browser fetches (no ACAO), which spams the console with CORS errors.
 
 import { logger } from './logger';
-
-const supabaseUrl = import.meta?.env?.VITE_SUPABASE_URL as string | undefined;
-const supabaseKey = import.meta?.env?.VITE_SUPABASE_ANON_KEY as string | undefined;
+import { supabaseCredentials } from './supabase';
 
 let timeOffset = 0; // The delta in milliseconds between local clock and server clock
 let isTimeSynced = false;
@@ -25,12 +23,27 @@ function applyOffsetFromHttpDate(dateHeader: string | null, start: number, end: 
     return true;
 }
 
-/** PostgREST returns a reliable `Date` header; CORS allows browser clients with anon key. */
+/**
+ * Probe endpoint for the server clock.
+ *
+ * Must be a real table route, NOT the PostgREST root (`/rest/v1/`): the root is the
+ * schema-introspection endpoint, which answers 401 to the `anon` key and — because it
+ * sends no `Access-Control-Expose-Headers` — hides its `Date` header from browser JS.
+ * A table route answers 200 and explicitly exposes `Date`, so the offset is readable.
+ * `limit=0` returns an empty array, so no row data crosses the wire.
+ */
+const TIME_PROBE_PATH = '/rest/v1/students?select=id&limit=0';
+
+/** PostgREST returns a reliable `Date` header; CORS exposes it on table routes. */
 async function trySyncFromSupabase(): Promise<boolean> {
-    if (!supabaseUrl || !supabaseKey) return false;
+    const { url: supabaseUrl, anonKey: supabaseKey } = supabaseCredentials;
+    if (!supabaseUrl || !supabaseKey) {
+        logger.warn('TimeSync', 'Supabase is not configured — falling back to the device clock.');
+        return false;
+    }
     try {
         const start = Date.now();
-        const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}/rest/v1/`, {
+        const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}${TIME_PROBE_PATH}`, {
             method: 'GET',
             headers: {
                 apikey: supabaseKey,
@@ -40,8 +53,17 @@ async function trySyncFromSupabase(): Promise<boolean> {
             signal: AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined,
         });
         const end = Date.now();
-        return applyOffsetFromHttpDate(response.headers.get('date'), start, end);
-    } catch {
+        if (!response.ok) {
+            logger.warn('TimeSync', `Clock probe rejected (HTTP ${response.status}) — falling back to the device clock.`);
+            return false;
+        }
+        const applied = applyOffsetFromHttpDate(response.headers.get('date'), start, end);
+        if (!applied) {
+            logger.warn('TimeSync', 'Server sent no readable Date header — falling back to the device clock.');
+        }
+        return applied;
+    } catch (error) {
+        logger.warn('TimeSync', `Clock probe failed (${error instanceof Error ? error.message : 'network error'}) — falling back to the device clock.`);
         return false;
     }
 }

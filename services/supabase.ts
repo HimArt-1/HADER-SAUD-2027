@@ -72,6 +72,17 @@ export const supabaseStatus = {
   isConfigured: Boolean(supabaseUrl && supabaseKey)
 };
 
+/**
+ * Single source of truth for the project credentials.
+ * Modules that need a raw REST call (e.g. the clock probe in timeSync) read them from
+ * here instead of repeating the `import.meta.env` lookup, so there is exactly one place
+ * where a missing or misread environment variable can surface.
+ */
+export const supabaseCredentials: { url?: string; anonKey?: string } = {
+  url: supabaseUrl,
+  anonKey: supabaseKey
+};
+
 // Initialize Supabase client or safe fallback
 export const supabase: any = supabaseStatus.isConfigured
   ? createClient(supabaseUrl, supabaseKey)
