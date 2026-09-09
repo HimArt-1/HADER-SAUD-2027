@@ -36,6 +36,7 @@ import {
 import ConnectionStatusBadge from '../components/whatsapp/ConnectionStatusBadge';
 import SendingProgress from '../components/whatsapp/SendingProgress';
 import EngineControlPanel, { describeEngineState } from '../components/whatsapp/EngineControlPanel';
+import BarcodeBroadcastCard from '../components/whatsapp/BarcodeBroadcastCard';
 import { useWhatsAppSSE } from '../hooks/useWhatsAppSSE';
 import { QueueListSkeleton, StatsSkeleton } from '../components/whatsapp/Skeletons';
 import { useWhatsAppShortcuts, formatShortcut } from '../hooks/useKeyboardShortcuts';
@@ -1227,6 +1228,16 @@ const WhatsAppControl: React.FC = () => {
                                 onContinuousChange={updateContinuousMode}
                                 onCommand={(command) => { void runEngineCommand(command); }}
                                 onResetCounters={() => setExecutionQueue([])}
+                            />
+
+                            {/* 🎫 إرسال الباركود لأولياء الأمور */}
+                            <BarcodeBroadcastCard
+                                students={students}
+                                selectedIds={manualSelectedIds}
+                                disabled={isSimulationMode}
+                                confirm={confirm}
+                                onNotify={showToast}
+                                onCompleted={fetchQueue}
                             />
                             
                             {/* Live Notifications (On Present) Quick Settings */}

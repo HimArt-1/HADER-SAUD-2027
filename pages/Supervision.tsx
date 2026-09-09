@@ -27,6 +27,8 @@ import { useToast } from '../components/Toast';
 import { useAdminTheme } from '../hooks/useAdminTheme';
 import QuickSendModal from '../components/whatsapp/QuickSendModal';
 import { BarcodeStudio } from '../components/BarcodeStudio';
+import BarcodeCardModal from '../components/barcode/BarcodeCardModal';
+import { whatsappGateway } from '../services/whatsappGateway';
 import { ScanLine, QrCode, HelpCircle } from 'lucide-react';
 import { UniversalGuideModal, GuideStep } from '../components/common/UniversalGuideModal';
 import { printExitCard, printViolationNotice } from '../services/documentPrintTemplates';
@@ -374,6 +376,7 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
 
   // Barcode Studio State
   const [showBarcodeStudio, setShowBarcodeStudio] = useState(false);
+  const [barcodeCardStudent, setBarcodeCardStudent] = useState<Student | null>(null);
   const [barcodeSelectedIds, setBarcodeSelectedIds] = useState<Set<string>>(new Set());
   const [showGuide, setShowGuide] = useState(false);
 
@@ -1370,6 +1373,46 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
     setQuickSendTemplateId(templateId);
     setShowQuickSendModal(true);
   };
+
+  const openBarcodeCard = (student: Student) => setBarcodeCardStudent(student);
+
+  /** Upload the rendered barcode card and queue it for the student's guardian. */
+  const sendBarcodeCard = useCallback(async (file: File, message: string) => {
+    if (!barcodeCardStudent) return;
+    const student = barcodeCardStudent;
+    const phone = resolveStudentWhatsAppPhone(student);
+    if (!phone) throw new Error('لا يوجد رقم واتساب صالح لولي الأمر');
+
+    try {
+      const attachment = await whatsappGateway.upload(file);
+      await whatsappGateway.enqueue([{
+        phone,
+        message,
+        attachment,
+        student_name: student.name,
+        status_label: 'باركود'
+      }]);
+      recordCommunicationActivity({
+        channel: 'whatsapp',
+        status: 'queued',
+        title: 'إرسال باركود الطالب',
+        recipientLabel: student.name,
+        recipientCount: 1
+      });
+      showToast(`تمت إضافة باركود ${student.name} إلى طابور واتساب`, 'success');
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'تعذر الاتصال بخادم واتساب';
+      recordCommunicationActivity({
+        channel: 'whatsapp',
+        status: 'failed',
+        title: 'إرسال باركود الطالب',
+        recipientLabel: student.name,
+        recipientCount: 1,
+        detail: reason
+      });
+      throw new Error(reason);
+    }
+  }, [barcodeCardStudent, recordCommunicationActivity]);
 
   // Quick Attendance - Late Marking Functions
   const toggleLateStudentSelection = (studentId: string) => {
@@ -2714,6 +2757,13 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>
+                                <button
+                                  onClick={() => openBarcodeCard(student)}
+                                  className="p-2 bg-teal-500/10 rounded-lg hover:bg-teal-500/20 text-teal-300 transition-all"
+                                  title="عرض باركود الطالب وإرساله"
+                                >
+                                  <ScanLine className="w-4 h-4" />
+                                </button>
                                 {(student.attendanceStatus === 'late' || student.attendanceStatus === 'absent') && (<>
                                   <button
                                     onClick={() => openWhatsApp(student, student.attendanceStatus === 'absent' ? 'absent' : 'late')}
@@ -3659,6 +3709,14 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
                         title="واتساب"
                       >
                         <Phone className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => openBarcodeCard(student)}
+                        data-testid={`barcode-open-${student.id}`}
+                        className="p-2 bg-teal-500/10 rounded-xl text-teal-300 hover:bg-teal-500/20 transition-all"
+                        title="عرض باركود الطالب وإرساله"
+                      >
+                        <ScanLine className="w-4 h-4" />
                       </button>
                       {canUseWhatsAppGateway && (
                         <button
@@ -4633,6 +4691,15 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
           students={students}
           selectedIds={barcodeSelectedIds}
           onClose={() => setShowBarcodeStudio(false)}
+        />
+      )}
+      {barcodeCardStudent && (
+        <BarcodeCardModal
+          student={barcodeCardStudent}
+          canSend={canUseWhatsAppGateway}
+          onSend={sendBarcodeCard}
+          onClose={() => setBarcodeCardStudent(null)}
+          surfaceClass={surfaceClass}
         />
       )}
       <UniversalGuideModal 

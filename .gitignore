@@ -58,6 +58,11 @@ whatsapp/*.db
 whatsapp/*.db-journal
 whatsapp/*.db-wal
 whatsapp/*.db-shm
+# A stray run inside the published downloads folder must never ship a queue database
+# (it holds guardian phone numbers) to the public site.
+public/downloads/whatsapp/*.db
+public/downloads/whatsapp/*.db-wal
+public/downloads/whatsapp/*.db-shm
 whatsapp/contacts.csv
 
 # Temp files
