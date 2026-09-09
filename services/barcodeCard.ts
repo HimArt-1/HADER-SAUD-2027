@@ -1,16 +1,15 @@
 // =============================================================================
 // نظام حاضر (Hader) — Student Barcode Card
 // =============================================================================
-// Renders a student's scan barcode as a self-contained PNG card that can be shown
+// Renders a student's scan QR code as a self-contained PNG card that can be shown
 // in the supervision screen, downloaded, or delivered to a guardian over WhatsApp.
 //
 // Drawing happens on a canvas rather than on a mounted DOM node: sending a whole
 // class means producing hundreds of cards, and a canvas needs no layout pass.
 
-import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
 import type { Student } from '../types';
-import { isCode128Compatible, safeBarcodeFileStem } from '../components/barcode/barcodeStudioRules';
+import { safeBarcodeFileStem } from '../components/barcode/barcodeStudioRules';
 
 export type BarcodeCardStudent = Pick<Student, 'id' | 'name'> &
   Partial<Pick<Student, 'class_name' | 'section'>>;
@@ -63,31 +62,22 @@ const loadImage = (source: string): Promise<HTMLImageElement> =>
   });
 
 /**
- * Draw the CODE128 barcode (or a QR code when the id cannot be encoded as CODE128)
- * and return it as an image ready to be placed on the card.
+ * Draw the student's QR code and return it as an image ready to be placed on the card.
+ *
+ * A QR is used for every student: it scans from any angle, survives a creased or partly
+ * covered print far better than a 1D barcode, and every scanner in the app (kiosk, guard,
+ * admin) already accepts `qr_code`. Error correction is raised to Q because these cards get
+ * photographed and forwarded between phones. The payload is just the student id, so the
+ * extra redundancy costs almost no density.
  */
-const renderCodeImage = async (value: string): Promise<{ image: HTMLImageElement; kind: 'code128' | 'qr' }> => {
-  if (isCode128Compatible(value)) {
-    const barcodeCanvas = document.createElement('canvas');
-    JsBarcode(barcodeCanvas, value, {
-      format: 'CODE128',
-      displayValue: false,
-      height: 150,
-      width: 3,
-      margin: 8,
-      background: CARD_BG,
-      lineColor: INK
-    });
-    return { image: await loadImage(barcodeCanvas.toDataURL('image/png')), kind: 'code128' };
-  }
-
+const renderCodeImage = async (value: string): Promise<HTMLImageElement> => {
   const qrDataUrl = await QRCode.toDataURL(value, {
     margin: 1,
-    width: 460,
-    errorCorrectionLevel: 'M',
+    width: 520,
+    errorCorrectionLevel: 'Q',
     color: { dark: INK, light: CARD_BG }
   });
-  return { image: await loadImage(qrDataUrl), kind: 'qr' };
+  return await loadImage(qrDataUrl);
 };
 
 const drawCentred = (
@@ -147,10 +137,10 @@ export const renderBarcodeCardPng = async (
   drawCentred(ctx, student.name?.trim() || 'طالب', centre, 236, 'bold 52px system-ui, sans-serif', INK);
   drawCentred(ctx, barcodeCardClassLine(student), centre, 306, '36px system-ui, sans-serif', MUTED);
 
-  // Barcode panel
-  const { image, kind } = await renderCodeImage(student.id);
+  // QR panel — square, so the code stays as large as the card allows
+  const image = await renderCodeImage(student.id);
   const panelTop = 366;
-  const panelHeight = kind === 'qr' ? 470 : 300;
+  const panelHeight = 470;
   ctx.fillStyle = '#f8fafc';
   roundedRect(ctx, 60, panelTop, width - 120, panelHeight, 24);
   ctx.fill();
