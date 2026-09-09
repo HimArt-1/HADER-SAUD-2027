@@ -1,3 +1,4 @@
+import AnimatedLogo from '../components/AnimatedLogo';
 import React, { useCallback, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { User, SystemSettings } from '../types';
@@ -104,12 +105,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <div className="max-w-xl">
             <div className="mb-10 flex items-center gap-4">
               <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.04] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.10)]">
-                <img
-                  src="/images/hader-logo.png"
-                  alt="حاضر"
-                  className="h-24 w-auto object-contain"
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                />
+                <AnimatedLogo motion="assemble" size="login" tone="inverse" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-primary-100">نظام حاضر</p>
@@ -148,13 +144,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <section className="w-full">
           <div className="mx-auto w-full max-w-[440px] rounded-[2rem] border border-white/10 bg-[#06191e]/85 md:bg-[#06191e]/72 p-2 shadow-[0_30px_90px_-42px_rgb(var(--color-primary-500)_/_0.42),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md md:backdrop-blur-xl">
             <div className="rounded-[1.55rem] border border-white/10 bg-[#0b272d]/90 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:p-7">
-              <div className="mb-7 md:hidden">
-                <img
-                  src="/images/hader-logo.png"
-                  alt="حاضر"
-                  className="mx-auto h-28 w-auto object-contain"
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                />
+              <div className="mb-7 text-center md:hidden">
+                <AnimatedLogo motion="assemble" size="login" tone="inverse" />
               </div>
 
               <div className="mb-6 flex items-start justify-between gap-4">

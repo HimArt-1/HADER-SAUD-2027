@@ -1,3 +1,4 @@
+import AnimatedLogo from './components/AnimatedLogo';
 import React, { useEffect, useState, Suspense, useCallback } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { auth } from './services/auth';
@@ -141,10 +142,7 @@ const SplashScreen: React.FC<{ title: string; subtitle?: string; mode?: 'boot' |
       </div>
 
       <div className="splash-logo-container">
-        <div className="splash-orbit-ring splash-orbit-ring-outer" aria-hidden="true" />
-        <div className="splash-orbit-ring splash-orbit-ring-inner" aria-hidden="true" />
-        <div className="splash-pulse-plane" aria-hidden="true" />
-        <img src="/images/hader-logo.png" alt="حاضر" className="splash-logo" />
+        <AnimatedLogo motion={mode === 'boot' ? 'assemble' : 'quiet'} size="splash" />
       </div>
 
       <div className="splash-signal-strip" aria-hidden="true">

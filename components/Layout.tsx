@@ -1,3 +1,4 @@
+import AnimatedLogo from './AnimatedLogo';
 import React, { useState, useEffect, useRef, createContext, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, Menu, Shield, Users, Clock, LayoutDashboard, Settings, UserCircle, Activity, X, Bell, Calendar, ChevronLeft, ChevronRight, Headphones, Sun, Moon, MessageSquare, Download, Apple, Monitor, Loader2, CheckCircle2, AlertCircle, ScanLine, FileText, ShieldAlert, Send, DoorOpen, Megaphone, HelpCircle, Info, Cloud, RefreshCw, Sparkles, Globe, Wifi, WifiOff, ClipboardList } from 'lucide-react';
@@ -813,12 +814,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
         <div className={`app-shell min-h-[100dvh] w-full max-w-full overflow-x-hidden flex flex-col md:flex-row ${dark_mode ? 'text-gray-100' : 'text-gray-800'}`}>
           {/* Topbar for mobile */}
           <div className={`md:hidden safe-top ${dark_mode ? 'glass' : 'bg-white/80 backdrop-blur-lg'} px-4 pb-3 pt-4 flex justify-between items-center z-20 border-b ${dark_mode ? 'border-white/10' : 'border-gray-200'} sticky top-0`}>
-            <img
-              src="/images/hader-logo.png"
-              alt="حاضر"
-              className="h-16 w-auto object-contain drop-shadow-[0_0_15px_rgb(var(--color-primary-500)_/_0.5)]"
-              onError={(e) => { e.currentTarget.outerHTML = `<h1 class="text-2xl font-bold font-serif ${dark_mode ? 'text-white text-glow' : 'text-gray-800'}">حاضر</h1>`; }}
-            />
+            <AnimatedLogo motion="draw" size="navigation" tone={dark_mode ? 'inverse' : 'brand'} className="app-mobile-brand" />
             <div className="flex items-center gap-2 ml-auto">
               {NotificationIcon}
               {/* Mobile Scanner Button - Show for admins, supervisors, and watchers */}
@@ -879,14 +875,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                   <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-500/20 blur-[50px] pointer-events-none transition-all duration-500 ${sidebarCollapsed ? 'w-16 h-16 opacity-40' : 'w-40 h-40 opacity-60 group-hover:opacity-80'}`}></div>
 
                   <div className={`relative z-10 flex items-center justify-center transition-all duration-300 ${sidebarCollapsed ? 'h-12' : 'h-24'}`}>
-                    <img
-                      src="/images/hader-logo.png"
-                      alt="حاضر"
-                      className={`relative object-contain transition-all duration-300 drop-shadow-[0_0_20px_rgb(var(--color-primary-500)_/_0.3)] hover:drop-shadow-[0_0_30px_rgb(var(--color-primary-500)_/_0.5)] ${sidebarCollapsed ? 'h-10' : 'h-28'}`}
-                      onError={(e) => {
-                        e.currentTarget.parentElement!.innerHTML = `<span class="font-bold text-transparent bg-clip-text bg-gradient-to-br from-primary-400 to-secondary-400 ${sidebarCollapsed ? 'text-xl' : 'text-3xl'}">حاضر</span>`;
-                      }}
-                    />
+                    <AnimatedLogo motion="draw" size={sidebarCollapsed ? 'compact' : 'navigation'} tone={dark_mode ? 'inverse' : 'brand'} />
                   </div>
                 </div>
                 <div className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'md:w-0 md:h-0 md:opacity-0' : 'w-full opacity-100'}`}>

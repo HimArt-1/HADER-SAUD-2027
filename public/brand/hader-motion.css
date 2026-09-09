@@ -1,0 +1,126 @@
+/* Adapted from the supplied hadir-scene.jsx: sliced entrance, light reveal and shine.
+   Finite CSS motion; no animation engine, timers or particle render loop required. */
+.hader-mark {
+  --hader-mark-tone: none;
+  display: inline-block;
+  position: relative;
+  isolation: isolate;
+  width: 112px;
+  max-width: 100%;
+  aspect-ratio: 1024 / 490;
+  vertical-align: middle;
+  flex-shrink: 0;
+  line-height: 0;
+}
+.hader-mark[data-size=compact] { width: 84px; }
+.hader-mark[data-size=navigation] { width: 192px; }
+.hader-mark[data-size=login] { width: min(240px, 65vw); }
+.hader-mark[data-size=splash] { width: clamp(216px, 33vw, 368px); }
+.hader-mark[data-tone=inverse] { --hader-mark-tone: brightness(0) invert(1); }
+html.dark .hader-mark[data-tone=auto],
+[data-theme=dark] .hader-mark[data-tone=auto] {
+  --hader-mark-tone: brightness(0) invert(1);
+}
+.hader-mark > .hader-mark-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1024 / 490;
+  object-fit: contain;
+  filter: var(--hader-mark-tone);
+}
+.hader-mark-pieces,
+.hader-mark-piece,
+.hader-mark-light {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.hader-mark-pieces {
+  filter: var(--hader-mark-tone);
+  animation: hader-pieces-finish .01s .94s forwards;
+}
+.hader-mark-piece {
+  background: url('hader-logo.png') center / contain no-repeat;
+  animation: hader-piece-enter .62s cubic-bezier(.22, 1, .36, 1) both;
+}
+.hader-mark-piece:nth-child(1) { clip-path: inset(0 0 0 80%); animation-delay: 0s; }
+.hader-mark-piece:nth-child(2) { clip-path: inset(0 20% 0 60%); animation-delay: .08s; }
+.hader-mark-piece:nth-child(3) { clip-path: inset(0 40% 0 40%); animation-delay: .16s; }
+.hader-mark-piece:nth-child(4) { clip-path: inset(0 60% 0 20%); animation-delay: .24s; }
+.hader-mark-piece:nth-child(5) { clip-path: inset(0 80% 0 0); animation-delay: .32s; }
+.hader-mark[data-motion=assemble] > .hader-mark-image {
+  animation: hader-base-arrive .01s .94s both;
+}
+.hader-mark[data-motion=draw] > .hader-mark-image {
+  animation: hader-light-reveal .9s cubic-bezier(.65, 0, .35, 1) both,
+    hader-soft-settle .5s .8s ease-out;
+}
+.hader-mark-light {
+  overflow: hidden;
+  -webkit-mask: url('hader-logo.png') center / contain no-repeat;
+  mask: url('hader-logo.png') center / contain no-repeat;
+}
+.hader-mark-light::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 35%;
+  background: linear-gradient(105deg, transparent, #d9fff4b3, transparent);
+  transform: translateX(-130%);
+  animation: hader-shine-once .95s 1s ease-in-out both;
+}
+.hader-mark[data-motion=quiet] .hader-mark-light::after { animation: none; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .hader-mark:hover .hader-mark-light::after,
+  a:hover > .hader-mark .hader-mark-light::after,
+  a:focus-visible > .hader-mark .hader-mark-light::after {
+    animation: hader-shine-interaction .8s ease-in-out both;
+  }
+}
+.hader-mark-fallback {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  inset: 0;
+  font: 800 1.6rem/1.2 Arial, sans-serif;
+  color: inherit;
+}
+.hader-mark[data-failed=true] > :not(.hader-mark-fallback) { visibility: hidden; }
+@keyframes hader-light-reveal {
+  from { clip-path: inset(0 0 0 100%); }
+  to { clip-path: inset(0); }
+}
+@keyframes hader-soft-settle {
+  0%, 100% { transform: scale(1); }
+  45% { transform: scale(1.025); }
+}
+@keyframes hader-piece-enter {
+  from { transform: translateY(-26%); opacity: 0; }
+  70% { opacity: 1; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes hader-base-arrive { from { opacity: 0; } to { opacity: 1; } }
+@keyframes hader-pieces-finish { to { visibility: hidden; } }
+@keyframes hader-shine-once {
+  from { transform: translateX(-130%); }
+  to { transform: translateX(390%); }
+}
+@keyframes hader-shine-interaction {
+  from { transform: translateX(-130%); }
+  to { transform: translateX(390%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hader-mark,
+  .hader-mark *,
+  .hader-mark *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .hader-mark > .hader-mark-image { opacity: 1; clip-path: none; transform: none; }
+  .hader-mark-pieces, .hader-mark-light { display: none; }
+}
+@media (forced-colors: active) {
+  .hader-mark-light { display: none; }
+}

@@ -1,3 +1,4 @@
+import AnimatedLogo from '../components/AnimatedLogo';
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -284,12 +285,7 @@ function LoginSimulation({
         <div>
           <div className="mb-8 flex items-center gap-4">
             <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.04] p-3">
-              <img
-                src="/images/hader-logo.png"
-                alt="حاضر"
-                className="h-20 w-auto object-contain"
-                onError={(event) => { event.currentTarget.style.display = 'none'; }}
-              />
+              <AnimatedLogo motion="assemble" size="navigation" tone="inverse" />
             </div>
             <div>
               <p className="text-sm font-semibold text-primary-100">نظام حاضر</p>
@@ -400,12 +396,7 @@ function WorkspaceHeader({
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[1.35rem] border border-white/10 bg-slate-950/45 p-3">
       <div className="flex items-center gap-3">
-        <img
-          src="/images/hader-logo.png"
-          alt="حاضر"
-          className="h-10 w-auto object-contain"
-          onError={(event) => { event.currentTarget.style.display = 'none'; }}
-        />
+        <AnimatedLogo size="compact" tone="inverse" />
         <div>
           <p className="text-sm font-black text-slate-50">
             {portal === 'staff' ? 'واجهة الموظفين التجريبية' : 'بوابة ولي الأمر التجريبية'}
@@ -1657,12 +1648,7 @@ const Demo: React.FC = () => {
         {!isEmbedded && <header className="border-b border-white/[0.06] bg-slate-950/45 backdrop-blur-xl">
           <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-5 md:px-10">
             <Link to="/landing" className="flex items-center gap-3">
-              <img
-                src="/images/hader-logo.png"
-                alt="حاضر"
-                className="h-10 w-auto object-contain"
-                onError={(event) => { event.currentTarget.style.display = 'none'; }}
-              />
+              <AnimatedLogo motion="draw" size="compact" tone="inverse" />
               <span className="hidden text-sm font-bold text-slate-300 sm:inline">الديمو التسويقي</span>
             </Link>
             <nav className="flex items-center gap-2">
