@@ -1,6 +1,7 @@
 import React from 'react';
 import { logClientError } from '../services/telemetry';
 import { auth } from '../services/auth';
+import { clearStaleDeploymentCaches, CHUNK_RELOAD_KEY, isChunkLoadError } from '../utils/lazyWithRetry';
 
 type ErrorBoundaryState = {
   hasError: boolean;
@@ -12,30 +13,9 @@ type ErrorBoundaryProps = {
   children: React.ReactNode;
 };
 
-function isChunkLoadError(err?: Error): boolean {
-  if (!err) return false;
-  const msg = err.message || '';
-  return (
-    msg.includes('Failed to fetch dynamically imported module') ||
-    msg.includes('Importing a module script failed') ||
-    msg.includes('error loading dynamically imported module') ||
-    msg.includes('Loading chunk') ||
-    msg.includes('Unable to preload CSS')
-  );
-}
-
 async function hardReload(): Promise<void> {
-  try {
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map(r => r.unregister()));
-    }
-    if ('caches' in window) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
-    }
-  } catch { /* non-fatal */ }
-  sessionStorage.removeItem('hader:chunk-reload');
+  await clearStaleDeploymentCaches();
+  sessionStorage.removeItem(CHUNK_RELOAD_KEY);
   window.location.reload();
 }
 
@@ -50,6 +30,15 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
+    const isChunk = this.state.isChunkError;
+    const reloadKey = CHUNK_RELOAD_KEY;
+    const lastReload = parseInt(sessionStorage.getItem(reloadKey) || '0', 10);
+    const isReloading = isChunk && (Date.now() - lastReload < 15_000);
+
+    const urlMatch =
+      error.message?.match(/https?:\/\/[^\s'")]+/)?.[0] ||
+      error.message?.match(/\/assets\/[^\s'")]+/)?.[0];
+
     void logClientError({
       severity: 'ERROR',
       source: 'react-boundary',
@@ -58,7 +47,11 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       path: window.location.pathname,
       user: auth.getSession(),
       meta: {
-        componentStack: info.componentStack
+        componentStack: info.componentStack,
+        is_chunk_error: isChunk,
+        failed_url: urlMatch,
+        auto_reload_attempted: Boolean(lastReload > 0),
+        is_reloading: isReloading
       }
     });
   }

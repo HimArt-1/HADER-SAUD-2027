@@ -1,4 +1,5 @@
 import { AuthAuditAction, ClientErrorSeverity, ClientErrorSource, Role, STORAGE_KEYS, User } from '../types';
+import { APP_VERSION, getBuildId } from './desktopBuildInfo';
 
 type AuthAuditPayload = {
   action: AuthAuditAction;
@@ -22,6 +23,21 @@ const TELEMETRY_QUEUE_EVENT = 'hader:telemetry-queue-update';
 const MESSAGE_LIMIT = 2000;
 const STACK_LIMIT = 8000;
 const QUEUE_LIMIT = 200;
+const DEDUPE_WINDOW_MS = 5000;
+
+const errorDedupeMap = new Map<string, { timestamp: number; count: number }>();
+
+export const _resetTelemetryDedupeMap = () => {
+  errorDedupeMap.clear();
+};
+
+const pruneDedupeMap = (now: number) => {
+  for (const [key, entry] of errorDedupeMap.entries()) {
+    if (now - entry.timestamp > DEDUPE_WINDOW_MS * 2) {
+      errorDedupeMap.delete(key);
+    }
+  }
+};
 
 let telemetryInitialized = false;
 
@@ -178,18 +194,39 @@ export const logClientError = async ({
 
   const sanitizedMessage = truncate(sanitize(resolvedMessage || 'Unknown error'), MESSAGE_LIMIT);
   const sanitizedStack = resolvedStack ? truncate(sanitize(resolvedStack), STACK_LIMIT) : null;
+  const normalizedPath = path ?? (isBrowser ? window.location.pathname : '');
+
+  // 🛡️ Deduplication & Throttling (prevent duplicate storms within window)
+  const now = Date.now();
+  pruneDedupeMap(now);
+  const dedupeKey = `${source}:${sanitizedMessage}:${normalizedPath}`;
+  const existing = errorDedupeMap.get(dedupeKey);
+  if (existing && (now - existing.timestamp) < DEDUPE_WINDOW_MS) {
+    existing.count++;
+    return;
+  }
+  errorDedupeMap.set(dedupeKey, { timestamp: now, count: 1 });
+
+  // 📦 Enriched metadata for telemetry debugging
+  const enrichedMeta = {
+    ...(meta ?? {}),
+    event_id: generateUuid(),
+    build_id: getBuildId(),
+    app_version: APP_VERSION,
+    client_timestamp: new Date().toISOString()
+  };
 
   const payload = {
     severity,
     source,
     message: sanitizedMessage,
     stack: sanitizedStack,
-    path: path ?? (isBrowser ? window.location.pathname : ''),
+    path: normalizedPath,
     actor_user_id: (user?.id && user.id.length > 0) ? user.id : null,
     actor_role: user?.role ?? null,
     session_key: sessionKey,
     user_agent: isBrowser ? navigator.userAgent : 'server',
-    meta: sanitizeValue(meta ?? {}, 1000)
+    meta: sanitizeValue(enrichedMeta, 1000)
   };
 
   try {
