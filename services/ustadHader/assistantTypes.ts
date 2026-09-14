@@ -2,6 +2,8 @@
 // نظام حاضر (Hader) - أنواع نتائج «أستاذ حاضر» المشتركة بين المحرك والواجهة
 // =============================================================================
 
+import type { ClassReference } from './arabicLexicon';
+
 export type UstadResultType =
   | 'navigate'
   | 'stats_absence'
@@ -13,6 +15,8 @@ export type UstadResultType =
   | 'disambiguation'
   | 'confirmation'
   | 'theme_changed'
+  | 'briefing'
+  | 'suggestions'
   | 'help'
   | 'info'
   | 'success'
@@ -25,6 +29,19 @@ export interface UstadStudentSummary {
   class_name: string;
   section: string;
   guardianPhone?: string;
+}
+
+// آخر ما دار في المحادثة، ليفهم المساعد «وفي رابع أ؟» و«سجله حاضر»
+export interface UstadConversationContext {
+  intentId: string;
+  studentId?: string;
+  classRef?: ClassReference | null;
+  at: number;
+}
+
+export interface UstadSuggestion {
+  intentId: string;
+  command: string;
 }
 
 // ما يُنفَّذ بعد اختيار الطالب من قائمة الأسماء المتشابهة، حتى لا يضيع الطلب الأصلي
@@ -50,6 +67,7 @@ export interface UstadActionPayload {
   data?: any;
   pendingAction?: UstadPendingAction;
   followUp?: UstadStudentFollowUp;
+  context?: UstadConversationContext;
   actionButton?: {
     label: string;
     path?: string;

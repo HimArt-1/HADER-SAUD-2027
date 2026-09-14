@@ -21,11 +21,15 @@ import { ustadSpeech, UstadListeningMode } from '../../services/ustadHader/speec
 import {
   ustadIntentEngine,
   UstadActionPayload,
+  UstadConversationContext,
   UstadPendingAction,
-  UstadStudentFollowUp
+  UstadStudentFollowUp,
+  UstadSuggestion
 } from '../../services/ustadHader/intentEngine';
 import { playSuccessChime } from '../../services/ustadHader/audioEffects';
 import { applyColorMode } from '../../utils/colorMode';
+import { forgetLearnedPhrases, learnedPhraseCount } from '../../services/ustadHader/learnedPhrases';
+import { USTAD_BRIEFING_AUTO_KEY } from './UstadBriefingBanner';
 
 interface UstadHaderModalProps {
   isOpen: boolean;
@@ -33,6 +37,9 @@ interface UstadHaderModalProps {
   currentUser: User | null;
   // يمر تغيير المظهر عبر الشريط العلوي ليُحفظ في إعدادات المدرسة ويتحدث زر الوضع
   onThemeChange?: (mode: 'dark' | 'light') => void;
+  // أمر يُنفَّذ فور فتح النافذة، مثل «ملخص اليوم» من البطاقة الصباحية
+  initialCommand?: string | null;
+  onInitialCommandHandled?: () => void;
 }
 
 const UNSUPPORTED_SPEECH_NOTICE = 'هذا المتصفح لا يدعم التعرّف على الكلام. يمكنك كتابة أمرك.';
@@ -41,7 +48,9 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
   isOpen,
   onClose,
   currentUser,
-  onThemeChange
+  onThemeChange,
+  initialCommand,
+  onInitialCommandHandled
 }) => {
   const navigate = useNavigate();
 
@@ -58,6 +67,14 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
   const [commandInput, setCommandInput] = useState('');
   const [activeResult, setActiveResult] = useState<UstadActionPayload | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [learnedCount, setLearnedCount] = useState(() => learnedPhraseCount());
+  const [briefingAuto, setBriefingAuto] = useState(() => {
+    try {
+      return localStorage.getItem(USTAD_BRIEFING_AUTO_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
 
   // مراجع DOM والحالة
   const inputRef = useRef<HTMLInputElement>(null);
@@ -65,10 +82,13 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
   const wakeWordEnabledRef = useRef(wakeWordEnabled);
   wakeWordEnabledRef.current = wakeWordEnabled;
   const wasOpenRef = useRef(false);
+  // سياق المحادثة الجارية، ليُفهم «وفي رابع أ؟» و«سجله حاضر»
+  const conversationRef = useRef<UstadConversationContext | null>(null);
   const recognitionSupported = ustadSpeech.isRecognitionSupported();
 
   const presentResult = useCallback((result: UstadActionPayload) => {
     setActiveResult(result);
+    if (result.context) conversationRef.current = result.context;
 
     if (result.type === 'theme_changed' && (result.data?.mode === 'dark' || result.data?.mode === 'light')) {
       if (onThemeChange) {
@@ -102,7 +122,7 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
       const result = await ustadIntentEngine.executeCommand(trimmed, currentUser, (path) => {
         navigate(path);
         onClose();
-      });
+      }, conversationRef.current);
       presentResult(result);
     } catch {
       presentResult({
@@ -132,6 +152,40 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  // اختيار اقتراح ينفّذ الأمر ويعلّم المساعد صياغة المستخدم على هذا الجهاز
+  const handleSuggestion = async (suggestion: UstadSuggestion, utterance: string) => {
+    setIsProcessing(true);
+    try {
+      presentResult(await ustadIntentEngine.executeSuggestion(suggestion, utterance, currentUser, (path) => {
+        navigate(path);
+        onClose();
+      }));
+      setLearnedCount(learnedPhraseCount());
+    } catch {
+      presentResult({
+        type: 'error',
+        title: 'تعذر تنفيذ الاقتراح',
+        spokenText: 'عفواً، تعذر تنفيذ الأمر حالياً.'
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleForgetLearned = () => {
+    forgetLearnedPhrases();
+    setLearnedCount(0);
+  };
+
+  const enableBriefingAuto = () => {
+    try {
+      localStorage.setItem(USTAD_BRIEFING_AUTO_KEY, 'on');
+    } catch {
+      // Preference applies to this session only.
+    }
+    setBriefingAuto(true);
   };
 
   // اختيار طالب من قائمة الأسماء المتشابهة يُكمل الطلب الأصلي نفسه
@@ -191,6 +245,13 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
     return () => clearTimeout(focusTimer);
   }, [isOpen, recognitionSupported]);
 
+  // فتح المساعد من البطاقة الصباحية ينفذ الأمر المطلوب مباشرة
+  useEffect(() => {
+    if (!isOpen || !initialCommand) return;
+    processCommandRef.current(initialCommand);
+    onInitialCommandHandled?.();
+  }, [isOpen, initialCommand, onInitialCommandHandled]);
+
   // عند الإغلاق: عُد لوضع النداء أو أغلق الميكروفون.
   // لا يُقطع الرد الصوتي هنا حتى يُسمع تأكيد أوامر التنقل؛ الإغلاق اليدوي يوقفه.
   useEffect(() => {
@@ -208,6 +269,7 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
     }
     setLiveTranscript('');
     setShowWakeWordConsent(false);
+    conversationRef.current = null;
   }, [isOpen]);
 
   const handleUserClose = useCallback(() => {
@@ -420,6 +482,8 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
                       onClose();
                     } else if (activeResult.actionButton?.onClickKey === 'help') {
                       void handleProcessCommand('مساعدة');
+                    } else if (activeResult.actionButton?.onClickKey === 'briefing') {
+                      void handleProcessCommand('ملخص اليوم');
                     }
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-xs font-bold transition-all shadow-md shadow-primary-500/20 shrink-0"
@@ -433,6 +497,65 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
             {/* نص الرد للنتائج التي لا تحمل بطاقة تفصيلية */}
             {(activeResult.type === 'success' || activeResult.type === 'info' || activeResult.type === 'error') && activeResult.spokenText && (
               <p className="text-sm text-slate-300 leading-relaxed">{activeResult.spokenText}</p>
+            )}
+
+            {/* اقتراحات «هل تقصد؟» لجملة لم تُفهم */}
+            {activeResult.type === 'suggestions' && activeResult.data && (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">بعد اختيارك سيتذكر المساعد صياغتك على هذا الجهاز.</p>
+                <div className="flex flex-wrap gap-2">
+                  {activeResult.data.suggestions.map((suggestion: UstadSuggestion) => (
+                    <button
+                      key={suggestion.intentId}
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => void handleSuggestion(suggestion, activeResult.data.utterance)}
+                      className="text-xs px-3 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-100 font-bold transition-colors disabled:opacity-50"
+                    >
+                      {suggestion.command}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* الملخص الصباحي */}
+            {activeResult.type === 'briefing' && activeResult.data && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                    <div className="text-2xl font-black text-emerald-400">{activeResult.data.attended} / {activeResult.data.total}</div>
+                    <div className="text-xs text-emerald-200 mt-1 font-bold">حضروا</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                    <div className="text-2xl font-black text-red-400">{activeResult.data.absent}</div>
+                    <div className="text-xs text-red-200 mt-1 font-bold">غائبون</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                    <div className="text-2xl font-black text-amber-400">{activeResult.data.late}</div>
+                    <div className="text-xs text-amber-200 mt-1 font-bold">متأخرون</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20">
+                    <div className="text-2xl font-black text-sky-400">{activeResult.data.rate}%</div>
+                    <div className="text-xs text-sky-200 mt-1 font-bold">نسبة الحضور</div>
+                  </div>
+                </div>
+                {activeResult.data.repeatedCount > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-bold text-amber-300">غياب متكرر بين غائبي اليوم: {activeResult.data.repeatedCount}</div>
+                    {activeResult.data.repeatedAbsentees.map((student: any) => (
+                      <div key={student.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/5 text-xs">
+                        <span className="font-bold text-white">{student.name}</span>
+                        <span className="text-slate-400">
+                          {student.classLabel} · {student.streak > 0
+                            ? `غائب ${student.streak + 1} أيام متتالية`
+                            : `${student.recentAbsences + 1} غيابات خلال أسبوعين`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             {/* 1. إحصائيات الغياب والحضور */}
@@ -671,6 +794,7 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
 
           <div className="flex flex-wrap gap-2">
             {[
+              { label: 'ملخص اليوم', cmd: 'ملخص اليوم' },
               { label: 'افتح مركز التكاملات', cmd: 'افتح مركز التكاملات' },
               { label: 'كم طالب غائب اليوم؟', cmd: 'كم طالب غائب اليوم؟' },
               { label: 'اعرض غياب ثالث باء', cmd: 'اعرض غياب ثالث باء' },
@@ -784,6 +908,16 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
         <div className="text-[11px] text-slate-500 flex flex-wrap items-center justify-between gap-2">
           <span>اختصار لوحة المفاتيح: <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 font-mono">Alt + H</kbd></span>
           <span>لإسكات المساعد فوراً: قل <strong className="text-slate-400">«اسكت»</strong></span>
+          {learnedCount > 0 && (
+            <button type="button" onClick={handleForgetLearned} className="underline decoration-dotted hover:text-slate-300">
+              مسح ما تعلّمه المساعد ({learnedCount})
+            </button>
+          )}
+          {!briefingAuto && (
+            <button type="button" onClick={enableBriefingAuto} className="underline decoration-dotted hover:text-slate-300">
+              إظهار الملخص الصباحي تلقائياً
+            </button>
+          )}
           <span>الإغلاق: <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 font-mono">Esc</kbd></span>
         </div>
       </div>

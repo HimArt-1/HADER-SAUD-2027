@@ -4,10 +4,10 @@
 // جدول أوامر بدل سلسلة شروط: لكل نية مفاهيمها المطلوبة والمعززة والمانعة.
 // تُقيَّم كل النوايا وتُختار الأعلى درجة، لا أول شرط يتطابق.
 
-import { analyzeUtterance, ClassReference, ConceptId, UtteranceAnalysis } from './arabicLexicon';
+import { analyzeUtterance, ClassReference, ConceptId, hasPronounReference, UtteranceAnalysis } from './arabicLexicon';
 
 export type UstadIntentId =
-  | 'greeting' | 'help'
+  | 'greeting' | 'help' | 'briefing.today'
   | 'alerts.absence'
   | 'stats.absence' | 'stats.attendance' | 'stats.late' | 'stats.dismissal'
   | 'class.absence'
@@ -40,6 +40,8 @@ export interface IntentMatch {
   classRef: ClassReference | null;
   // عدد مفاهيم هذه النية الواردة في الجملة؛ صفر يعني أن الجملة اسم مجرد
   signals: number;
+  // الطالب هو آخر من ذُكر في المحادثة («سجله حاضر»)
+  studentFromContext: boolean;
 }
 
 const REQUIRED_GROUP_SCORE = 3;
@@ -66,6 +68,7 @@ const INTENTS: readonly IntentDefinition[] = [
   { id: 'stats.late', rules: [{ requires: [['late']] }], boosts: ['count', 'who'], forbids: ['record', 'week'], classRef: 'forbidden' },
   { id: 'stats.dismissal', rules: [{ requires: [['dismissal']] }], boosts: ['count', 'who', 'status'], forbids: ['kiosk', 'board'], classRef: 'forbidden' },
   { id: 'class.absence', rules: [{ requires: [['absence', 'attendance', 'count']] }], boosts: ['who'], forbids: ['record', 'send', 'alert', 'week'], classRef: 'required' },
+  { id: 'briefing.today', rules: [{ requires: [['report', 'status'], ['today']] }], boosts: ['count', 'attendance', 'absence'], forbids: ['week', 'chronic', 'record', 'send', 'alert', 'dark', 'light', 'night'], classRef: 'forbidden' },
   { id: 'report.weekly', rules: [{ requires: [['report', 'reports', 'attendance', 'absence', 'count'], ['week']] }], boosts: ['report'] },
   { id: 'report.chronic', rules: [{ requires: [['absence'], ['chronic']] }], boosts: ['report', 'reports'] },
   {
@@ -101,7 +104,7 @@ const INTENTS: readonly IntentDefinition[] = [
   { id: 'greeting', rules: [{ requires: [['greeting']] }] }
 ];
 
-function scoreIntent(intent: IntentDefinition, analysis: UtteranceAnalysis, ignoreRemainder: boolean): IntentMatch | null {
+function scoreIntent(intent: IntentDefinition, analysis: UtteranceAnalysis, ignoreRemainder: boolean, contextStudent: boolean): IntentMatch | null {
   const { concepts, classRef, tokens } = analysis;
   if (intent.forbids?.some(concept => concepts.has(concept))) return null;
 
@@ -123,11 +126,18 @@ function scoreIntent(intent: IntentDefinition, analysis: UtteranceAnalysis, igno
   );
   const studentQuery = remainder.map(token => token.text).join(' ');
 
+  let studentFromContext = false;
   if (intent.student === 'required') {
-    if (ignoreRemainder || studentQuery.length < 2) return null;
+    if (ignoreRemainder) return null;
+    if (studentQuery.length >= 2) {
+      // اسم يتكون من كلمات أوامر معروفة أقل احتمالاً من اسم حقيقي
+      score -= remainder.filter(token => token.concepts.length > 0).length * CONCEPT_IN_NAME_PENALTY;
+    } else if (contextStudent && hasPronounReference(tokens)) {
+      studentFromContext = true;
+    } else {
+      return null;
+    }
     score += ENTITY_SCORE;
-    // اسم يتكون من كلمات أوامر معروفة أقل احتمالاً من اسم حقيقي
-    score -= remainder.filter(token => token.concepts.length > 0).length * CONCEPT_IN_NAME_PENALTY;
   } else if (remainder.length > 0 && !ignoreRemainder) {
     return null;
   }
@@ -140,7 +150,8 @@ function scoreIntent(intent: IntentDefinition, analysis: UtteranceAnalysis, igno
     score,
     studentQuery: intent.student === 'required' ? studentQuery : '',
     classRef,
-    signals: [...ownConcepts].filter(concept => concepts.has(concept)).length
+    signals: [...ownConcepts].filter(concept => concepts.has(concept)).length,
+    studentFromContext
   };
 }
 
@@ -148,11 +159,11 @@ function scoreIntent(intent: IntentDefinition, analysis: UtteranceAnalysis, igno
  * ترتيب النوايا المحتملة للجملة من الأعلى درجة.
  * ignoreRemainder: يتجاهل الكلمات غير المفهومة ويستبعد نوايا الطلاب، ويُستخدم حين لا يوجد طالب بالاسم المستخرج.
  */
-export function rankIntents(text: string, options: { ignoreRemainder?: boolean } = {}): IntentMatch[] {
+export function rankIntents(text: string, options: { ignoreRemainder?: boolean; contextStudent?: boolean } = {}): IntentMatch[] {
   const analysis = analyzeUtterance(text);
   if (analysis.tokens.length === 0) return [];
   return INTENTS
-    .map((intent, order) => ({ match: scoreIntent(intent, analysis, Boolean(options.ignoreRemainder)), order }))
+    .map((intent, order) => ({ match: scoreIntent(intent, analysis, Boolean(options.ignoreRemainder), Boolean(options.contextStudent)), order }))
     .filter((entry): entry is { match: IntentMatch; order: number } => entry.match !== null)
     .sort((a, b) => b.match.score - a.match.score || a.order - b.order)
     .map(entry => entry.match);
@@ -160,4 +171,50 @@ export function rankIntents(text: string, options: { ignoreRemainder?: boolean }
 
 export function classifyUtterance(text: string): IntentMatch | null {
   return rankIntents(text)[0] ?? null;
+}
+
+// صياغة معيارية لكل أمر تُعرض كاقتراح «هل تقصد؟»
+export const SUGGESTED_COMMANDS: Partial<Record<UstadIntentId, string>> = {
+  'stats.absence': 'كم طالب غائب اليوم؟',
+  'stats.attendance': 'كم نسبة الحضور اليوم؟',
+  'stats.late': 'كم المتأخرين اليوم؟',
+  'briefing.today': 'ملخص اليوم',
+  'alerts.absence': 'أرسل تنبيه لأولياء أمور الغائبين',
+  'report.weekly': 'جهّز تقرير الأسبوع',
+  'report.chronic': 'اعرض الغياب المتكرر',
+  'nav.watcher': 'افتح المراقبة اليومية',
+  'nav.reports': 'افتح التقارير',
+  'nav.call_board': 'افتح لوحة النداءات',
+  'nav.kiosk': 'افتح كشك الحضور',
+  'nav.whatsapp': 'افتح الواتساب',
+  'nav.staff': 'من في الانتظار اليوم؟',
+  'nav.students': 'افتح إدارة الطلاب',
+  'nav.settings': 'افتح إعدادات النظام',
+  help: 'مساعدة'
+};
+
+const DEFAULT_SUGGESTIONS: readonly UstadIntentId[] = ['stats.absence', 'briefing.today', 'help'];
+
+export interface IntentSuggestion {
+  intentId: UstadIntentId;
+  command: string;
+}
+
+/** أقرب الأوامر إلى جملة لم تُفهم، حسب المفاهيم المشتركة معها. */
+export function suggestIntents(text: string, limit = 3): IntentSuggestion[] {
+  const { concepts } = analyzeUtterance(text);
+  const universal = new Set<ConceptId>(UNIVERSAL_CONCEPTS);
+
+  const ranked = INTENTS.flatMap((intent, order) => {
+    const command = SUGGESTED_COMMANDS[intent.id];
+    if (!command) return [];
+    const own = new Set<ConceptId>([...intent.rules.flatMap(rule => rule.requires.flat()), ...(intent.boosts ?? [])]);
+    const overlap = [...own].filter(concept => !universal.has(concept) && concepts.has(concept)).length;
+    return overlap > 0 ? [{ intentId: intent.id, command, overlap, order }] : [];
+  }).sort((a, b) => b.overlap - a.overlap || a.order - b.order);
+
+  const picks = ranked.slice(0, limit).map(({ intentId, command }) => ({ intentId, command }));
+  return picks.length > 0
+    ? picks
+    : DEFAULT_SUGGESTIONS.map(intentId => ({ intentId, command: SUGGESTED_COMMANDS[intentId] ?? '' }));
 }

@@ -30,6 +30,7 @@ import { applyDarkMode, getCurrentColorMode, getStoredColorMode } from '../utils
 import { hasSurveyAdminAccess } from '../services/surveys';
 import UstadHaderButton from './ustadHader/UstadHaderButton';
 import UstadHaderModal from './ustadHader/UstadHaderModal';
+import UstadBriefingBanner from './ustadHader/UstadBriefingBanner';
 import { ustadSpeech } from '../services/ustadHader/speechService';
 
 export const NotificationContext = createContext<{
@@ -110,6 +111,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   }>({ open: false, platform: null, status: 'idle', progress: 0, message: '' });
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showUstadModal, setShowUstadModal] = useState(false);
+  const [ustadInitialCommand, setUstadInitialCommand] = useState<string | null>(null);
   const [isUstadListening, setIsUstadListening] = useState(false);
   const [isUstadSpeaking, setIsUstadSpeaking] = useState(false);
   const [isWakeWordActive, setIsWakeWordActive] = useState(() => ustadSpeech.getWakeWordPreference());
@@ -1026,6 +1028,13 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                 {HelpButton}
               </div>
             </div>
+            <UstadBriefingBanner
+              user={user}
+              onOpenDetails={() => {
+                setUstadInitialCommand('ملخص اليوم');
+                setShowUstadModal(true);
+              }}
+            />
             <div className="flex-1 min-w-0 w-full max-w-full">
               {children}
             </div>
@@ -1166,6 +1175,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
             isOpen={showUstadModal}
             onClose={() => setShowUstadModal(false)}
             currentUser={user}
+            initialCommand={ustadInitialCommand}
+            onInitialCommandHandled={() => setUstadInitialCommand(null)}
             onThemeChange={(mode) => {
               if ((mode === 'dark') !== dark_mode) void toggleDarkMode();
             }}

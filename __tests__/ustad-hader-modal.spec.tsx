@@ -1,10 +1,15 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Role, User } from '../types';
 
-const engine = vi.hoisted(() => ({ executeCommand: vi.fn(), executeConfirmedAction: vi.fn(), executeStudentFollowUp: vi.fn() }));
+const engine = vi.hoisted(() => ({
+  executeCommand: vi.fn(),
+  executeConfirmedAction: vi.fn(),
+  executeStudentFollowUp: vi.fn(),
+  executeSuggestion: vi.fn()
+}));
 vi.mock('../services/ustadHader/intentEngine', () => ({ ustadIntentEngine: engine }));
 
 import UstadHaderModal from '../components/ustadHader/UstadHaderModal';
@@ -170,5 +175,54 @@ describe('UstadHaderModal', () => {
     typeCommand('الوضع الداكن');
     expect(await screen.findByText('تم تفعيل الوضع الداكن')).toBeTruthy();
     expect(onThemeChange).toHaveBeenCalledWith('dark');
+  });
+
+  it('runs a chosen suggestion so the assistant can learn the phrasing', async () => {
+    const suggestion = { intentId: 'briefing.today', command: 'ملخص اليوم' };
+    engine.executeCommand.mockResolvedValue({
+      type: 'suggestions',
+      title: 'هل تقصد أحد هذه الأوامر؟',
+      spokenText: '',
+      data: { suggestions: [suggestion], utterance: 'عطني الزبدة' }
+    });
+    engine.executeSuggestion.mockResolvedValue({ type: 'info', title: 'الملخص لم يجهز بعد', spokenText: 'سيجهز ملخص اليوم بعد انتهاء مهلة الحضور.' });
+
+    renderModal();
+    typeCommand('عطني الزبدة');
+    const hint = await screen.findByText('بعد اختيارك سيتذكر المساعد صياغتك على هذا الجهاز.');
+    fireEvent.click(within(hint.parentElement!).getByRole('button', { name: 'ملخص اليوم' }));
+
+    expect(await screen.findByText('سيجهز ملخص اليوم بعد انتهاء مهلة الحضور.')).toBeTruthy();
+    expect(engine.executeSuggestion).toHaveBeenCalledWith(suggestion, 'عطني الزبدة', user, expect.any(Function));
+  });
+
+  it('passes the conversation context to the next command', async () => {
+    const context = { intentId: 'class.absence', classRef: null, at: 1 };
+    engine.executeCommand
+      .mockResolvedValueOnce({ type: 'info', title: 'كشف غياب الصف ثالث', spokenText: '', context })
+      .mockResolvedValueOnce({ type: 'info', title: 'كشف غياب الصف رابع', spokenText: '' });
+
+    renderModal();
+    typeCommand('اعرض غياب ثالث');
+    expect(await screen.findByText('كشف غياب الصف ثالث')).toBeTruthy();
+    typeCommand('وفي رابع؟');
+    expect(await screen.findByText('كشف غياب الصف رابع')).toBeTruthy();
+
+    expect(engine.executeCommand.mock.calls[0][3]).toBeNull();
+    expect(engine.executeCommand.mock.calls[1][3]).toEqual(context);
+  });
+
+  it('runs the command it was opened for', async () => {
+    engine.executeCommand.mockResolvedValue({ type: 'info', title: 'الملخص لم يجهز بعد', spokenText: '' });
+    const onInitialCommandHandled = vi.fn();
+    render(
+      <MemoryRouter>
+        <UstadHaderModal isOpen onClose={onClose} currentUser={user} initialCommand="ملخص اليوم" onInitialCommandHandled={onInitialCommandHandled} />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('الملخص لم يجهز بعد')).toBeTruthy();
+    expect(engine.executeCommand).toHaveBeenCalledWith('ملخص اليوم', user, expect.any(Function), null);
+    expect(onInitialCommandHandled).toHaveBeenCalled();
   });
 });

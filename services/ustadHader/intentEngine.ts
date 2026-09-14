@@ -11,10 +11,12 @@ import { ATTENDANCE_DEFAULTS, Student, User } from '../../types';
 import { accessPolicy, ProtectedRouteKey } from '../../modules/access';
 import { getAttendanceStatusCounts } from '../../modules/attendance';
 import { analyzeUtterance, ClassReference, matchesClassReference, normalizeArabicSpeech } from './arabicLexicon';
-import { IntentMatch, rankIntents, UstadIntentId } from './intentClassifier';
+import { IntentMatch, rankIntents, suggestIntents, SUGGESTED_COMMANDS, UstadIntentId } from './intentClassifier';
 import { resolveStudent } from './studentResolver';
 import { stripWakeWord } from './speechService';
 import { buildAbsenceAlertMessage, sendAbsenceAlerts } from './absenceAlerts';
+import { learnPhrase, recallPhrase } from './learnedPhrases';
+import { loadMorningBriefing } from './morningBriefing';
 import {
   absenceAlertWindowNotice,
   attendedStudentIds,
@@ -31,10 +33,18 @@ import {
   summarizeStudent,
   todayRecordFor
 } from './engineSupport';
-import type { UstadActionPayload, UstadPendingAction, UstadStudentFollowUp } from './assistantTypes';
+import type {
+  UstadActionPayload,
+  UstadConversationContext,
+  UstadPendingAction,
+  UstadStudentFollowUp,
+  UstadSuggestion
+} from './assistantTypes';
 
 export type {
   UstadActionPayload,
+  UstadConversationContext,
+  UstadSuggestion,
   UstadPendingAction,
   UstadResultType,
   UstadStudentFollowUp,
@@ -43,6 +53,9 @@ export type {
 
 const WEEKDAY_NAMES = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const SILENCE_COMMANDS = new Set(['اسكت', 'توقف', 'اصمت', 'بس']);
+// المتابعة «وفي رابع أ؟» أو «سجله حاضر» تُفهم خلال دقائق من الطلب السابق فقط
+const CONTEXT_TTL_MS = 3 * 60 * 1000;
+const CLASS_FOLLOW_UP_INTENTS = new Set<string>(['class.absence', 'stats.absence', 'stats.attendance', 'stats.late', 'briefing.today']);
 
 interface NavigationTarget {
   path: string;
@@ -87,6 +100,19 @@ const unknownResult = (): UstadActionPayload => ({
   actionButton: { label: 'عرض دليل الأوامر', onClickKey: 'help' }
 });
 
+const forcedMatch = (id: UstadIntentId, classRef: ClassReference | null): IntentMatch => ({
+  id, score: 0, studentQuery: '', classRef, signals: 1, studentFromContext: false
+});
+
+const followUpIntent = (followUp: UstadStudentFollowUp): UstadIntentId =>
+  followUp.kind === 'lookup'
+    ? 'student.lookup'
+    : followUp.kind === 'call_dismissal'
+    ? 'student.dismissal_call'
+    : followUp.newStatus === 'present'
+    ? 'student.mark_present'
+    : 'student.mark_absent';
+
 // توافق مع الاستخدامات السابقة: «اعرض غياب ثالث باء» ← { grade: 'ثالث', section: 'ب' }
 export function parseGradeAndSection(query: string): { grade: string; section: string } | null {
   const ref = analyzeUtterance(query).classRef;
@@ -113,7 +139,12 @@ class UstadIntentEngine {
   /**
    * معالجة الأمر الصوتي أو المكتوب وإرجاع النتيجة المناسبة
    */
-  public async executeCommand(command: string, currentUser: User | null, navigate: (path: string) => void): Promise<UstadActionPayload> {
+  public async executeCommand(
+    command: string,
+    currentUser: User | null,
+    navigate: (path: string) => void,
+    context: UstadConversationContext | null = null
+  ): Promise<UstadActionPayload> {
     const utterance = stripWakeWord(command.trim());
     const norm = normalizeArabicSpeech(utterance);
 
@@ -124,25 +155,87 @@ class UstadIntentEngine {
       return { type: 'silence', title: 'تم إيقاف الرد الصوتي', spokenText: '' };
     }
 
-    const [best] = rankIntents(utterance);
-    if (!best) return unknownResult();
+    const activeContext = context && Date.now() - context.at <= CONTEXT_TTL_MS ? context : null;
+    return (await this.understand(utterance, currentUser, navigate, activeContext)) ?? this.suggestionsFor(utterance);
+  }
 
-    const result = await this.dispatch(best, currentUser, navigate, utterance);
-    if (result) return result;
+  /**
+   * تنفيذ اقتراح اختاره المستخدم لجملة لم تُفهم، مع تذكّر الجملة على هذا الجهاز
+   */
+  public async executeSuggestion(
+    suggestion: UstadSuggestion,
+    utterance: string,
+    currentUser: User | null,
+    navigate: (path: string) => void
+  ): Promise<UstadActionPayload> {
+    const intentId = suggestion.intentId as UstadIntentId;
+    if (SUGGESTED_COMMANDS[intentId] !== suggestion.command) return unknownResult();
+    learnPhrase(stripWakeWord(utterance), intentId);
+    return this.executeCommand(suggestion.command, currentUser, navigate);
+  }
 
-    // لا طالب بالاسم المستخرج: ربما كانت الكلمة الزائدة مجاملة لا اسماً
-    const [withoutName] = rankIntents(utterance, { ignoreRemainder: true });
-    if (withoutName) {
-      const fallback = await this.dispatch(withoutName, currentUser, navigate, utterance);
-      if (fallback) return fallback;
+  // الترتيب: عبارة تعلّمها من قبل، ثم جدول النوايا مع سياق المحادثة، ثم متابعة صف سابق
+  private async understand(
+    utterance: string,
+    user: User | null,
+    navigate: (path: string) => void,
+    context: UstadConversationContext | null
+  ): Promise<UstadActionPayload | null> {
+    const learned = recallPhrase(utterance);
+    if (learned && !STUDENT_FOLLOW_UPS[learned]) {
+      const match = forcedMatch(learned, analyzeUtterance(utterance).classRef);
+      const result = await this.dispatch(match, user, navigate, utterance);
+      if (result) return this.withContext(result, match.id, match.classRef);
     }
-    return best.signals > 0
-      ? {
+
+    const [best] = rankIntents(utterance, { contextStudent: Boolean(context?.studentId) });
+    if (best?.studentFromContext && context?.studentId) {
+      return this.executeStudentFollowUp(STUDENT_FOLLOW_UPS[best.id] ?? { kind: 'lookup' }, context.studentId, user, utterance);
+    }
+
+    if (best) {
+      const result = await this.dispatch(best, user, navigate, utterance);
+      if (result) return this.withContext(result, best.id, best.classRef);
+
+      // لا طالب بالاسم المستخرج: ربما كانت الكلمة الزائدة مجاملة لا اسماً
+      const [withoutName] = rankIntents(utterance, { ignoreRemainder: true });
+      if (withoutName) {
+        const fallback = await this.dispatch(withoutName, user, navigate, utterance);
+        if (fallback) return this.withContext(fallback, withoutName.id, withoutName.classRef);
+      }
+      if (best.signals > 0) {
+        return {
           type: 'error',
           title: 'لم يتم العثور على الطالب',
           spokenText: `لم أجد طالباً باسم "${best.studentQuery}" ضمن الطلاب المتاحين لحسابك.`
-        }
-      : unknownResult();
+        };
+      }
+    }
+
+    // «وفي رابع أ؟» بعد كشف غياب أو إحصائية: الصف الجديد على الطلب نفسه
+    const { classRef } = analyzeUtterance(utterance);
+    if (classRef && context && CLASS_FOLLOW_UP_INTENTS.has(context.intentId)) {
+      return this.withContext(await this.handleClassAbsenceRoster(classRef, user), 'class.absence', classRef);
+    }
+    return null;
+  }
+
+  private suggestionsFor(utterance: string): UstadActionPayload {
+    return {
+      type: 'suggestions',
+      title: 'هل تقصد أحد هذه الأوامر؟',
+      spokenText: 'لم أفهم طلبك بدقة. اختر الأمر الأقرب لما تقصد، وسأتذكر هذه الصياغة في المرة القادمة.',
+      data: { suggestions: suggestIntents(utterance), utterance }
+    };
+  }
+
+  // ما تحتاجه الجملة التالية لتُفهم كمتابعة: آخر نية، وآخر طالب، وآخر صف
+  private withContext(result: UstadActionPayload, intentId: UstadIntentId, classRef: ClassReference | null): UstadActionPayload {
+    if (result.type === 'error' || result.type === 'navigate' || result.type === 'silence') return result;
+    const pending = result.pendingAction;
+    const studentId: string | undefined = result.data?.student?.id
+      ?? (pending && pending.type !== 'send_absence_alerts' ? pending.studentId : undefined);
+    return { ...result, context: { intentId, studentId, classRef, at: Date.now() } };
   }
 
   /**
@@ -174,7 +267,7 @@ class UstadIntentEngine {
     try {
       const student = await findScopedStudent(studentId, currentUser);
       if (!student) return studentUnavailableResult();
-      return await this.presentStudentFollowUp(followUp, student, currentUser, utterance);
+      return this.withContext(await this.presentStudentFollowUp(followUp, student, currentUser, utterance), followUpIntent(followUp), null);
     } catch {
       return { type: 'error', title: 'خطأ في البحث', spokenText: 'حدث خطأ أثناء قراءة بيانات الطالب.' };
     }
@@ -198,8 +291,11 @@ class UstadIntentEngine {
         return {
           type: 'info',
           title: 'أهلاً بك',
+          actionButton: { label: 'ملخص اليوم', onClickKey: 'briefing' },
           spokenText: normalizeArabicSpeech(utterance).includes('سلام') ? 'وعليكم السلام ورحمة الله، تفضّل كيف أخدمك؟' : 'أهلاً بك، تفضّل كيف أخدمك؟'
         };
+      case 'briefing.today':
+        return this.handleBriefing(user);
       case 'help':
         return {
           type: 'help',
@@ -229,6 +325,30 @@ class UstadIntentEngine {
         return this.handleWeeklyReport(user);
       default:
         return unknownResult();
+    }
+  }
+
+  private async handleBriefing(user: User | null): Promise<UstadActionPayload> {
+    try {
+      const briefing = await loadMorningBriefing(user);
+      if (!briefing) return deniedResult('عفواً، لا يملك حسابك صلاحية الاطلاع على إحصائيات الحضور.');
+      if (briefing.status !== 'ready') {
+        return {
+          type: 'info',
+          title: briefing.status === 'holiday' ? 'اليوم عطلة' : 'الملخص لم يجهز بعد',
+          spokenText: briefing.spokenText,
+          data: briefing
+        };
+      }
+      return {
+        type: 'briefing',
+        title: 'ملخص اليوم',
+        spokenText: briefing.spokenText,
+        data: briefing,
+        actionButton: { label: 'عرض الغائبين في المراقبة', path: '/watcher?tab=absent' }
+      };
+    } catch {
+      return { type: 'error', title: 'تعذر تجهيز الملخص', spokenText: 'حدث خطأ أثناء تجهيز ملخص اليوم.' };
     }
   }
 

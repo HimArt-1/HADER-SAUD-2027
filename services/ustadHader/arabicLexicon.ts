@@ -77,7 +77,7 @@ const CONCEPT_WORDS: Record<ConceptId, string> = {
   light: 'فاتح نهاري',
   integrations: 'تكاملات تكامل ربط منصات',
   activity: 'أنشطة نشاط',
-  status: 'حالة حالته',
+  status: 'حالة وضع',
   greeting: 'السلام سلام مرحبا هلا أهلا صباح مساء',
   place: 'مركز صفحة قسم نافذة تبويب محطة نظام'
 };
@@ -87,7 +87,7 @@ const STOP_WORDS = normalizeWordList(
   'يا لو سمحت ممكن من فضلك رجاء يعطيك العافية شكرا طيب اوكي تمام زين حبيبي استاذ استاذي ' +
   'لي لنا له لها لهم عندنا عندي في فيه على عن إلى الى مع او ثم بعد كذا هذا هذي هذه ذا اللي الذي التي ' +
   'كل جميع كامل حق تبع حقت مال المدرسة مدرسة عبر طريق بواسطة صف فصل شعبة ياخي اخوي تكفى انت ' +
-  'الخير النور عليكم عليك ورحمة وبركاته اسم باسم الاسم لا نعم ايه اي بس و'
+  'الخير النور عليكم عليك عليه عليها هو هي نفسه نفسها ورحمة وبركاته اسم باسم الاسم لا نعم ايه اي بس و'
 );
 
 const ALLOWED_SUFFIXES = ['ا', 'ين', 'ون', 'ات', 'ه', 'ي', 'يه', 'يين', 'وا', 'و', 'ها', 'هم', 'ته', 'تهم', 'لي', 'لنا'];
@@ -132,14 +132,46 @@ function wordMatches(variant: string, word: string): boolean {
   return ALLOWED_SUFFIXES.includes(variant.slice(word.length));
 }
 
+// حرف واحد مبدل أو حرفان متجاوران مقلوبان، في كلمة بالطول نفسه
+function withinOneSubstitution(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  const differences: number[] = [];
+  for (let index = 0; index < a.length; index++) {
+    if (a[index] !== b[index]) {
+      differences.push(index);
+      if (differences.length > 2) return false;
+    }
+  }
+  if (differences.length <= 1) return true;
+  const [first, second] = differences;
+  return second === first + 1 && a[first] === b[second] && a[second] === b[first];
+}
+
+const FUZZY_MIN_LENGTH = 5;
+
 export function conceptsOfToken(token: string): ConceptId[] {
   const variants = tokenVariants(token);
   const concepts = new Set<ConceptId>();
   for (const [word, concept] of CONCEPT_INDEX) {
     if (variants.some(variant => wordMatches(variant, word))) concepts.add(concept);
   }
+  if (concepts.size > 0) return [...concepts];
+
+  // أخطاء التعرف الصوتي في الكلمات الطويلة: «المتاخرين» بحرف مبدل. الطول نفسه فقط، فلا يصبح اسم «مساعد» كلمة «مساعدة»
+  for (const [word, concept] of CONCEPT_INDEX) {
+    if (word.length < FUZZY_MIN_LENGTH) continue;
+    if (variants.some(variant => withinOneSubstitution(variant, word))) concepts.add(concept);
+  }
   return [...concepts];
 }
+
+export function isExactConceptWord(token: string): boolean {
+  const variants = tokenVariants(token);
+  return CONCEPT_INDEX.some(([word]) => variants.includes(word));
+}
+
+const isStopWord = (word: string) =>
+  STOP_WORDS.has(word) || (word.startsWith('و') && STOP_WORDS.has(word.slice(1)));
 
 const lookupVariant = <T>(token: string, table: Record<string, T>): T | undefined => {
   for (const variant of tokenVariants(token)) {
@@ -234,7 +266,7 @@ export function analyzeUtterance(text: string): UtteranceAnalysis {
 
   const tokens = words.map((word, index): AnalyzedToken => {
     if (classMatch?.indexes.has(index)) return { text: word, role: 'class', concepts: [] };
-    if (STOP_WORDS.has(word)) return { text: word, role: 'stop', concepts: [] };
+    if (isStopWord(word)) return { text: word, role: 'stop', concepts: [] };
     const tokenConcepts = conceptsOfToken(word);
     tokenConcepts.forEach(concept => concepts.add(concept));
     return { text: word, role: 'word', concepts: tokenConcepts };
@@ -272,6 +304,16 @@ export function matchesClassReference(
     return sectionNumber(student.section) === ref.section;
   }
   return true;
+}
+
+const PRONOUN_WORDS = new Set(['عليه', 'عليها', 'له', 'لها', 'هو', 'هي', 'نفسه', 'نفسها']);
+
+/** «سجله»، «ناده»، «رقم ولي امره»: ضمير يعود على طالب ذُكر قبل قليل. */
+export function hasPronounReference(tokens: readonly AnalyzedToken[]): boolean {
+  return tokens.some(token =>
+    PRONOUN_WORDS.has(token.text) ||
+    (token.concepts.length > 0 && /(ه|ها)$/.test(token.text) && !isExactConceptWord(token.text))
+  );
 }
 
 /** «عبد الله» و«عبدالله» اسم واحد عند المطابقة. */
