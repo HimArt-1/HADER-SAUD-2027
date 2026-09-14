@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db, getLocalISODate, getLocalDateStr } from '../services/db';
 import { appSettings } from '../services/settings';
 import { notificationCenter } from '../services/notifications';
@@ -123,7 +124,16 @@ const buildAdminClassGroups = (classes: SchoolClass[]): Record<string, SchoolCla
 const Admin: React.FC = () => {
   const toast = useToast();
   const showToast = toast.showToast;
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [searchParams] = useSearchParams();
+  const initialUrlTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(initialUrlTab || 'dashboard');
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
   const [adminSearchQuery, setAdminSearchQuery] = useState('');
   const [adminSearchOpen, setAdminSearchOpen] = useState(false);
   const [loading, setLoading] = useState(false);

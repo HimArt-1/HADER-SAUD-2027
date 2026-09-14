@@ -1,4 +1,5 @@
 import React, { useDeferredValue, useEffect, useState, useRef, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { db, getLocalISODate } from '../services/db';
 import { dismissals } from '../services/dismissals';
@@ -34,8 +35,22 @@ const Watcher: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [realtimeToast, setRealtimeToast] = useState<{ name: string; status: string; time: number } | null>(null);
-  const [activeTab, setActiveTab] = useState<WatcherAttendanceTab>('early');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab') as WatcherAttendanceTab | null;
+  const urlSearch = searchParams.get('search');
+  const [activeTab, setActiveTab] = useState<WatcherAttendanceTab>(urlTab === 'absent' || urlTab === 'late' || urlTab === 'early' ? urlTab : 'early');
+  const [searchTerm, setSearchTerm] = useState(urlSearch || '');
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab') as WatcherAttendanceTab | null;
+    const searchParam = searchParams.get('search');
+    if (tabParam === 'absent' || tabParam === 'late' || tabParam === 'early') {
+      setActiveTab(tabParam);
+    }
+    if (searchParam !== null) {
+      setSearchTerm(searchParam);
+    }
+  }, [searchParams]);
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [dataError, setDataError] = useState('');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);

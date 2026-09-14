@@ -28,6 +28,9 @@ import { isElectron } from '../hooks/useElectron';
 import { PAGE_HELP } from '../constants/pageHelp';
 import { applyDarkMode, getCurrentColorMode, getStoredColorMode } from '../utils/colorMode';
 import { hasSurveyAdminAccess } from '../services/surveys';
+import UstadHaderButton from './ustadHader/UstadHaderButton';
+import UstadHaderModal from './ustadHader/UstadHaderModal';
+import { ustadSpeech } from '../services/ustadHader/speechService';
 
 export const NotificationContext = createContext<{
   notifications: Notification[];
@@ -106,6 +109,10 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     isOnline?: boolean;
   }>({ open: false, platform: null, status: 'idle', progress: 0, message: '' });
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showUstadModal, setShowUstadModal] = useState(false);
+  const [isUstadListening, setIsUstadListening] = useState(false);
+  const [isUstadSpeaking, setIsUstadSpeaking] = useState(false);
+  const [isWakeWordActive, setIsWakeWordActive] = useState(() => ustadSpeech.getWakeWordPreference());
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateStatus | null>(null);
   const bellRef = useRef<HTMLButtonElement>(null);
   const lastReadKey = `hader:lastNotifSeen:${user?.id}`;
@@ -163,6 +170,43 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
       cancelled = true;
       if (typeof idleId === 'number') clearTimeout(idleId);
       else (window as any).cancelIdleCallback?.(idleId);
+    };
+  }, []);
+
+  // مستمع اختصار لوحة المفاتيح والنداء الصوتي لـ «أستاذ حاضر»
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Alt + H (أو Option + H على الماك)
+      if (e.altKey && (e.code === 'KeyH' || e.key === 'h' || e.key === 'H' || e.key === 'ا')) {
+        e.preventDefault();
+        setShowUstadModal(prev => !prev);
+      }
+    };
+
+    const unsubscribeUstad = ustadSpeech.subscribe({
+      onWakeWordDetected: () => {
+        setShowUstadModal(true);
+      },
+      onSpeakingChange: (speaking) => {
+        setIsUstadSpeaking(speaking);
+      },
+      onListeningStateChange: (listening, mode) => {
+        setIsUstadListening(listening);
+        setIsWakeWordActive(mode === 'wake_word_standby' || ustadSpeech.getWakeWordPreference());
+      }
+    });
+
+    if (ustadSpeech.getWakeWordPreference()) {
+      ustadSpeech.startWakeWordStandby();
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+      unsubscribeUstad();
+      // تسجيل الخروج يغلق الميكروفون حتى لا يبقى يستمع بعد مغادرة الحساب
+      ustadSpeech.stopListening();
+      ustadSpeech.stopSpeaking(false);
     };
   }, []);
 
@@ -816,6 +860,13 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
           <div className={`md:hidden safe-top ${dark_mode ? 'glass' : 'bg-white/80 backdrop-blur-lg'} px-4 pb-3 pt-4 flex justify-between items-center z-20 border-b ${dark_mode ? 'border-white/10' : 'border-gray-200'} sticky top-0`}>
             <AnimatedLogo motion="draw" size="navigation" tone={dark_mode ? 'inverse' : 'brand'} className="app-mobile-brand" />
             <div className="flex items-center gap-2 ml-auto">
+              <UstadHaderButton
+                onClick={() => setShowUstadModal(true)}
+                isListening={isUstadListening}
+                isSpeaking={isUstadSpeaking}
+                isWakeWordActive={isWakeWordActive}
+                compact
+              />
               {NotificationIcon}
               {/* Mobile Scanner Button - Show for admins, supervisors, and watchers */}
               {(user.role === Role.SITE_ADMIN || user.role === Role.SCHOOL_ADMIN || user.role === Role.SUPERVISOR_GLOBAL || user.role === Role.SUPERVISOR_CLASS || user.role === Role.WATCHER) && (
@@ -963,6 +1014,12 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               {/* Desktop App Info - Only visible in Electron */}
               <DesktopAppInfo />
               <div className="flex items-center gap-3 ml-auto">
+                <UstadHaderButton
+                  onClick={() => setShowUstadModal(true)}
+                  isListening={isUstadListening}
+                  isSpeaking={isUstadSpeaking}
+                  isWakeWordActive={isWakeWordActive}
+                />
                 {NotificationIcon}
                 <SyncStatus />
                 {DarkModeToggle}
@@ -1103,6 +1160,13 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               </div>
             );
           })()}
+
+          {/* نافذة المساعد الذكي «أستاذ حاضر» */}
+          <UstadHaderModal
+            isOpen={showUstadModal}
+            onClose={() => setShowUstadModal(false)}
+            currentUser={user}
+          />
         </div>
       </NotificationContext.Provider>
     </ToastProvider>
