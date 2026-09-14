@@ -1166,6 +1166,9 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
             isOpen={showUstadModal}
             onClose={() => setShowUstadModal(false)}
             currentUser={user}
+            onThemeChange={(mode) => {
+              if ((mode === 'dark') !== dark_mode) void toggleDarkMode();
+            }}
           />
         </div>
       </NotificationContext.Provider>

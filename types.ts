@@ -599,6 +599,7 @@ export type ActivityAction =
   | 'user_add' | 'user_edit' | 'user_delete'
   | 'class_add' | 'class_edit' | 'class_delete'
   | 'whatsapp_send' | 'telegram_send'
+  | 'assistant_action'
   | 'other';
 
 export interface ActivityLogEntry {

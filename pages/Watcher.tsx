@@ -1,5 +1,5 @@
 import React, { useDeferredValue, useEffect, useState, useRef, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { db, getLocalISODate } from '../services/db';
 import { dismissals } from '../services/dismissals';
@@ -36,6 +36,7 @@ const Watcher: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [realtimeToast, setRealtimeToast] = useState<{ name: string; status: string; time: number } | null>(null);
   const [searchParams] = useSearchParams();
+  const routeLocation = useLocation();
   const urlTab = searchParams.get('tab') as WatcherAttendanceTab | null;
   const urlSearch = searchParams.get('search');
   const [activeTab, setActiveTab] = useState<WatcherAttendanceTab>(urlTab === 'absent' || urlTab === 'late' || urlTab === 'early' ? urlTab : 'early');
@@ -50,7 +51,7 @@ const Watcher: React.FC = () => {
     if (searchParam !== null) {
       setSearchTerm(searchParam);
     }
-  }, [searchParams]);
+  }, [searchParams, routeLocation.key]);
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [dataError, setDataError] = useState('');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);

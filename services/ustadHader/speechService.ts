@@ -4,6 +4,9 @@
 // توفير التعرف على الكلام باللغة العربية (STT)، النطق الصوتي (TTS)، كشف كلمة النداء، والإسكات الفوري
 
 import { playWakeChime, playStopChime } from './audioEffects';
+import { normalizeArabicSpeech } from './arabicLexicon';
+
+export { normalizeArabicSpeech };
 
 export const USTAD_WAKE_WORD_STORAGE_KEY = 'hader:ustad_wake_word_enabled';
 
@@ -21,21 +24,6 @@ const FATAL_RECOGNITION_ERRORS: Record<string, string> = {
   network: 'تعذر الاتصال بخدمة التعرّف على الكلام. يمكنك كتابة أمرك.',
   'language-not-supported': 'التعرّف على الكلام العربي غير مدعوم في هذا المتصفح. يمكنك كتابة أمرك.'
 };
-
-// تطبيع النصوص العربية لمطابقة الكلمات بدقة
-export function normalizeArabicSpeech(text: string): string {
-  if (!text) return '';
-  return text
-    .normalize('NFKC')
-    .replace(/[ً-ٰٟ]/g, '') // إزالة التشكيل
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/[^ء-ي0-9a-zA-Z\s]/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
-}
 
 // «يا أستاذ حاضر» ككلمة مستقلة، فلا تُوقظ المساعدَ جملةٌ مدرسية مثل «الأستاذ حاضر اليوم»
 const WAKE_WORD_PATTERN = /(?:^|\s)(?:يا\s*)?استاذ\s*حاضر(?=\s|$)/;

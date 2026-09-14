@@ -6,7 +6,8 @@ const db = vi.hoisted(() => ({
   getAttendanceRange: vi.fn(),
   getSettings: vi.fn(),
   addManualAttendance: vi.fn(),
-  addManualAbsence: vi.fn()
+  addManualAbsence: vi.fn(),
+  logActivity: vi.fn()
 }));
 vi.mock('../services/db', () => ({ db, getLocalISODate: () => '2026-09-15' }));
 
@@ -99,6 +100,7 @@ beforeEach(() => {
   db.getAttendance.mockResolvedValue([record('s1', 'present'), record('s3', 'late')]);
   db.getAttendanceRange.mockResolvedValue([]);
   db.getSettings.mockResolvedValue(settings);
+  db.logActivity.mockResolvedValue(undefined);
   whatsappGateway.enqueue.mockResolvedValue(undefined);
   notificationCenter.execute.mockResolvedValue(undefined);
 });
@@ -229,7 +231,7 @@ describe('أستاذ حاضر (Ustadh Hader) - Speech and NLU Engine', () => {
 
       const preview = await ustadIntentEngine.executeCommand('سجل حضور الطالب خالد', watcher, navigate);
       expect(preview.type).toBe('confirmation');
-      expect(preview.pendingAction).toEqual({ type: 'mark_attendance', studentId: 's2', newStatus: 'present' });
+      expect(preview.pendingAction).toEqual({ type: 'mark_attendance', studentId: 's2', newStatus: 'present', utterance: 'سجل حضور الطالب خالد' });
       expect(db.addManualAttendance).not.toHaveBeenCalled();
 
       const result = await ustadIntentEngine.executeConfirmedAction(preview.pendingAction!, watcher);
@@ -251,7 +253,7 @@ describe('أستاذ حاضر (Ustadh Hader) - Speech and NLU Engine', () => {
       dismissals.execute.mockResolvedValue({ outcome: 'requested' });
 
       const preview = await ustadIntentEngine.executeCommand('نداء خروج للطالب فهد', siteAdmin, navigate);
-      expect(preview.pendingAction).toEqual({ type: 'call_dismissal', studentId: 's3' });
+      expect(preview.pendingAction).toEqual({ type: 'call_dismissal', studentId: 's3', utterance: 'نداء خروج للطالب فهد' });
 
       const result = await ustadIntentEngine.executeConfirmedAction(preview.pendingAction!, siteAdmin);
       expect(dismissals.execute).toHaveBeenCalledWith({
@@ -292,7 +294,11 @@ describe('أستاذ حاضر (Ustadh Hader) - Speech and NLU Engine', () => {
       expect(result.data.recipients.map((recipient: any) => recipient.studentId)).toEqual(['s2']);
       expect(result.data.withoutPhone).toBe(1);
       expect(result.data.messagePreview).toBe(`غياب خالد سعد الشهري بتاريخ ${TODAY}`);
-      expect(result.pendingAction).toEqual({ type: 'send_absence_alerts', studentIds: ['s2'] });
+      expect(result.pendingAction).toEqual({
+        type: 'send_absence_alerts',
+        studentIds: ['s2'],
+        utterance: 'أرسل تنبيه لأولياء أمور الغائبين عبر واتساب'
+      });
       expect(whatsappGateway.enqueue).not.toHaveBeenCalled();
     });
 
@@ -339,6 +345,75 @@ describe('أستاذ حاضر (Ustadh Hader) - Speech and NLU Engine', () => {
       const retried = await sendAlerts(['s2']);
       expect(retried.type).toBe('success');
       expect(whatsappGateway.enqueue).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Understanding, disambiguation, and audit', () => {
+    const khaledFahad = { id: 's5', name: 'خالد فهد الغامدي', class_name: 'الرابع', section: 'أ', is_active: true };
+
+    it('keeps the original request when several students share a name', async () => {
+      db.getStudents.mockResolvedValue([...students, khaledFahad]);
+
+      const ambiguous = await ustadIntentEngine.executeCommand('سجل حضور خالد', watcher, navigate);
+      expect(ambiguous.type).toBe('disambiguation');
+      expect(ambiguous.data.students.map((student: any) => student.id).sort()).toEqual(['s2', 's5']);
+      expect(ambiguous.followUp).toEqual({ kind: 'mark_attendance', newStatus: 'present' });
+      expect(db.addManualAttendance).not.toHaveBeenCalled();
+
+      const chosen = await ustadIntentEngine.executeStudentFollowUp(ambiguous.followUp!, 's5', watcher, ambiguous.data.utterance);
+      expect(chosen.type).toBe('confirmation');
+      expect(chosen.pendingAction).toEqual({ type: 'mark_attendance', studentId: 's5', newStatus: 'present', utterance: 'سجل حضور خالد' });
+    });
+
+    it('narrows a shared name by the class mentioned in the same sentence', async () => {
+      db.getStudents.mockResolvedValue([...students, khaledFahad]);
+      const result = await ustadIntentEngine.executeCommand('سجل حضور خالد رابع أ', watcher, navigate);
+      expect(result.type).toBe('confirmation');
+      expect(result.pendingAction).toMatchObject({ studentId: 's5' });
+    });
+
+    it('treats an unknown trailing word as noise when no student has that name', async () => {
+      const result = await ustadIntentEngine.executeCommand('كم طالب غائب اليوم يا شيخ', siteAdmin, navigate);
+      expect(result.type).toBe('stats_absence');
+    });
+
+    it('says a student has not arrived yet before the morning grace period ends', async () => {
+      vi.setSystemTime(new Date(`${TODAY}T06:50:00`));
+      const result = await ustadIntentEngine.executeCommand('ابحث عن خالد', siteAdmin, navigate);
+      expect(result.data).toMatchObject({ status: 'pending', statusArabic: 'لم يُسجَّل وصوله بعد' });
+    });
+
+    it('leaves applying the theme to the interface', async () => {
+      const result = await ustadIntentEngine.executeCommand('فعل الوضع الليلي', siteAdmin, navigate);
+      expect(result).toMatchObject({ type: 'theme_changed', data: { mode: 'dark' } });
+    });
+
+    it('records confirmed actions in the activity log, including refusals', async () => {
+      db.addManualAttendance.mockResolvedValue({ success: true, message: 'ok', status: 'present', minutes_late: 0 });
+      await ustadIntentEngine.executeConfirmedAction(
+        { type: 'mark_attendance', studentId: 's2', newStatus: 'present', utterance: 'سجل حضور خالد' },
+        watcher
+      );
+      expect(db.logActivity).toHaveBeenCalledWith('assistant_action', 'أستاذ حاضر: تم تسجيل الحضور', expect.objectContaining({
+        user_id: 'u-watcher',
+        user_name: 'المراقب',
+        target_id: 's2',
+        target_name: 'خالد سعد الشهري',
+        metadata: expect.objectContaining({ source: 'ustad-hader', action: 'mark_attendance', outcome: 'success', utterance: 'سجل حضور خالد' })
+      }));
+
+      await ustadIntentEngine.executeConfirmedAction({ type: 'mark_attendance', studentId: 's2', newStatus: 'absent' }, classSupervisor);
+      expect(db.logActivity).toHaveBeenLastCalledWith('assistant_action', expect.any(String), expect.objectContaining({
+        user_id: 'u-supervisor',
+        metadata: expect.objectContaining({ outcome: 'error' })
+      }));
+    });
+
+    it('still completes the action when the activity log cannot be written', async () => {
+      db.logActivity.mockRejectedValue(new Error('storage full'));
+      dismissals.execute.mockResolvedValue({ outcome: 'requested' });
+      const result = await ustadIntentEngine.executeConfirmedAction({ type: 'call_dismissal', studentId: 's3' }, siteAdmin);
+      expect(result.type).toBe('success');
     });
   });
 });

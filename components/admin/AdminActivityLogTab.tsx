@@ -8,7 +8,7 @@ import {
     Activity, Search, Trash2, Filter, Clock, UserCircle,
     UserPlus, Settings, Download, Upload, Bell, LogIn, LogOut,
     Scan, AlertTriangle, DoorOpen, MessageSquare, Send,
-    RefreshCw, X, BarChart3
+    RefreshCw, X, BarChart3, Sparkles
 } from 'lucide-react';
 import { ActivityLogEntry, ActivityAction } from '../../types';
 
@@ -39,6 +39,7 @@ const ACTION_CONFIG: Record<ActivityAction, { label: string; icon: React.Element
     class_delete: { label: 'حذف فصل', icon: Trash2, color: 'text-red-400' },
     whatsapp_send: { label: 'إرسال واتساب', icon: MessageSquare, color: 'text-green-400' },
     telegram_send: { label: 'إرسال تيلجرام', icon: Send, color: 'text-sky-400' },
+    assistant_action: { label: 'أستاذ حاضر', icon: Sparkles, color: 'text-sky-300' },
     other: { label: 'أخرى', icon: Activity, color: 'text-slate-400' }
 };
 

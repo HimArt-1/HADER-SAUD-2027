@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Role, User } from '../types';
 
-const engine = vi.hoisted(() => ({ executeCommand: vi.fn(), executeConfirmedAction: vi.fn() }));
+const engine = vi.hoisted(() => ({ executeCommand: vi.fn(), executeConfirmedAction: vi.fn(), executeStudentFollowUp: vi.fn() }));
 vi.mock('../services/ustadHader/intentEngine', () => ({ ustadIntentEngine: engine }));
 
 import UstadHaderModal from '../components/ustadHader/UstadHaderModal';
@@ -26,10 +26,11 @@ class FakeRecognition {
 
 const user: User = { id: 'u-admin', username: 'admin', name: 'مدير النظام', role: Role.SITE_ADMIN };
 const onClose = vi.fn();
+const onThemeChange = vi.fn();
 
 const renderModal = () => render(
   <MemoryRouter>
-    <UstadHaderModal isOpen onClose={onClose} currentUser={user} />
+    <UstadHaderModal isOpen onClose={onClose} currentUser={user} onThemeChange={onThemeChange} />
   </MemoryRouter>
 );
 
@@ -129,5 +130,45 @@ describe('UstadHaderModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'فهمت، فعّل النداء الصوتي' }));
     expect(localStorage.getItem(USTAD_WAKE_WORD_STORAGE_KEY)).toBe('true');
     expect(screen.queryByText('قبل تفعيل النداء الصوتي')).toBeNull();
+  });
+
+  it('continues the original request with the student chosen from similar names', async () => {
+    const followUp = { kind: 'call_dismissal' };
+    engine.executeCommand.mockResolvedValue({
+      type: 'disambiguation',
+      title: 'تحديد الطالب المطلوب',
+      spokenText: '',
+      data: {
+        students: [
+          { id: 's2', name: 'خالد سعد الشهري', class_name: 'الثالث', section: 'ب' },
+          { id: 's5', name: 'خالد فهد الغامدي', class_name: 'الرابع', section: 'أ' }
+        ],
+        total: 2,
+        utterance: 'نادي خالد'
+      },
+      followUp
+    });
+    engine.executeStudentFollowUp.mockResolvedValue({
+      type: 'confirmation',
+      title: 'تأكيد نداء خروج',
+      spokenText: '',
+      data: { prompt: 'إرسال نداء خروج للطالب خالد فهد الغامدي' },
+      pendingAction: { type: 'call_dismissal', studentId: 's5' }
+    });
+
+    renderModal();
+    typeCommand('نادي خالد');
+    fireEvent.click(await screen.findByRole('button', { name: /خالد فهد الغامدي/ }));
+
+    expect(await screen.findByText(/هل تريد بالتأكيد إرسال نداء خروج للطالب خالد فهد الغامدي/)).toBeTruthy();
+    expect(engine.executeStudentFollowUp).toHaveBeenCalledWith(followUp, 's5', user, 'نادي خالد');
+  });
+
+  it('routes voice theme changes through the layout so the setting is saved', async () => {
+    engine.executeCommand.mockResolvedValue({ type: 'theme_changed', title: 'تم تفعيل الوضع الداكن', spokenText: '', data: { mode: 'dark' } });
+    renderModal();
+    typeCommand('الوضع الداكن');
+    expect(await screen.findByText('تم تفعيل الوضع الداكن')).toBeTruthy();
+    expect(onThemeChange).toHaveBeenCalledWith('dark');
   });
 });

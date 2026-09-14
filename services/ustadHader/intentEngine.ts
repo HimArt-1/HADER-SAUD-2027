@@ -1,616 +1,349 @@
 // =============================================================================
 // نظام حاضر (Hader) - محرك الأوامر الذكية لـ «أستاذ حاضر»
 // =============================================================================
-// تحليل الأوامر الصوتية باللغة العربية، فحص الصلاحيات ونطاق الفصول، التمييز بين الأسماء المتشابهة،
-// وتنفيذ الإجراءات بعد تأكيد صريح عبر خدمات المنصة الفعلية (الحضور، نداء الخروج، تنبيهات الغياب).
+// يصنّف الجملة عبر جدول النوايا، ثم ينفذ النية بعد فحص الصلاحيات ونطاق الفصول.
+// الإجراءات التي تغيّر البيانات تتطلب تأكيداً صريحاً، وتُسجَّل في سجل الأنشطة.
 
 import { db, getLocalISODate } from '../db';
 import { getLocalDateStr, normalizeStudentId } from '../dbHelpers';
 import { dismissals } from '../dismissals';
-import { getCachedHolidays } from '../academicCalendarService';
-import { ATTENDANCE_DEFAULTS, AttendanceRecord, Role, Student, SystemSettings, User } from '../../types';
+import { ATTENDANCE_DEFAULTS, Student, User } from '../../types';
 import { accessPolicy, ProtectedRouteKey } from '../../modules/access';
+import { getAttendanceStatusCounts } from '../../modules/attendance';
+import { analyzeUtterance, ClassReference, matchesClassReference, normalizeArabicSpeech } from './arabicLexicon';
+import { IntentMatch, rankIntents, UstadIntentId } from './intentClassifier';
+import { resolveStudent } from './studentResolver';
+import { stripWakeWord } from './speechService';
+import { buildAbsenceAlertMessage, sendAbsenceAlerts } from './absenceAlerts';
 import {
-  decideAttendanceTiming,
-  getAttendanceStatusCounts,
-  uniqueAttendanceByStudentDate
-} from '../../modules/attendance';
-import { resolveStudentWhatsAppPhone } from '../../components/supervision/supervisionCommunication';
-import { applyColorMode } from '../../utils/colorMode';
-import { normalizeArabicSpeech, stripWakeWord } from './speechService';
-import { AbsenceAlertRecipient, buildAbsenceAlertMessage, sendAbsenceAlerts } from './absenceAlerts';
+  absenceAlertWindowNotice,
+  attendedStudentIds,
+  canSendWhatsApp,
+  canUseRoute,
+  deniedResult,
+  findAbsenceAlertRecipients,
+  findScopedStudent,
+  formatClassLabel,
+  isWithinArrivalWindow,
+  loadScopedStudents,
+  pad2,
+  studentUnavailableResult,
+  summarizeStudent,
+  todayRecordFor
+} from './engineSupport';
+import type { UstadActionPayload, UstadPendingAction, UstadStudentFollowUp } from './assistantTypes';
 
-export type UstadResultType =
-  | 'navigate'
-  | 'stats_absence'
-  | 'stats_attendance'
-  | 'class_absence'
-  | 'weekly_report'
-  | 'alerts_preview'
-  | 'student_card'
-  | 'disambiguation'
-  | 'confirmation'
-  | 'staff_waiting'
-  | 'theme_changed'
-  | 'help'
-  | 'info'
-  | 'success'
-  | 'error'
-  | 'silence';
+export type {
+  UstadActionPayload,
+  UstadPendingAction,
+  UstadResultType,
+  UstadStudentFollowUp,
+  UstadStudentSummary
+} from './assistantTypes';
 
-export interface UstadStudentSummary {
-  id: string;
-  name: string;
-  class_name: string;
-  section: string;
-  guardianPhone?: string;
-}
-
-// إجراء ينتظر تأكيد المستخدم الصريح؛ تُعاد فحوص الصلاحية والنطاق لحظة تنفيذه
-export type UstadPendingAction =
-  | { type: 'mark_attendance'; studentId: string; newStatus: 'present' | 'absent' }
-  | { type: 'call_dismissal'; studentId: string }
-  | { type: 'send_absence_alerts'; studentIds: string[] };
-
-export interface UstadActionPayload {
-  type: UstadResultType;
-  title: string;
-  spokenText: string;
-  data?: any;
-  pendingAction?: UstadPendingAction;
-  actionButton?: {
-    label: string;
-    path?: string;
-    onClickKey?: string;
-  };
-}
-
-// تطبيع أسماء الصفوف والأقسام
-export function parseGradeAndSection(query: string): { grade: string; section: string } | null {
-  const norm = normalizeArabicSpeech(query);
-
-  // مصفوفة تعيين الكلمات الشائعة للأرقام والصفوف
-  const gradeKeywords: Record<string, string> = {
-    'اول': 'أول',
-    'اولي': 'أول',
-    'ثاني': 'ثاني',
-    'ثانيه': 'ثاني',
-    'ثالث': 'ثالث',
-    'رابع': 'رابع',
-    'خامس': 'خامس',
-    'سادس': 'سادس',
-    '1': 'أول',
-    '2': 'ثاني',
-    '3': 'ثالث',
-    '4': 'رابع',
-    '5': 'خامس',
-    '6': 'سادس',
-  };
-
-  // مصفوفة تعيين الشعب
-  const sectionKeywords: Record<string, string> = {
-    'الف': 'أ',
-    'ا': 'أ',
-    '1': 'أ',
-    'باء': 'ب',
-    'ب': 'ب',
-    '2': 'ب',
-    'جيم': 'ج',
-    'ج': 'ج',
-    '3': 'ج',
-    'دال': 'د',
-    'د': 'د',
-    '4': 'د',
-    'هاء': 'هـ',
-    'ه': 'هـ',
-    '5': 'هـ'
-  };
-
-  let matchedGrade = '';
-  let matchedSection = '';
-
-  for (const [key, val] of Object.entries(gradeKeywords)) {
-    if (norm.includes(key)) {
-      matchedGrade = val;
-      break;
-    }
-  }
-
-  for (const [key, val] of Object.entries(sectionKeywords)) {
-    // نتحقق أن حرف الشعبة مذكور ككلمة مستقلة أو مسبوقة بـ (شعبة / فصل)
-    const regex = new RegExp(`(?:شعبة|فصل|صف|\\s)${key}(?:\\s|$)`, 'i');
-    if (regex.test(norm) || norm.endsWith(' ' + key)) {
-      matchedSection = val;
-      break;
-    }
-  }
-
-  if (matchedGrade) {
-    return { grade: matchedGrade, section: matchedSection };
-  }
-
-  return null;
-}
-
-// استخراج اسم الطالب من الأمر الصوتي
-export function extractStudentName(query: string): string {
-  const norm = normalizeArabicSpeech(query);
-  const prefixes = [
-    'سجل حضور الطالب',
-    'سجل حضور',
-    'سجل غياب الطالب',
-    'سجل غياب',
-    'حاضر الطالب',
-    'حاضر',
-    'غائب الطالب',
-    'غائب',
-    'ابحث عن الطالب',
-    'ابحث عن',
-    'هل الطالب',
-    'هل',
-    'نداء خروج للطالب',
-    'نداء خروج',
-    'استدعاء الطالب',
-    'استدعاء',
-    'رقم ولي امر الطالب',
-    'رقم ولي امر',
-    'من ولي امر الطالب',
-    'من ولي امر',
-    'ولي امر',
-    'ملف الطالب',
-    'ملف'
-  ];
-
-  let cleaned = norm;
-  for (const prefix of prefixes) {
-    if (cleaned.startsWith(prefix + ' ')) {
-      cleaned = cleaned.substring(prefix.length).trim();
-      break;
-    }
-  }
-
-  // إزالة الكلمات الزائدة في النهاية مثل (اليوم، حاضر، غايب، الآن)
-  const suffixes = ['اليوم', 'الان', 'حاضر', 'غايب', 'غائب', 'في المدرسه'];
-  for (const suf of suffixes) {
-    if (cleaned.endsWith(' ' + suf)) {
-      cleaned = cleaned.substring(0, cleaned.length - suf.length - 1).trim();
-    }
-  }
-  return cleaned;
-}
-
-// =============================================================================
-// الصلاحيات ونطاق البيانات
-// =============================================================================
-
-const ADMIN_ROLES: readonly Role[] = [Role.SITE_ADMIN, Role.SCHOOL_ADMIN];
-const SUPERVISOR_ROLES: readonly Role[] = [Role.SUPERVISOR_GLOBAL, Role.SUPERVISOR_CLASS];
 const WEEKDAY_NAMES = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const SILENCE_COMMANDS = new Set(['اسكت', 'توقف', 'اصمت', 'بس']);
 
-// مطابق لحارس مسار /whatsapp في App.tsx
-export function canSendWhatsApp(user: User | null): user is User {
-  return Boolean(user && (user.role === Role.SITE_ADMIN || user.can_use_whatsapp));
+interface NavigationTarget {
+  path: string;
+  title: string;
+  // null: متاح لكل من يدخل المنصة
+  route: ProtectedRouteKey | 'whatsapp' | null;
+  speech: string;
 }
 
-// أرقام أولياء الأمور تظهر في شاشات الإدارة والإشراف وواتساب، ولا تظهر لحساب المراقب
-export function canViewGuardianPhone(user: User | null): boolean {
-  return Boolean(user && (
-    ADMIN_ROLES.includes(user.role) ||
-    SUPERVISOR_ROLES.includes(user.role) ||
-    user.can_use_whatsapp
-  ));
-}
+const NAVIGATION: Partial<Record<UstadIntentId, NavigationTarget>> = {
+  'nav.integrations': { path: '/admin?tab=integrations', title: 'مركز التكاملات', route: 'admin', speech: 'أبشر، جاري فتح مركز التكاملات ومراجعة المنصات.' },
+  'nav.kiosk': { path: '/kiosk', title: 'كشك الحضور', route: 'kiosk', speech: 'جاري فتح كشك الحضور.' },
+  'nav.dismissal_kiosk': { path: '/dismissal-kiosk', title: 'كشك الانصراف', route: 'dismissalKiosk', speech: 'جاري فتح كشك الانصراف.' },
+  'nav.call_board': { path: '/call-board', title: 'لوحة النداءات', route: 'callBoard', speech: 'جاري فتح لوحة نداءات الانصراف.' },
+  'nav.guard_station': { path: '/guard-station', title: 'محطة الحارس', route: 'guardStation', speech: 'جاري فتح محطة الحارس والموزع.' },
+  'nav.watcher': { path: '/watcher', title: 'المراقبة اليومية', route: 'watcher', speech: 'جاري فتح شاشة المراقبة اليومية.' },
+  'nav.scanner': { path: '/scanner', title: 'ماسح الباركود', route: 'mobileScanner', speech: 'جاري فتح ماسح الباركود السريع.' },
+  'nav.reports': { path: '/reports', title: 'التقارير', route: 'reports', speech: 'جاري فتح مركز التقارير المدرسية.' },
+  'nav.surveys': { path: '/surveys', title: 'الاستبيانات', route: 'surveys', speech: 'جاري فتح استبيانات قياس الرضا.' },
+  'nav.whatsapp': { path: '/whatsapp', title: 'بوابة رسائل واتساب', route: 'whatsapp', speech: 'جاري فتح بوابة رسائل واتساب.' },
+  'nav.staff': { path: '/admin?tab=staff-operations', title: 'المعلمين وحصص الانتظار', route: 'admin', speech: 'تم فتح جدول المعلمين وحصص الانتظار لليوم.' },
+  'nav.students': { path: '/admin?tab=students', title: 'إدارة الطلاب', route: 'admin', speech: 'جاري فتح قائمة وسجلات الطلاب.' },
+  'nav.backup': { path: '/admin?tab=backup', title: 'النسخ الاحتياطي', route: 'admin', speech: 'تم فتح مركز النسخ الاحتياطي وقاعدة البيانات.' },
+  'nav.settings': { path: '/admin?tab=settings', title: 'إعدادات النظام', route: 'admin', speech: 'جاري فتح إعدادات النظام.' },
+  'nav.support': { path: '/support', title: 'الدعم الفني', route: 'support', speech: 'جاري فتح شاشة الدعم الفني والمساعدة.' },
+  'nav.home': { path: '/', title: 'لوحة القيادة الرئيسية', route: null, speech: 'تمت العودة للوحة القيادة الرئيسية.' },
+  'nav.activity_log': { path: '/admin?tab=activity-log', title: 'سجل الأنشطة', route: 'admin', speech: 'جاري فتح سجل الأنشطة.' },
+  'report.chronic': { path: '/reports', title: 'تقرير الغياب المزمن', route: 'reports', speech: 'تم فتح تقرير حالات الغياب المتكرر والمزمن.' }
+};
 
-const canUseRoute = (user: User | null, route: ProtectedRouteKey): user is User =>
-  Boolean(user && accessPolicy.canAccessRoute(user, route));
+const STUDENT_FOLLOW_UPS: Partial<Record<UstadIntentId, UstadStudentFollowUp>> = {
+  'student.lookup': { kind: 'lookup' },
+  'student.mark_present': { kind: 'mark_attendance', newStatus: 'present' },
+  'student.mark_absent': { kind: 'mark_attendance', newStatus: 'absent' },
+  'student.dismissal_call': { kind: 'call_dismissal' }
+};
 
-const deniedResult = (spokenText: string): UstadActionPayload => ({
-  type: 'error',
-  title: 'صلاحيات غير كافية',
-  spokenText
+const unknownResult = (): UstadActionPayload => ({
+  type: 'info',
+  title: 'أمر غير معروف',
+  spokenText: 'لم أفهم طلبك بدقة. يمكنك قول: «كم طالب غائب اليوم؟»، «افتح مركز التكاملات»، أو «مساعدة» لعرض الأوامر.',
+  actionButton: { label: 'عرض دليل الأوامر', onClickKey: 'help' }
 });
 
-const studentUnavailableResult = (): UstadActionPayload => ({
-  type: 'error',
-  title: 'الطالب غير متاح',
-  spokenText: 'لم أعد أجد هذا الطالب ضمن الطلاب المتاحين لحسابك.'
-});
-
-const isActiveStudent = (student: Student) =>
-  student.is_active !== false && (student.is_active as unknown) !== 0;
-
-// الطلاب النشطون ضمن نطاق المستخدم: مشرف الفصل لا يرى إلا فصوله المسندة
-async function loadScopedStudents(user: User): Promise<Student[]> {
-  const students = (await db.getStudents()).filter(isActiveStudent);
-  return accessPolicy.filterStudentsForRoleScopedWidgets(students, user);
+// توافق مع الاستخدامات السابقة: «اعرض غياب ثالث باء» ← { grade: 'ثالث', section: 'ب' }
+export function parseGradeAndSection(query: string): { grade: string; section: string } | null {
+  const ref = analyzeUtterance(query).classRef;
+  return ref ? { grade: ref.gradeLabel, section: ref.sectionLabel } : null;
 }
 
-async function findScopedStudent(studentId: string, user: User): Promise<Student | null> {
-  const key = normalizeStudentId(studentId);
-  return (await loadScopedStudents(user)).find(student => normalizeStudentId(student.id) === key) ?? null;
+// اسم الطالب بعد حذف كلمات الأوامر والمجاملة والصف
+export function extractStudentName(query: string): string {
+  return analyzeUtterance(query).tokens
+    .filter(token => token.role === 'word' && token.concepts.length === 0)
+    .map(token => token.text)
+    .join(' ');
 }
 
-function attendedStudentIds(records: AttendanceRecord[], date: string): Set<string> {
-  return new Set(
-    uniqueAttendanceByStudentDate(records, date)
-      .filter(record => record.status === 'present' || record.status === 'late')
-      .map(record => normalizeStudentId(record.student_id))
-  );
-}
-
-function summarizeStudent(student: Student, user: User | null): UstadStudentSummary {
-  const guardianPhone = canViewGuardianPhone(user)
-    ? student.guardian_phone || student.parent_phone || student.whatsapp_phone
-    : undefined;
-  return {
-    id: student.id,
-    name: student.name,
-    class_name: student.class_name || '',
-    section: student.section || '',
-    ...(guardianPhone ? { guardianPhone } : {})
-  };
-}
-
-const formatClassLabel = (student: Pick<Student, 'class_name' | 'section'>) =>
-  [student.class_name, student.section].filter(Boolean).join(' - ');
-
-const pad2 = (value: number) => String(value).padStart(2, '0');
-
-// تنبيه الغياب قبل انتهاء مهلة الحضور يصل لأولياء أمور طلاب ما زالوا في الطريق
-function absenceAlertWindowNotice(settings: SystemSettings | null): UstadActionPayload | null {
-  const timing = decideAttendanceTiming({
-    occurredAt: new Date(),
-    settings: settings ?? undefined,
-    holidays: settings?.attendance_settings?.academic_holidays ?? getCachedHolidays()
-  });
-
-  if (timing.allowed === false) {
-    return timing.reason === 'holiday'
-      ? { type: 'info', title: 'اليوم عطلة', spokenText: 'اليوم عطلة دراسية، فلا توجد تنبيهات غياب لإرسالها.' }
-      : null;
-  }
-  if (timing.status === 'present') {
-    return {
-      type: 'info',
-      title: 'لم تنتهِ مهلة الحضور',
-      spokenText: 'لم تنتهِ مهلة الحضور الصباحي بعد، وقد يكون بعض الطلاب في الطريق. أعد الطلب بعد انتهاء المهلة.'
-    };
-  }
-  return null;
-}
-
-async function findAbsenceAlertRecipients(user: User): Promise<{ recipients: AbsenceAlertRecipient[]; withoutPhone: number }> {
-  const today = getLocalISODate();
-  const [students, attendance] = await Promise.all([loadScopedStudents(user), db.getAttendance(today)]);
-  const attended = attendedStudentIds(attendance, today);
-
-  const recipients: AbsenceAlertRecipient[] = [];
-  let withoutPhone = 0;
-  for (const student of students) {
-    if (attended.has(normalizeStudentId(student.id))) continue;
-    const phone = resolveStudentWhatsAppPhone(student);
-    if (phone) {
-      recipients.push({ student, phone });
-    } else {
-      withoutPhone++;
-    }
-  }
-  return { recipients, withoutPhone };
+function followUpRoute(followUp: UstadStudentFollowUp): { route: ProtectedRouteKey; denied: string } {
+  return followUp.kind === 'call_dismissal'
+    ? { route: 'callBoard', denied: 'عفواً، لا يملك حسابك صلاحية إرسال نداءات الخروج.' }
+    : followUp.kind === 'mark_attendance'
+    ? { route: 'watcher', denied: 'عفواً، لا يملك حسابك صلاحية تعديل سجلات حضور الطلاب.' }
+    : { route: 'watcher', denied: 'عفواً، لا يملك حسابك صلاحية الاطلاع على بيانات الطلاب.' };
 }
 
 class UstadIntentEngine {
   /**
-   * معالجة الأمر الصوتي وإرجاع النتيجة المناسبة
+   * معالجة الأمر الصوتي أو المكتوب وإرجاع النتيجة المناسبة
    */
   public async executeCommand(command: string, currentUser: User | null, navigate: (path: string) => void): Promise<UstadActionPayload> {
-    const raw = stripWakeWord(command.trim());
-    const norm = normalizeArabicSpeech(raw);
+    const utterance = stripWakeWord(command.trim());
+    const norm = normalizeArabicSpeech(utterance);
 
     if (!norm) {
-      return {
-        type: 'info',
-        title: 'أستاذ حاضر يستمع',
-        spokenText: 'نعم، تفضّل.'
-      };
+      return { type: 'info', title: 'أستاذ حاضر يستمع', spokenText: 'نعم، تفضّل.' };
+    }
+    if (SILENCE_COMMANDS.has(norm)) {
+      return { type: 'silence', title: 'تم إيقاف الرد الصوتي', spokenText: '' };
     }
 
-    // 0. التحقق من أمر الإسكات
-    if (norm === 'اسكت' || norm === 'توقف' || norm === 'اصمت' || norm === 'بس') {
-      return {
-        type: 'silence',
-        title: 'تم إيقاف الرد الصوتي',
-        spokenText: ''
-      };
+    const [best] = rankIntents(utterance);
+    if (!best) return unknownResult();
+
+    const result = await this.dispatch(best, currentUser, navigate, utterance);
+    if (result) return result;
+
+    // لا طالب بالاسم المستخرج: ربما كانت الكلمة الزائدة مجاملة لا اسماً
+    const [withoutName] = rankIntents(utterance, { ignoreRemainder: true });
+    if (withoutName) {
+      const fallback = await this.dispatch(withoutName, currentUser, navigate, utterance);
+      if (fallback) return fallback;
+    }
+    return best.signals > 0
+      ? {
+          type: 'error',
+          title: 'لم يتم العثور على الطالب',
+          spokenText: `لم أجد طالباً باسم "${best.studentQuery}" ضمن الطلاب المتاحين لحسابك.`
+        }
+      : unknownResult();
+  }
+
+  /**
+   * تنفيذ إجراء بعد تأكيد المستخدم الصريح، وتوثيقه في سجل الأنشطة
+   */
+  public async executeConfirmedAction(action: UstadPendingAction, currentUser: User | null): Promise<UstadActionPayload> {
+    const result = action.type === 'mark_attendance'
+      ? await this.confirmAttendance(action.studentId, action.newStatus, currentUser)
+      : action.type === 'call_dismissal'
+      ? await this.confirmDismissalCall(action.studentId, currentUser)
+      : await this.confirmAbsenceAlerts(action.studentIds, currentUser);
+
+    await recordAssistantActivity(action, result, currentUser);
+    return result;
+  }
+
+  /**
+   * متابعة الطلب الأصلي بعد اختيار طالب من قائمة الأسماء المتشابهة
+   */
+  public async executeStudentFollowUp(
+    followUp: UstadStudentFollowUp,
+    studentId: string,
+    currentUser: User | null,
+    utterance?: string
+  ): Promise<UstadActionPayload> {
+    const { route, denied } = followUpRoute(followUp);
+    if (!canUseRoute(currentUser, route)) return deniedResult(denied);
+
+    try {
+      const student = await findScopedStudent(studentId, currentUser);
+      if (!student) return studentUnavailableResult();
+      return await this.presentStudentFollowUp(followUp, student, currentUser, utterance);
+    } catch {
+      return { type: 'error', title: 'خطأ في البحث', spokenText: 'حدث خطأ أثناء قراءة بيانات الطالب.' };
+    }
+  }
+
+  // null تعني نية طالب لم يُعثر على اسمه
+  private async dispatch(
+    match: IntentMatch,
+    user: User | null,
+    navigate: (path: string) => void,
+    utterance: string
+  ): Promise<UstadActionPayload | null> {
+    const followUp = STUDENT_FOLLOW_UPS[match.id];
+    if (followUp) return this.handleStudentIntent(match, followUp, user, utterance);
+
+    const target = NAVIGATION[match.id];
+    if (target) return this.handleNavigate(target, user, navigate);
+
+    switch (match.id) {
+      case 'greeting':
+        return {
+          type: 'info',
+          title: 'أهلاً بك',
+          spokenText: normalizeArabicSpeech(utterance).includes('سلام') ? 'وعليكم السلام ورحمة الله، تفضّل كيف أخدمك؟' : 'أهلاً بك، تفضّل كيف أخدمك؟'
+        };
+      case 'help':
+        return {
+          type: 'help',
+          title: 'دليل أوامر أستاذ حاضر',
+          spokenText: 'أهلاً بك! يمكنك سؤالي عن الغياب، أو طلب فتح أي شاشة، أو إعداد التقارير، أو إرسال الرسائل.'
+        };
+      case 'theme.dark':
+        return { type: 'theme_changed', title: 'تم تفعيل الوضع الداكن', spokenText: 'تم تفعيل الوضع الداكن بنجاح.', data: { mode: 'dark' } };
+      case 'theme.light':
+        return { type: 'theme_changed', title: 'تم تفعيل الوضع الفاتح', spokenText: 'تم تفعيل الوضع الفاتح بنجاح.', data: { mode: 'light' } };
+      case 'alerts.absence':
+        return this.handleAbsenceAlertsPreview(user, utterance);
+      case 'stats.absence':
+      case 'stats.attendance':
+      case 'stats.late':
+        return this.handleTodayStats(match.id, user);
+      case 'stats.dismissal':
+        return {
+          type: 'info',
+          title: 'حالة انصراف الطلاب',
+          spokenText: 'يمكنك متابعة وتوثيق نداءات ومغادرة الطلاب عبر كشك الانصراف ولوحة النداء.',
+          actionButton: { label: 'فتح كشك الانصراف', path: '/dismissal-kiosk' }
+        };
+      case 'class.absence':
+        return match.classRef ? this.handleClassAbsenceRoster(match.classRef, user) : unknownResult();
+      case 'report.weekly':
+        return this.handleWeeklyReport(user);
+      default:
+        return unknownResult();
+    }
+  }
+
+  private handleNavigate(target: NavigationTarget, user: User | null, navigate: (path: string) => void): UstadActionPayload {
+    const allowed = target.route === null
+      ? Boolean(user)
+      : target.route === 'whatsapp'
+      ? canSendWhatsApp(user)
+      : canUseRoute(user, target.route);
+    if (!allowed) {
+      return deniedResult(`عفواً، حسابك لا يملك صلاحية الوصول إلى شاشة ${target.title}.`);
     }
 
-    // 1. أوامر المساعدة واستعراض القدرات
-    if (norm.includes('مساعده') || norm.includes('اوامر') || norm.includes('ماذا تفعل') || norm.includes('ايش تسوي') || norm.includes('وش تسوي')) {
-      return {
-        type: 'help',
-        title: 'دليل أوامر أستاذ حاضر',
-        spokenText: 'أهلاً بك! يمكنك سؤالي عن الغياب، أو طلب فتح أي شاشة، أو إعداد التقارير، أو إرسال الرسائل.',
-      };
-    }
-
-    // 2. أوامر المظهر والوضع الداكن
-    if (norm.includes('وضع داكن') || norm.includes('الوضع الداكن') || norm.includes('الوضع الليلي') || norm.includes('ليلي')) {
-      applyColorMode('dark', true);
-      return {
-        type: 'theme_changed',
-        title: 'تم تفعيل الوضع الداكن',
-        spokenText: 'تم تفعيل الوضع الداكن بنجاح.'
-      };
-    }
-
-    if (norm.includes('وضع فاتح') || norm.includes('الوضع الفاتح') || norm.includes('الوضع النهاري') || norm.includes('نهاري')) {
-      applyColorMode('light', true);
-      return {
-        type: 'theme_changed',
-        title: 'تم تفعيل الوضع الفاتح',
-        spokenText: 'تم تفعيل الوضع الفاتح بنجاح.'
-      };
-    }
-
-    // 3. أمر «أرسل تنبيه لأولياء أمور الغائبين» — قبل التنقل حتى لا تفتح كلمة «واتساب» صفحة أخرى
-    if (
-      norm.includes('ارسل تنبيه لاولياء امور') ||
-      norm.includes('ارسل تنبيه للغائبين') ||
-      norm.includes('تنبيه اولياء امور الغائبين') ||
-      norm.includes('ارسل رسائل للغائبين') ||
-      norm.includes('اشعار اولياء الامور')
-    ) {
-      return await this.handleAbsenceAlertsPreview(currentUser);
-    }
-
-    // 4. أوامر الغياب والحضور العامة
-    // «كم طالب غائب اليوم؟»
-    if (norm.includes('غائب اليوم') || norm.includes('كم الغياب') || norm.includes('عدد الغائبين') || norm.includes('الغياب اليوم') || norm.includes('كم طالب غايب')) {
-      return await this.handleAbsenceTodayStats(currentUser);
-    }
-
-    // «كم الحضور اليوم؟» / «نسبة الحضور»
-    if (norm.includes('كم الحضور') || norm.includes('نسبه الحضور') || norm.includes('احصائيه الحضور') || norm.includes('الحضور اليوم')) {
-      return await this.handleAttendanceTodayStats(currentUser);
-    }
-
-    // «كم المتأخرين اليوم؟»
-    if (norm.includes('المتاخرين') || norm.includes('كم تاخر') || norm.includes('التاخر اليوم')) {
-      return await this.handleLateTodayStats(currentUser);
-    }
-
-    // «كم طالب انصرف اليوم؟» / «حالة الانصراف»
-    if (norm.includes('انصرف اليوم') || norm.includes('كم الانصراف') || norm.includes('حاله الانصراف') || norm.includes('المغادرين')) {
-      return this.handleDismissalsStats();
-    }
-
-    // 5. أوامر التنقل المباشر
-    // «افتح مركز التكاملات»
-    if (norm.includes('مركز التكاملات') || norm.includes('التكاملات') || norm.includes('تكاملات')) {
-      return this.handleNavigate(
-        '/admin?tab=integrations',
-        'مركز التكاملات',
-        currentUser,
-        'admin',
-        navigate,
-        'أبشر، جاري فتح مركز التكاملات ومراجعة المنصات.'
-      );
-    }
-
-    // «افتح كشك الحضور»
-    if (norm.includes('كشك الحضور') || (norm.includes('كشك') && !norm.includes('انصراف'))) {
-      return this.handleNavigate('/kiosk', 'كشك الحضور', currentUser, 'kiosk', navigate, 'جاري فتح كشك الحضور.');
-    }
-
-    // «افتح كشك الانصراف»
-    if (norm.includes('كشك الانصراف') || norm.includes('انصراف الطلاب')) {
-      return this.handleNavigate('/dismissal-kiosk', 'كشك الانصراف', currentUser, 'dismissalKiosk', navigate, 'جاري فتح كشك الانصراف.');
-    }
-
-    // «افتح لوحة النداءات»
-    if (norm.includes('لوحه النداءات') || norm.includes('لوحه النداء') || norm.includes('شاشه النداء')) {
-      return this.handleNavigate('/call-board', 'لوحة النداءات', currentUser, 'callBoard', navigate, 'جاري فتح لوحة نداءات الانصراف.');
-    }
-
-    // «افتح محطة الحارس»
-    if (norm.includes('محطه الحارس') || norm.includes('حارس') || norm.includes('بوابه')) {
-      return this.handleNavigate('/guard-station', 'محطة الحارس', currentUser, 'guardStation', navigate, 'جاري فتح محطة الحارس والموزع.');
-    }
-
-    // «افتح المراقبة اليومية»
-    if (norm.includes('المراقبه اليوميه') || norm.includes('المراقبه') || norm.includes('شاشه المراقبه')) {
-      return this.handleNavigate('/watcher', 'المراقبة اليومية', currentUser, 'watcher', navigate, 'جاري فتح شاشة المراقبة اليومية.');
-    }
-
-    // «افتح ماسح الباركود»
-    if (norm.includes('ماسح الباركود') || norm.includes('الماسح') || norm.includes('كاميرا الباركود')) {
-      return this.handleNavigate('/scanner', 'ماسح الباركود', currentUser, 'mobileScanner', navigate, 'جاري فتح ماسح الباركود السريع.');
-    }
-
-    // «افتح التقارير»
-    if (norm.includes('افتح التقارير') || (norm.includes('تقارير') && norm.includes('افتح'))) {
-      return this.handleNavigate('/reports', 'التقارير', currentUser, 'reports', navigate, 'جاري فتح مركز التقارير المدرسية.');
-    }
-
-    // «افتح الاستبيانات»
-    if (norm.includes('الاستبيانات') || norm.includes('استبيان')) {
-      return this.handleNavigate('/surveys', 'الاستبيانات', currentUser, 'surveys', navigate, 'جاري فتح استبيانات قياس الرضا.');
-    }
-
-    // «افتح إدارة الرسائل / واتساب»
-    if (norm.includes('واتساب') || norm.includes('الرسائل') || norm.includes('ارسال الرسائل')) {
-      if (!canSendWhatsApp(currentUser)) {
-        return deniedResult('عفواً، لا يملك حسابك صلاحية استخدام بوابة واتساب وإدارة الرسائل.');
-      }
-      navigate('/whatsapp');
-      return {
-        type: 'navigate',
-        title: 'إدارة رسائل واتساب',
-        spokenText: 'جاري فتح بوابة رسائل واتساب.',
-        actionButton: { label: 'فتح واتساب', path: '/whatsapp' }
-      };
-    }
-
-    // «افتح المعلمين والانتظار»
-    if (norm.includes('الانتظار') || norm.includes('حصص الانتظار') || norm.includes('المعلمين والانتظار') || norm.includes('من في الانتظار')) {
-      return this.handleNavigate(
-        '/admin?tab=staff-operations',
-        'المعلمين وحصص الانتظار',
-        currentUser,
-        'admin',
-        navigate,
-        'تم فتح جدول المعلمين وحصص الانتظار لليوم.'
-      );
-    }
-
-    // «افتح إدارة الطلاب»
-    if (norm.includes('اداره الطلاب') || (norm.includes('الطلاب') && norm.includes('افتح'))) {
-      return this.handleNavigate('/admin?tab=students', 'إدارة الطلاب', currentUser, 'admin', navigate, 'جاري فتح قائمة وسجلات الطلاب.');
-    }
-
-    // «افتح النسخ الاحتياطي»
-    if (norm.includes('نسخ احتياطي') || norm.includes('النسخ الاحتياطي')) {
-      return this.handleNavigate('/admin?tab=backup', 'النسخ الاحتياطي', currentUser, 'admin', navigate, 'تم فتح مركز النسخ الاحتياطي وقاعدة البيانات.');
-    }
-
-    // «افتح إعدادات النظام»
-    if (norm.includes('الاعدادات') || norm.includes('اعدادات النظام')) {
-      return this.handleNavigate('/admin?tab=settings', 'إعدادات النظام', currentUser, 'admin', navigate, 'جاري فتح إعدادات النظام.');
-    }
-
-    // «افتح الدعم الفني»
-    if (norm.includes('الدعم الفني') || norm.includes('الدعم')) {
-      return this.handleNavigate('/support', 'الدعم الفني', currentUser, 'support', navigate, 'جاري فتح شاشة الدعم الفني والمساعدة.');
-    }
-
-    // «افتح الرئيسية / لوحة القيادة»
-    if (norm.includes('الرئيسيه') || norm.includes('لوحه القياده') || norm.includes('الصفحه الرئيسيه')) {
-      navigate('/');
-      return {
-        type: 'navigate',
-        title: 'لوحة القيادة الرئيسية',
-        spokenText: 'تمت العودة للوحة القيادة الرئيسية.',
-        actionButton: { label: 'الانتقال للرئيسية', path: '/' }
-      };
-    }
-
-    // 6. أوامر التقارير المجهزة
-    // «جهّز تقرير الأسبوع»
-    if (norm.includes('تقرير الاسبوع') || norm.includes('التقرير الاسبوعي') || norm.includes('ملخص الاسبوع')) {
-      return await this.handleWeeklyReport(currentUser);
-    }
-
-    // «اعرض تقرير الغياب المزمن»
-    if (norm.includes('غياب مزمن') || norm.includes('الغياب المزمن') || norm.includes('اكثر الطلاب غيابا')) {
-      if (!accessPolicy.canAccessRoute(currentUser, 'reports')) {
-        return deniedResult('عفواً، لا يملك حسابك صلاحية الوصول لتقارير الغياب المزمن.');
-      }
-      navigate('/reports');
-      return {
-        type: 'navigate',
-        title: 'تقرير الغياب المزمن',
-        spokenText: 'تم فتح تقرير حالات الغياب المتكرر والمزمن.',
-        actionButton: { label: 'فتح تقرير الغياب المزمن', path: '/reports' }
-      };
-    }
-
-    // 7. أمر كشف غياب فصل محدد («اعرض غياب ثالث باء»)
-    if (norm.includes('غياب') || norm.includes('كشف غياب') || norm.includes('اعرض غياب')) {
-      const parsedClass = parseGradeAndSection(raw);
-      if (parsedClass) {
-        return await this.handleClassAbsenceRoster(parsedClass.grade, parsedClass.section, currentUser);
-      }
-    }
-
-    // 8. أوامر شؤون الطلاب (بحث، استفسار عن حضور، رقم ولي أمر، نداء خروج، تسجيل حضور)
-    // نداء خروج لطالب
-    if (norm.includes('نداء خروج') || norm.includes('استدعاء الطالب') || norm.includes('نداء للطالب')) {
-      const studentName = extractStudentName(raw);
-      if (studentName) {
-        return await this.handleStudentDismissalCall(studentName, currentUser);
-      }
-    }
-
-    // تسجيل حضور / غياب طالب
-    if (norm.includes('سجل حضور') || norm.includes('سجل غياب') || norm.includes('حاضر الطالب') || norm.includes('غائب الطالب')) {
-      const isAbsent = norm.includes('غياب') || norm.includes('غائب');
-      const studentName = extractStudentName(raw);
-      if (studentName) {
-        return await this.handleStudentAttendanceModification(studentName, isAbsent ? 'absent' : 'present', currentUser);
-      }
-    }
-
-    // استفسار هل الطالب حاضر اليوم؟ أو البحث عنه أو رقم ولي أمره
-    if (
-      norm.includes('هل الطالب') ||
-      norm.includes('ابحث عن') ||
-      norm.includes('رقم ولي امر') ||
-      norm.includes('ولي امر الطالب') ||
-      norm.includes('معلومات الطالب')
-    ) {
-      const studentName = extractStudentName(raw);
-      if (studentName) {
-        return await this.handleStudentLookup(studentName, currentUser);
-      }
-    }
-
-    // إذا لم يتطابق مع أمر محدد، نبحث هل يحتوي على اسم طالب
-    const possibleName = extractStudentName(raw);
-    if (possibleName.length >= 3 && canUseRoute(currentUser, 'watcher')) {
-      const lookupResult = await this.handleStudentLookup(possibleName, currentUser);
-      if (lookupResult.type !== 'error') {
-        return lookupResult;
-      }
-    }
-
-    // رد افتراضي ذكي
+    navigate(target.path);
     return {
-      type: 'info',
-      title: 'أمر غير معروف',
-      spokenText: 'لم أفهم طلبك بدقة. يمكنك قول: «كم طالب غائب اليوم؟»، «افتح مركز التكاملات»، أو «مساعدة» لعرض الأوامر.',
-      actionButton: {
-        label: 'عرض دليل الأوامر',
-        onClickKey: 'help'
-      }
+      type: 'navigate',
+      title: target.title,
+      spokenText: target.speech,
+      actionButton: { label: `الانتقال إلى ${target.title}`, path: target.path }
     };
   }
 
-  /**
-   * تنفيذ إجراء بعد تأكيد المستخدم الصريح
-   */
-  public async executeConfirmedAction(action: UstadPendingAction, currentUser: User | null): Promise<UstadActionPayload> {
-    switch (action.type) {
-      case 'mark_attendance':
-        return this.confirmAttendance(action.studentId, action.newStatus, currentUser);
-      case 'call_dismissal':
-        return this.confirmDismissalCall(action.studentId, currentUser);
-      case 'send_absence_alerts':
-        return this.confirmAbsenceAlerts(action.studentIds, currentUser);
+  private async handleStudentIntent(
+    match: IntentMatch,
+    followUp: UstadStudentFollowUp,
+    user: User | null,
+    utterance: string
+  ): Promise<UstadActionPayload | null> {
+    const { route, denied } = followUpRoute(followUp);
+    if (!canUseRoute(user, route)) return deniedResult(denied);
+
+    try {
+      const resolution = resolveStudent(await loadScopedStudents(user), match.studentQuery, match.classRef);
+      if (resolution.kind === 'none') return null;
+
+      if (resolution.kind === 'ambiguous') {
+        const { candidates, total } = resolution;
+        return {
+          type: 'disambiguation',
+          title: 'تحديد الطالب المطلوب',
+          spokenText: total > candidates.length
+            ? `وجدت ${total} طلاب بهذا الاسم، وأعرض أقربهم. اذكر الاسم كاملاً أو الصف لتضييق البحث.`
+            : `وجدت ${total} طلاب بهذا الاسم. أي طالب تقصد؟`,
+          data: {
+            students: candidates.map(student => summarizeStudent(student, null)),
+            total,
+            query: match.studentQuery,
+            utterance
+          },
+          followUp
+        };
+      }
+
+      return await this.presentStudentFollowUp(followUp, resolution.student, user, utterance);
+    } catch {
+      return { type: 'error', title: 'خطأ في البحث', spokenText: 'حدث خطأ أثناء البحث عن بيانات الطالب.' };
     }
   }
 
-  /**
-   * فحص الصلاحية والتنقل السلس
-   */
-  private handleNavigate(
-    path: string,
-    title: string,
-    currentUser: User | null,
-    requiredRoute: ProtectedRouteKey,
-    navigate: (path: string) => void,
-    speech: string
-  ): UstadActionPayload {
-    if (!canUseRoute(currentUser, requiredRoute)) {
-      return deniedResult(`عفواً، حسابك لا يملك صلاحية الوصول إلى شاشة ${title}.`);
+  private async presentStudentFollowUp(
+    followUp: UstadStudentFollowUp,
+    student: Student,
+    user: User,
+    utterance?: string
+  ): Promise<UstadActionPayload> {
+    if (followUp.kind === 'lookup') return this.studentCard(student, user);
+
+    const className = formatClassLabel(student);
+    if (followUp.kind === 'mark_attendance') {
+      const statusLabel = followUp.newStatus === 'present' ? 'حاضر' : 'غائب';
+      return {
+        type: 'confirmation',
+        title: `تأكيد تسجيل ${statusLabel}`,
+        spokenText: `هل تؤكد تسجيل الطالب ${student.name} ${statusLabel} اليوم؟`,
+        data: { prompt: `تسجيل الطالب ${student.name} ${statusLabel} اليوم`, studentName: student.name, className },
+        pendingAction: { type: 'mark_attendance', studentId: student.id, newStatus: followUp.newStatus, utterance }
+      };
     }
 
-    navigate(path);
     return {
-      type: 'navigate',
-      title,
-      spokenText: speech,
+      type: 'confirmation',
+      title: 'تأكيد نداء خروج',
+      spokenText: `هل تريد إرسال نداء خروج للطالب ${student.name} إلى لوحة النداءات؟`,
+      data: { prompt: `إرسال نداء خروج للطالب ${student.name}`, studentName: student.name, className },
+      pendingAction: { type: 'call_dismissal', studentId: student.id, utterance }
+    };
+  }
+
+  private async studentCard(student: Student, user: User): Promise<UstadActionPayload> {
+    const today = getLocalISODate();
+    const [attendance, settings] = await Promise.all([db.getAttendance(today), db.getSettings()]);
+    const record = todayRecordFor(attendance, today, student.id);
+
+    const status = record?.status ?? (isWithinArrivalWindow(settings) ? 'pending' : 'absent');
+    const statusArabic = status === 'present'
+      ? 'حاضر'
+      : status === 'late'
+      ? 'متأخر'
+      : status === 'pending'
+      ? 'لم يُسجَّل وصوله بعد'
+      : 'غائب';
+
+    return {
+      type: 'student_card',
+      title: `بيانات الطالب: ${student.name}`,
+      spokenText: `الطالب ${student.name}، في الصف ${student.class_name || ''} شعبة ${student.section || ''}. حالته اليوم: ${statusArabic}.`,
+      data: {
+        student: summarizeStudent(student, user),
+        status,
+        statusArabic,
+        timestamp: record?.timestamp || record?.created_at
+      },
       actionButton: {
-        label: `الانتقال إلى ${title}`,
-        path
+        label: 'عرض في المراقبة اليومية',
+        path: `/watcher?search=${encodeURIComponent(student.name)}`
       }
     };
   }
@@ -631,168 +364,79 @@ class UstadIntentEngine {
     return { ...counts, rate, date: today };
   }
 
-  /**
-   * معالجة استعلام غياب اليوم
-   */
-  private async handleAbsenceTodayStats(user: User | null): Promise<UstadActionPayload> {
+  private async handleTodayStats(intent: 'stats.absence' | 'stats.attendance' | 'stats.late', user: User | null): Promise<UstadActionPayload> {
     if (!canUseRoute(user, 'watcher')) {
       return deniedResult('عفواً، لا يملك حسابك صلاحية الاطلاع على إحصائيات الحضور.');
     }
 
     try {
       const counts = await this.loadTodayCounts(user);
-      const spoken = `عدد الطلاب الغائبين اليوم هو ${counts.absent} ${counts.absent === 1 ? 'طالب' : 'طالباً'}، من إجمالي ${counts.total}، بنسبة حضور بلغت ${counts.rate} بالمئة.`;
-
+      if (intent === 'stats.attendance') {
+        return {
+          type: 'stats_attendance',
+          title: 'إحصائية الحضور اليومي',
+          spokenText: `نسبة الحضور اليوم ${counts.rate} بالمئة، وحضر حتى الآن ${counts.attended} طالباً من أصل ${counts.total}.`,
+          data: counts,
+          actionButton: { label: 'فتح المراقبة اليومية', path: '/watcher' }
+        };
+      }
+      if (intent === 'stats.late') {
+        return {
+          type: 'stats_absence',
+          title: 'إحصائية التأخر الصباحي',
+          spokenText: `عدد الطلاب المتأخرين المسجلين اليوم هو ${counts.late} ${counts.late === 1 ? 'طالب' : 'طلاب'}.`,
+          data: counts,
+          actionButton: { label: 'عرض المتأخرين في المراقبة', path: '/watcher?tab=late' }
+        };
+      }
       return {
         type: 'stats_absence',
         title: 'إحصائية الغياب اليومي',
-        spokenText: spoken,
+        spokenText: `عدد الطلاب الغائبين اليوم هو ${counts.absent} ${counts.absent === 1 ? 'طالب' : 'طالباً'}، من إجمالي ${counts.total}، بنسبة حضور بلغت ${counts.rate} بالمئة.`,
         data: counts,
-        actionButton: {
-          label: 'عرض في المراقبة اليومية',
-          path: '/watcher?tab=absent'
-        }
+        actionButton: { label: 'عرض في المراقبة اليومية', path: '/watcher?tab=absent' }
       };
     } catch {
-      return {
-        type: 'error',
-        title: 'تعذر جلب الإحصائيات',
-        spokenText: 'عفواً، تعذر استرجاع إحصائيات الغياب حالياً.'
-      };
+      return { type: 'error', title: 'تعذر جلب الإحصائيات', spokenText: 'عفواً، تعذر استرجاع إحصائيات الحضور حالياً.' };
     }
   }
 
   /**
-   * معالجة استعلام الحضور ونسبة اليوم
+   * كشف غياب فصل وشعبة محددة («اعرض غياب ثالث باء»)
    */
-  private async handleAttendanceTodayStats(user: User | null): Promise<UstadActionPayload> {
-    if (!canUseRoute(user, 'watcher')) {
-      return deniedResult('عفواً، لا يملك حسابك صلاحية الاطلاع على إحصائيات الحضور.');
-    }
-
-    try {
-      const counts = await this.loadTodayCounts(user);
-      const spoken = `نسبة الحضور اليوم ${counts.rate} بالمئة، وحضر حتى الآن ${counts.attended} طالباً من أصل ${counts.total}.`;
-
-      return {
-        type: 'stats_attendance',
-        title: 'إحصائية الحضور اليومي',
-        spokenText: spoken,
-        data: counts,
-        actionButton: {
-          label: 'فتح المراقبة اليومية',
-          path: '/watcher'
-        }
-      };
-    } catch {
-      return {
-        type: 'error',
-        title: 'تعذر جلب الإحصائية',
-        spokenText: 'تعذر الوصول إلى بيانات الحضور الآن.'
-      };
-    }
-  }
-
-  /**
-   * معالجة إحصائية التأخر
-   */
-  private async handleLateTodayStats(user: User | null): Promise<UstadActionPayload> {
-    if (!canUseRoute(user, 'watcher')) {
-      return deniedResult('عفواً، لا يملك حسابك صلاحية الاطلاع على إحصائيات الحضور.');
-    }
-
-    try {
-      const counts = await this.loadTodayCounts(user);
-      const spoken = `عدد الطلاب المتأخرين المسجلين اليوم هو ${counts.late} ${counts.late === 1 ? 'طالب' : 'طلاب'}.`;
-
-      return {
-        type: 'stats_absence',
-        title: 'إحصائية التأخر الصباحي',
-        spokenText: spoken,
-        data: counts,
-        actionButton: {
-          label: 'عرض المتأخرين في المراقبة',
-          path: '/watcher?tab=late'
-        }
-      };
-    } catch {
-      return {
-        type: 'error',
-        title: 'خطأ في جلب التأخر',
-        spokenText: 'حدث خطأ أثناء قراءة بيانات المتأخرين.'
-      };
-    }
-  }
-
-  /**
-   * معالجة حالة الانصراف
-   */
-  private handleDismissalsStats(): UstadActionPayload {
-    return {
-      type: 'info',
-      title: 'حالة انصراف الطلاب',
-      spokenText: 'يمكنك متابعة وتوثيق نداءات ومغادرة الطلاب عبر كشك الانصراف ولوحة النداء.',
-      actionButton: {
-        label: 'فتح كشك الانصراف',
-        path: '/dismissal-kiosk'
-      }
-    };
-  }
-
-  /**
-   * معالجة كشف غياب فصل وشعبة محددة («اعرض غياب ثالث باء»)
-   */
-  private async handleClassAbsenceRoster(grade: string, section: string, user: User | null): Promise<UstadActionPayload> {
+  private async handleClassAbsenceRoster(classRef: ClassReference, user: User | null): Promise<UstadActionPayload> {
     if (!canUseRoute(user, 'watcher')) {
       return deniedResult('عفواً، لا يملك حسابك صلاحية الاطلاع على كشوف الغياب.');
     }
 
     try {
       const today = getLocalISODate();
-      const [students, todayAttendance] = await Promise.all([loadScopedStudents(user), db.getAttendance(today)]);
-      const attended = attendedStudentIds(todayAttendance, today);
-
-      // تصفية طلاب الصف والشعبة
-      const normTargetGrade = normalizeArabicSpeech(grade);
-      const normTargetSection = normalizeArabicSpeech(section);
-      const classStudents = students.filter(s => {
-        const matchGrade = normalizeArabicSpeech(s.class_name || '').includes(normTargetGrade);
-        const matchSection = normTargetSection ? normalizeArabicSpeech(s.section || '').includes(normTargetSection) : true;
-        return matchGrade && matchSection;
-      });
-
+      const [students, attendance] = await Promise.all([loadScopedStudents(user), db.getAttendance(today)]);
+      const attended = attendedStudentIds(attendance, today);
+      const classStudents = students.filter(student => matchesClassReference(student, classRef));
       const absentStudents = classStudents
-        .filter(s => !attended.has(normalizeStudentId(s.id)))
-        .map(s => summarizeStudent(s, null));
+        .filter(student => !attended.has(normalizeStudentId(student.id)))
+        .map(student => summarizeStudent(student, null));
 
-      const label = `الصف ${grade} ${section ? `شعبة (${section})` : ''}`.trim();
-      const spoken = absentStudents.length === 0
+      const label = `الصف ${classRef.gradeLabel}${classRef.sectionLabel ? ` شعبة (${classRef.sectionLabel})` : ''}`;
+      const spoken = classStudents.length === 0
+        ? `لم أجد طلاباً في ${label} ضمن الطلاب المتاحين لحسابك.`
+        : absentStudents.length === 0
         ? `ما شاء الله! لا يوجد أي غياب مسجل اليوم في ${label}.`
         : `كشف غياب ${label}: يوجد ${absentStudents.length} ${absentStudents.length === 1 ? 'طالب غائب' : 'طلاب غائبين'} اليوم.`;
-
-      const searchParam = encodeURIComponent(`${grade} ${section}`.trim());
 
       return {
         type: 'class_absence',
         title: `كشف غياب ${label}`,
         spokenText: spoken,
-        data: {
-          classLabel: label,
-          absentStudents,
-          totalInClass: classStudents.length,
-          absentCount: absentStudents.length
-        },
+        data: { classLabel: label, absentStudents, totalInClass: classStudents.length, absentCount: absentStudents.length },
         actionButton: {
           label: 'فتح الكشف في المراقبة اليومية',
-          path: `/watcher?tab=absent&search=${searchParam}`
+          path: `/watcher?tab=absent&search=${encodeURIComponent(`${classRef.gradeLabel} ${classRef.sectionLabel}`.trim())}`
         }
       };
     } catch {
-      return {
-        type: 'error',
-        title: 'تعذر جلب كشف الصف',
-        spokenText: 'عفواً، تعذر جلب كشف غياب هذا الفصل حالياً.'
-      };
+      return { type: 'error', title: 'تعذر جلب كشف الصف', spokenText: 'عفواً، تعذر جلب كشف غياب هذا الفصل حالياً.' };
     }
   }
 
@@ -841,37 +485,25 @@ class UstadIntentEngine {
       const avgPresence = measuredDays.length > 0
         ? Math.round(measuredDays.reduce((sum, day) => sum + day.presence, 0) / measuredDays.length)
         : null;
-      const spoken = avgPresence === null
-        ? 'لا توجد سجلات حضور لهذا الأسبوع حتى الآن.'
-        : `تقرير الأسبوع: متوسط الحضور في الأيام المسجلة حتى الآن ${avgPresence} بالمئة.`;
 
       return {
         type: 'weekly_report',
         title: 'ملخص الأسبوع الدراسي',
-        spokenText: spoken,
-        data: {
-          avgPresence,
-          totalStudents: students.length,
-          days
-        },
-        actionButton: {
-          label: 'الانتقال لمركز التقارير الكامل',
-          path: '/reports'
-        }
+        spokenText: avgPresence === null
+          ? 'لا توجد سجلات حضور لهذا الأسبوع حتى الآن.'
+          : `تقرير الأسبوع: متوسط الحضور في الأيام المسجلة حتى الآن ${avgPresence} بالمئة.`,
+        data: { avgPresence, totalStudents: students.length, days },
+        actionButton: { label: 'الانتقال لمركز التقارير الكامل', path: '/reports' }
       };
     } catch {
-      return {
-        type: 'error',
-        title: 'تعذر تجهيز التقرير',
-        spokenText: 'حدث خطأ أثناء تجهيز التقرير الأسبوعي.'
-      };
+      return { type: 'error', title: 'تعذر تجهيز التقرير', spokenText: 'حدث خطأ أثناء تجهيز التقرير الأسبوعي.' };
     }
   }
 
   /**
    * معاينة تنبيهات أولياء الأمور قبل الإرسال مع اشتراط التأكيد
    */
-  private async handleAbsenceAlertsPreview(user: User | null): Promise<UstadActionPayload> {
+  private async handleAbsenceAlertsPreview(user: User | null, utterance: string): Promise<UstadActionPayload> {
     if (!canSendWhatsApp(user)) {
       return deniedResult('عفواً، لا يملك حسابك صلاحية إرسال رسائل واتساب لأولياء الأمور.');
     }
@@ -883,7 +515,6 @@ class UstadIntentEngine {
 
       const today = getLocalISODate();
       const { recipients, withoutPhone } = await findAbsenceAlertRecipients(user);
-
       if (recipients.length === 0) {
         return {
           type: 'info',
@@ -910,147 +541,11 @@ class UstadIntentEngine {
           messagePreview: buildAbsenceAlertMessage(settings, recipients[0].student, today),
           date: today
         },
-        pendingAction: {
-          type: 'send_absence_alerts',
-          studentIds: recipients.map(({ student }) => student.id)
-        }
+        pendingAction: { type: 'send_absence_alerts', studentIds: recipients.map(({ student }) => student.id), utterance }
       };
     } catch {
-      return {
-        type: 'error',
-        title: 'تعذر فحص قائمة الغائبين',
-        spokenText: 'حدث خطأ أثناء حصر أولياء أمور الغائبين.'
-      };
+      return { type: 'error', title: 'تعذر فحص قائمة الغائبين', spokenText: 'حدث خطأ أثناء حصر أولياء أمور الغائبين.' };
     }
-  }
-
-  /**
-   * البحث عن طالب ضمن نطاق المستخدم مع معالجة تشابه الأسماء
-   */
-  private async handleStudentLookup(studentNameQuery: string, user: User | null): Promise<UstadActionPayload> {
-    if (!canUseRoute(user, 'watcher')) {
-      return deniedResult('عفواً، لا يملك حسابك صلاحية الاطلاع على بيانات الطلاب.');
-    }
-
-    try {
-      const students = await loadScopedStudents(user);
-      const queryNorm = normalizeArabicSpeech(studentNameQuery);
-
-      const matched = students.filter(s =>
-        normalizeArabicSpeech(s.name).includes(queryNorm)
-      );
-
-      if (matched.length === 0) {
-        return {
-          type: 'error',
-          title: 'لم يتم العثور على الطالب',
-          spokenText: `لم أجد طالباً باسم "${studentNameQuery}" ضمن الطلاب المتاحين لحسابك.`
-        };
-      }
-
-      // إذا وُجد أكثر من طالب بنفس الاسم -> سؤال توضيحي للتمييز (Disambiguation)
-      if (matched.length > 1) {
-        return {
-          type: 'disambiguation',
-          title: 'تحديد الطالب المطلوب',
-          spokenText: `وجدت ${matched.length} طلاب بهذا الاسم. أي طالب تقصد؟`,
-          data: {
-            students: matched.map(s => summarizeStudent(s, null)),
-            originalQuery: studentNameQuery
-          }
-        };
-      }
-
-      // وُجد طالب واحد بالضبط
-      const student = matched[0];
-      const today = getLocalISODate();
-      const record = uniqueAttendanceByStudentDate(await db.getAttendance(today), today)
-        .find(a => normalizeStudentId(a.student_id) === normalizeStudentId(student.id));
-
-      const status = record?.status || 'absent';
-      const statusArabic = status === 'present' ? 'حاضر' : status === 'late' ? 'متأخر' : 'غائب';
-
-      const spoken = `الطالب ${student.name}، في الصف ${student.class_name || ''} شعبة ${student.section || ''}. حالته اليوم: ${statusArabic}.`;
-
-      return {
-        type: 'student_card',
-        title: `بيانات الطالب: ${student.name}`,
-        spokenText: spoken,
-        data: {
-          student: summarizeStudent(student, user),
-          status,
-          statusArabic,
-          timestamp: record?.timestamp || record?.created_at
-        },
-        actionButton: {
-          label: 'عرض في المراقبة اليومية',
-          path: `/watcher?search=${encodeURIComponent(student.name)}`
-        }
-      };
-    } catch {
-      return {
-        type: 'error',
-        title: 'خطأ في البحث',
-        spokenText: 'حدث خطأ أثناء البحث عن بيانات الطالب.'
-      };
-    }
-  }
-
-  /**
-   * طلب تعديل حضور طالب مع التأكيد وكشف التشابه
-   */
-  private async handleStudentAttendanceModification(studentNameQuery: string, newStatus: 'present' | 'absent', user: User | null): Promise<UstadActionPayload> {
-    if (!canUseRoute(user, 'watcher')) {
-      return deniedResult('عفواً، لا يملك حسابك صلاحية تعديل سجلات حضور الطلاب.');
-    }
-
-    const lookup = await this.handleStudentLookup(studentNameQuery, user);
-    if (lookup.type !== 'student_card') {
-      return lookup;
-    }
-
-    const student: UstadStudentSummary = lookup.data.student;
-    const statusLabel = newStatus === 'present' ? 'حاضر' : 'غائب';
-
-    return {
-      type: 'confirmation',
-      title: `تأكيد تسجيل ${statusLabel}`,
-      spokenText: `هل تؤكد تسجيل الطالب ${student.name} ${statusLabel} اليوم؟`,
-      data: {
-        prompt: `تسجيل الطالب ${student.name} ${statusLabel} اليوم`,
-        studentName: student.name,
-        className: formatClassLabel(student)
-      },
-      pendingAction: { type: 'mark_attendance', studentId: student.id, newStatus }
-    };
-  }
-
-  /**
-   * نداء خروج طالب
-   */
-  private async handleStudentDismissalCall(studentNameQuery: string, user: User | null): Promise<UstadActionPayload> {
-    if (!canUseRoute(user, 'callBoard')) {
-      return deniedResult('عفواً، لا يملك حسابك صلاحية إرسال نداءات الخروج.');
-    }
-
-    const lookup = await this.handleStudentLookup(studentNameQuery, user);
-    if (lookup.type !== 'student_card') {
-      return lookup;
-    }
-
-    const student: UstadStudentSummary = lookup.data.student;
-
-    return {
-      type: 'confirmation',
-      title: 'تأكيد نداء خروج',
-      spokenText: `هل تريد إرسال نداء خروج للطالب ${student.name} إلى لوحة النداءات؟`,
-      data: {
-        prompt: `إرسال نداء خروج للطالب ${student.name}`,
-        studentName: student.name,
-        className: formatClassLabel(student)
-      },
-      pendingAction: { type: 'call_dismissal', studentId: student.id }
-    };
   }
 
   private async confirmAttendance(studentId: string, newStatus: 'present' | 'absent', user: User | null): Promise<UstadActionPayload> {
@@ -1062,22 +557,23 @@ class UstadIntentEngine {
       const student = await findScopedStudent(studentId, user);
       if (!student) return studentUnavailableResult();
       const today = getLocalISODate();
+      const data = { studentName: student.name };
 
       if (newStatus === 'absent') {
         const result = await db.addManualAbsence({ student_id: student.id, date: today });
         if (!result.success) {
-          return { type: 'error', title: 'تعذر تسجيل الغياب', spokenText: result.message || 'تعذر تسجيل غياب الطالب.' };
+          return { type: 'error', title: 'تعذر تسجيل الغياب', spokenText: result.message || 'تعذر تسجيل غياب الطالب.', data };
         }
-        return { type: 'success', title: 'تم تسجيل الغياب', spokenText: `تم تسجيل الطالب ${student.name} غائباً اليوم.` };
+        return { type: 'success', title: 'تم تسجيل الغياب', spokenText: `تم تسجيل الطالب ${student.name} غائباً اليوم.`, data };
       }
 
-      const existing = uniqueAttendanceByStudentDate(await db.getAttendance(today), today)
-        .find(record => normalizeStudentId(record.student_id) === normalizeStudentId(student.id));
+      const existing = todayRecordFor(await db.getAttendance(today), today, student.id);
       if (existing && existing.status !== 'absent') {
         return {
           type: 'info',
           title: 'الحضور مسجل مسبقاً',
-          spokenText: `الطالب ${student.name} مسجل ${existing.status === 'late' ? 'متأخراً' : 'حاضراً'} اليوم بالفعل.`
+          spokenText: `الطالب ${student.name} مسجل ${existing.status === 'late' ? 'متأخراً' : 'حاضراً'} اليوم بالفعل.`,
+          data
         };
       }
 
@@ -1089,14 +585,15 @@ class UstadIntentEngine {
         time: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`
       });
       if (!result.success) {
-        return { type: 'error', title: 'تعذر تسجيل الحضور', spokenText: result.message || 'تعذر تسجيل حضور الطالب.' };
+        return { type: 'error', title: 'تعذر تسجيل الحضور', spokenText: result.message || 'تعذر تسجيل حضور الطالب.', data };
       }
       return {
         type: 'success',
         title: 'تم تسجيل الحضور',
         spokenText: result.status === 'late'
           ? `تم تسجيل حضور الطالب ${student.name} متأخراً ${result.minutes_late ?? 0} دقيقة.`
-          : `تم تسجيل حضور الطالب ${student.name}.`
+          : `تم تسجيل حضور الطالب ${student.name}.`,
+        data
       };
     } catch {
       return { type: 'error', title: 'تعذر تسجيل الحضور', spokenText: 'حدث خطأ أثناء حفظ سجل الحضور. لم يتغير شيء.' };
@@ -1111,6 +608,7 @@ class UstadIntentEngine {
     try {
       const student = await findScopedStudent(studentId, user);
       if (!student) return studentUnavailableResult();
+      const data = { studentName: student.name };
 
       const result = await dismissals.execute({
         type: 'request-call',
@@ -1119,12 +617,13 @@ class UstadIntentEngine {
       });
 
       if (result.outcome === 'already-requested') {
-        return { type: 'info', title: 'يوجد نداء نشط', spokenText: `يوجد طلب نداء نشط للطالب ${student.name} بالفعل.` };
+        return { type: 'info', title: 'يوجد نداء نشط', spokenText: `يوجد طلب نداء نشط للطالب ${student.name} بالفعل.`, data };
       }
       return {
         type: 'success',
         title: 'تم إرسال نداء الخروج',
         spokenText: `تم إرسال نداء خروج للطالب ${student.name} إلى لوحة النداءات.`,
+        data,
         actionButton: { label: 'فتح لوحة النداءات', path: '/call-board' }
       };
     } catch {
@@ -1156,18 +655,16 @@ class UstadIntentEngine {
         alreadySent > 0 ? `تم تخطي ${alreadySent} سبق تنبيههم اليوم.` : '',
         noLongerEligible > 0 ? `واستُبعد ${noLongerEligible} لم يعودوا ضمن الغائبين.` : ''
       ].filter(Boolean).join(' ');
+      const data = { queued, alreadySent, noLongerEligible };
 
       if (queued === 0) {
-        return {
-          type: 'info',
-          title: 'لم تُرسل رسائل جديدة',
-          spokenText: `لم تُضف أي رسالة جديدة. ${notes}`.trim()
-        };
+        return { type: 'info', title: 'لم تُرسل رسائل جديدة', spokenText: `لم تُضف أي رسالة جديدة. ${notes}`.trim(), data };
       }
       return {
         type: 'success',
         title: 'أُضيفت التنبيهات إلى طابور واتساب',
         spokenText: `أُضيفت تنبيهات الغياب إلى طابور واتساب لـ ${queued} من أولياء الأمور. ${notes}`.trim(),
+        data,
         actionButton: { label: 'متابعة طابور واتساب', path: '/whatsapp' }
       };
     } catch {
@@ -1177,6 +674,29 @@ class UstadIntentEngine {
         spokenText: 'تعذر إرسال التنبيهات، ولم تُضف أي رسالة إلى الطابور. تأكد من تشغيل خادم واتساب ثم أعد المحاولة.'
       };
     }
+  }
+}
+
+// كل إجراء مؤكد يُوثَّق: من طلبه، وبأي جملة، وماذا كانت النتيجة. فشل التوثيق لا يُلغي الإجراء.
+async function recordAssistantActivity(action: UstadPendingAction, result: UstadActionPayload, user: User | null): Promise<void> {
+  try {
+    await db.logActivity('assistant_action', `أستاذ حاضر: ${result.title}`, {
+      user_id: user?.id,
+      user_name: user?.name,
+      target_id: action.type === 'send_absence_alerts' ? undefined : action.studentId,
+      target_name: result.data?.studentName,
+      metadata: {
+        source: 'ustad-hader',
+        action: action.type,
+        outcome: result.type,
+        utterance: action.utterance,
+        detail: result.spokenText,
+        ...(action.type === 'mark_attendance' ? { newStatus: action.newStatus } : {}),
+        ...(action.type === 'send_absence_alerts' ? { requestedCount: action.studentIds.length, ...result.data } : {})
+      }
+    });
+  } catch (error) {
+    console.warn('[UstadHader] Activity log entry was not saved', error);
   }
 }
 

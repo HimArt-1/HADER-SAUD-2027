@@ -62,12 +62,15 @@ export const filterWatcherStudents = (students: readonly Student[], search: stri
     const query = normalizeWatcherText(search);
     if (!query) return [...students];
 
-    return students.filter(student => [
-        student.id,
-        student.name,
-        student.class_name,
-        student.section
-    ].some(value => normalizeWatcherText(value).includes(query)));
+    const terms = query.split(' ');
+    return students.filter(student => {
+        const fields = [student.id, student.name, student.class_name, student.section].map(normalizeWatcherText);
+        if (fields.some(field => field.includes(query))) return true;
+        // «ثالث ب»: كل كلمة تطابق حقلاً، والحرف المفرد يطابق الشعبة تماماً لا كل اسم فيه باء
+        return terms.length > 1 && terms.every(term => term.length === 1
+            ? fields[3] === term
+            : fields.some(field => field.includes(term)));
+    });
 };
 
 export const getWatcherStudentsForTab = (

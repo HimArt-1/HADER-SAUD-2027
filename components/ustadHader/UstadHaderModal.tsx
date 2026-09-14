@@ -18,13 +18,21 @@ import {
 } from 'lucide-react';
 import { User } from '../../types';
 import { ustadSpeech, UstadListeningMode } from '../../services/ustadHader/speechService';
-import { ustadIntentEngine, UstadActionPayload, UstadPendingAction } from '../../services/ustadHader/intentEngine';
+import {
+  ustadIntentEngine,
+  UstadActionPayload,
+  UstadPendingAction,
+  UstadStudentFollowUp
+} from '../../services/ustadHader/intentEngine';
 import { playSuccessChime } from '../../services/ustadHader/audioEffects';
+import { applyColorMode } from '../../utils/colorMode';
 
 interface UstadHaderModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: User | null;
+  // يمر تغيير المظهر عبر الشريط العلوي ليُحفظ في إعدادات المدرسة ويتحدث زر الوضع
+  onThemeChange?: (mode: 'dark' | 'light') => void;
 }
 
 const UNSUPPORTED_SPEECH_NOTICE = 'هذا المتصفح لا يدعم التعرّف على الكلام. يمكنك كتابة أمرك.';
@@ -32,7 +40,8 @@ const UNSUPPORTED_SPEECH_NOTICE = 'هذا المتصفح لا يدعم التع�
 export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
   isOpen,
   onClose,
-  currentUser
+  currentUser,
+  onThemeChange
 }) => {
   const navigate = useNavigate();
 
@@ -61,6 +70,14 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
   const presentResult = useCallback((result: UstadActionPayload) => {
     setActiveResult(result);
 
+    if (result.type === 'theme_changed' && (result.data?.mode === 'dark' || result.data?.mode === 'light')) {
+      if (onThemeChange) {
+        onThemeChange(result.data.mode);
+      } else {
+        applyColorMode(result.data.mode, true);
+      }
+    }
+
     // إذا كان هناك رد صوتي مطلوب
     if (result.spokenText) {
       ustadSpeech.speak(result.spokenText);
@@ -71,7 +88,7 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
     if (result.type !== 'error' && result.type !== 'silence' && result.type !== 'info') {
       playSuccessChime();
     }
-  }, []);
+  }, [onThemeChange]);
 
   // تنفيذ الأمر الصوتي أو المكتوب
   const handleProcessCommand = useCallback(async (text: string) => {
@@ -111,6 +128,22 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
         type: 'error',
         title: 'تعذر تنفيذ الإجراء',
         spokenText: 'عفواً، تعذر تنفيذ الإجراء حالياً.'
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // اختيار طالب من قائمة الأسماء المتشابهة يُكمل الطلب الأصلي نفسه
+  const handleStudentChoice = async (followUp: UstadStudentFollowUp, studentId: string, utterance?: string) => {
+    setIsProcessing(true);
+    try {
+      presentResult(await ustadIntentEngine.executeStudentFollowUp(followUp, studentId, currentUser, utterance));
+    } catch {
+      presentResult({
+        type: 'error',
+        title: 'تعذر متابعة الطلب',
+        spokenText: 'عفواً، تعذر متابعة الطلب حالياً.'
       });
     } finally {
       setIsProcessing(false);
@@ -541,14 +574,22 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
             {activeResult.type === 'disambiguation' && activeResult.data && (
               <div className="space-y-3">
                 <p className="text-xs text-slate-300 font-bold">
-                  اختر الطالب المقصود لعرض بياناته:
+                  اختر الطالب المقصود:
+                  {activeResult.data.total > activeResult.data.students.length && (
+                    <span className="block font-medium text-slate-500 mt-1">
+                      أعرض أقرب {activeResult.data.students.length} من {activeResult.data.total}. اذكر الاسم كاملاً أو الصف لتضييق البحث.
+                    </span>
+                  )}
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {activeResult.data.students.map((st: any) => (
                     <button
                       key={st.id}
                       type="button"
-                      onClick={() => void handleProcessCommand(`ابحث عن ${st.name}`)}
+                      onClick={() => {
+                        if (activeResult.followUp) void handleStudentChoice(activeResult.followUp, st.id, activeResult.data.utterance);
+                      }}
+                      disabled={isProcessing}
                       className="p-3 rounded-xl bg-white/5 hover:bg-primary-500/20 border border-white/10 hover:border-primary-500/40 text-right transition-all flex flex-col gap-1 group"
                     >
                       <span className="font-bold text-white group-hover:text-primary-300 text-sm">{st.name}</span>
@@ -573,6 +614,8 @@ export const UstadHaderModal: React.FC<UstadHaderModalProps> = ({
                       ? 'bg-emerald-500/20 text-emerald-300'
                       : activeResult.data.status === 'late'
                       ? 'bg-amber-500/20 text-amber-300'
+                      : activeResult.data.status === 'pending'
+                      ? 'bg-slate-500/20 text-slate-300'
                       : 'bg-red-500/20 text-red-300'
                   }`}>
                     {activeResult.data.statusArabic}

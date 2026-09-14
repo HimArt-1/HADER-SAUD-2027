@@ -61,6 +61,8 @@ describe('watcher daily rules', () => {
         expect(filterWatcherStudents(students, 'احمد').map(item => item.id)).toEqual(['ST-1']);
         expect(filterWatcherStudents(students, ' grade   1 ').map(item => item.id)).toEqual(['ST-1']);
         expect(filterWatcherStudents(students, 'A').map(item => item.id)).toEqual(['ST-1']);
+        const classmates = [...students, student('ST-3', 'بدر', 'الثالث', 'ب'), student('ST-4', 'باسل', 'الثالث', 'أ')];
+        expect(filterWatcherStudents(classmates, 'ثالث ب').map(item => item.id)).toEqual(['ST-3']);
     });
 
     it('seeds manual attendance from current records instead of overwriting them visually', () => {
