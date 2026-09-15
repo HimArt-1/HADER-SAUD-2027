@@ -50,6 +50,8 @@ export async function sendAbsenceAlerts(
 
   try {
     await whatsappGateway.enqueue(pending.map(({ student, phone }) => ({
+      // نفس معرّف إشعار الغياب في attendanceNotificationService: يتجاهل الجسر المكرر فيصل ولي الأمر إشعار واحد
+      id: `absent:${student.id}:${date}`,
       phone,
       message: buildAbsenceAlertMessage(settings, student, date),
       student_name: student.name,

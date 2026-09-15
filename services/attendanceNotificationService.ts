@@ -122,7 +122,7 @@ class AttendanceNotificationService {
         student: Student,
         record: AttendanceRecord,
         settings: SystemSettings | null
-    ): { notifications: Notification[]; whatsappPayload?: { phone: string; message: string; student_name: string; status_label: string } } {
+    ): { notifications: Notification[]; whatsappPayload?: { id: string; phone: string; message: string; student_name: string; status_label: string } } {
         const notificationKey = `late:${student.id}:${getLocalISODate()}`;
 
         if (this.wasAlreadySent(notificationKey)) {
@@ -147,7 +147,7 @@ class AttendanceNotificationService {
             });
         }
 
-        let whatsappPayload: { phone: string; message: string; student_name: string; status_label: string } | undefined;
+        let whatsappPayload: { id: string; phone: string; message: string; student_name: string; status_label: string } | undefined;
 
         if (this.config.notifyGuardians && student.guardian_phone) {
             notifications.push({
@@ -175,6 +175,9 @@ class AttendanceNotificationService {
                     .replace(/\{(Section|section|شعبة|الشعبة|القسم)\}/gi, student.section || '');
 
                 whatsappPayload = {
+                    // Stable per student and day: the bridge ignores an id it already queued, so a
+                    // second dashboard or a reload cannot send the guardian the same notice twice.
+                    id: notificationKey,
                     phone: student.guardian_phone,
                     message: content,
                     student_name: student.name,
@@ -190,7 +193,7 @@ class AttendanceNotificationService {
     private buildAbsentNotifications(
         student: Student,
         settings: SystemSettings | null
-    ): { notifications: Notification[]; whatsappPayload?: { phone: string; message: string; student_name: string; status_label: string } } {
+    ): { notifications: Notification[]; whatsappPayload?: { id: string; phone: string; message: string; student_name: string; status_label: string } } {
         const notificationKey = `absent:${student.id}:${getLocalISODate()}`;
 
         if (this.wasAlreadySent(notificationKey)) {
@@ -212,7 +215,7 @@ class AttendanceNotificationService {
             });
         }
 
-        let whatsappPayload: { phone: string; message: string; student_name: string; status_label: string } | undefined;
+        let whatsappPayload: { id: string; phone: string; message: string; student_name: string; status_label: string } | undefined;
 
         // إشعار لولي الأمر
         if (this.config.notifyGuardians && student.guardian_phone) {
@@ -240,6 +243,7 @@ class AttendanceNotificationService {
                     .replace(/\{(Section|section|شعبة|الشعبة|القسم)\}/gi, student.section || '');
 
                 whatsappPayload = {
+                    id: notificationKey,
                     phone: student.guardian_phone,
                     message: content,
                     student_name: student.name,
@@ -278,7 +282,7 @@ class AttendanceNotificationService {
             });
 
             const allNotifications: Notification[] = [];
-            const whatsappPayloads: { phone: string; message: string; student_name: string; status_label: string }[] = [];
+            const whatsappPayloads: { id: string; phone: string; message: string; student_name: string; status_label: string }[] = [];
 
             // فحص المتأخرين
             if (this.config.notifyOnLate) {

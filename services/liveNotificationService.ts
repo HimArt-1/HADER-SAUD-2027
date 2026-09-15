@@ -107,6 +107,8 @@ class LiveNotificationService {
             // 3. Prepare Payload (100% accurate integration with WhattONE queue)
             const whatsappPayload = [
                 {
+                    // Stable per student and day, so the bridge drops a repeat of the same notice.
+                    id: dedupeKey,
                     phone: student.guardian_phone,
                     message: content,
                     student_name: student.name,

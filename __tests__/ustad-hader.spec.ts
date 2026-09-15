@@ -326,7 +326,8 @@ describe('أستاذ حاضر (Ustadh Hader) - Speech and NLU Engine', () => {
       expect(first.type).toBe('success');
       expect(whatsappGateway.enqueue).toHaveBeenCalledTimes(1);
       expect(whatsappGateway.enqueue.mock.calls[0][0]).toEqual([
-        expect.objectContaining({ phone: '966557654321', message: `غياب خالد سعد الشهري بتاريخ ${TODAY}` })
+        // The id matches the attendance service's absence notice, so the bridge keeps only one of them.
+        expect.objectContaining({ id: `absent:s2:${TODAY}`, phone: '966557654321', message: `غياب خالد سعد الشهري بتاريخ ${TODAY}` })
       ]);
       expect(notificationCenter.execute).toHaveBeenCalledWith(expect.objectContaining({ type: 'send-many' }));
 
