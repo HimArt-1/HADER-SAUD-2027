@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const chimes = vi.hoisted(() => ({ playWakeChime: vi.fn(), playStopChime: vi.fn(), playSuccessChime: vi.fn() }));
 vi.mock('../services/ustadHader/audioEffects', () => chimes);
 
-import { UstadSpeechService, containsWakeWord, stripWakeWord } from '../services/ustadHader/speechService';
+import { USTAD_VOICE_REPLY_STORAGE_KEY, UstadSpeechService, containsWakeWord, stripWakeWord } from '../services/ustadHader/speechService';
 
 class FakeRecognition {
   static instances: FakeRecognition[] = [];
@@ -103,6 +103,35 @@ describe('UstadSpeechService', () => {
     expect(new UstadSpeechService().getWakeWordPreference()).toBe(false);
   });
 
+  it('stays silent until voice replies are switched on, and remembers that choice', () => {
+    synth.speak.mockClear();
+    synth.cancel.mockClear();
+    const service = new UstadSpeechService();
+    expect(service.getVoiceReplyPreference()).toBe(false);
+
+    service.speak('صباح الخير');
+    expect(synth.speak).not.toHaveBeenCalled();
+    expect(service.getIsSpeaking()).toBe(false);
+
+    const changes: boolean[] = [];
+    service.subscribe({ onVoiceReplyChange: enabled => changes.push(enabled) });
+    service.setVoiceReplyPreference(true);
+    expect(localStorage.getItem(USTAD_VOICE_REPLY_STORAGE_KEY)).toBe('true');
+    expect(new UstadSpeechService().getVoiceReplyPreference()).toBe(true);
+
+    service.speak('صباح الخير');
+    expect(synth.speak).toHaveBeenCalledTimes(1);
+    expect(service.getIsSpeaking()).toBe(true);
+
+    // إيقاف الرد أثناء الكلام يُسكت المساعد فوراً
+    synth.cancel.mockClear();
+    service.setVoiceReplyPreference(false);
+    expect(service.getIsSpeaking()).toBe(false);
+    expect(synth.cancel).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(USTAD_VOICE_REPLY_STORAGE_KEY)).toBe('false');
+    expect(changes).toEqual([true, false]);
+  });
+
   it('chimes once for a wake-word call, not again when the card opens', () => {
     const service = new UstadSpeechService();
     service.startWakeWordStandby();
@@ -188,6 +217,7 @@ describe('UstadSpeechService', () => {
 
   it('ignores its own voice and only obeys «اسكت» while speaking', () => {
     const service = new UstadSpeechService();
+    service.setVoiceReplyPreference(true);
     const commands = recordCommands(service);
     service.startActiveListening();
     const recognition = FakeRecognition.instances[0];
@@ -213,6 +243,7 @@ describe('UstadSpeechService', () => {
 
   it('discards what it heard while talking once a reply finishes', () => {
     const service = new UstadSpeechService();
+    service.setVoiceReplyPreference(true);
     const commands = recordCommands(service);
     service.startActiveListening();
     const recognition = FakeRecognition.instances[0];

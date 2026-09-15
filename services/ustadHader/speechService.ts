@@ -9,6 +9,7 @@ import { normalizeArabicSpeech } from './arabicLexicon';
 export { normalizeArabicSpeech };
 
 export const USTAD_WAKE_WORD_STORAGE_KEY = 'hader:ustad_wake_word_enabled';
+export const USTAD_VOICE_REPLY_STORAGE_KEY = 'hader:ustad_voice_reply_enabled';
 
 export type UstadListeningMode = 'idle' | 'wake_word_standby' | 'active_command';
 
@@ -52,6 +53,7 @@ type UstadSpeechEvents = {
   onCommand: [commandText: string];
   onWakeWordDetected: [];
   onSpeakingChange: [isSpeaking: boolean];
+  onVoiceReplyChange: [enabled: boolean];
   onListeningStateChange: [isListening: boolean, mode: UstadListeningMode];
   onError: [message: string, fatal: boolean];
 };
@@ -66,6 +68,7 @@ export class UstadSpeechService {
   private listeningMode: UstadListeningMode = 'idle';
   private lastListeningState = '';
   private wakeWordEnabled = false;
+  private voiceReplyEnabled = false;
   private isSpeaking = false;
   private listeners = new Set<UstadSpeechListener>();
   private activeUtterance: SpeechSynthesisUtterance | null = null;
@@ -75,12 +78,17 @@ export class UstadSpeechService {
 
   constructor() {
     this.wakeWordEnabled = this.loadWakeWordPreference();
+    this.voiceReplyEnabled = this.loadVoiceReplyPreference();
   }
 
   public isRecognitionSupported(): boolean {
     return typeof window !== 'undefined' && Boolean(
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     );
+  }
+
+  public isSynthesisSupported(): boolean {
+    return typeof window !== 'undefined' && 'speechSynthesis' in window;
   }
 
   // النداء الصوتي مفعّل افتراضياً؛ لا يُحفظ إلا قرار إيقافه
@@ -110,6 +118,32 @@ export class UstadSpeechService {
 
   public getWakeWordPreference(): boolean {
     return this.wakeWordEnabled;
+  }
+
+  // الرد الصوتي قيد التطوير: مغلق افتراضياً، ولا يُنطق شيء ما لم يفعّله المستخدم بنفسه
+  public loadVoiceReplyPreference(): boolean {
+    try {
+      return localStorage.getItem(USTAD_VOICE_REPLY_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  public setVoiceReplyPreference(enabled: boolean): void {
+    if (this.voiceReplyEnabled === enabled) return;
+    this.voiceReplyEnabled = enabled;
+    try {
+      localStorage.setItem(USTAD_VOICE_REPLY_STORAGE_KEY, enabled ? 'true' : 'false');
+    } catch {
+      // Ignore storage error
+    }
+    // إيقاف الرد يُسكت المساعد فوراً إن كان يتحدث
+    if (!enabled && this.isSpeaking) this.stopSpeaking(false);
+    this.emit('onVoiceReplyChange', enabled);
+  }
+
+  public getVoiceReplyPreference(): boolean {
+    return this.voiceReplyEnabled;
   }
 
   /**
@@ -323,6 +357,7 @@ export class UstadSpeechService {
    * نطق الرد الصوتي مع سرعة مريحة ونبرة وقورة
    */
   public speak(text: string): void {
+    if (!this.voiceReplyEnabled) return;
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
     this.stopSpeaking(false);

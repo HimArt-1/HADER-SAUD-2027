@@ -3,9 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Role, User } from '../types';
 
-const mocks = vi.hoisted(() => ({ loadMorningBriefing: vi.fn(), speak: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  loadMorningBriefing: vi.fn(),
+  speak: vi.fn(),
+  getVoiceReplyPreference: vi.fn(() => true),
+  subscribe: vi.fn(() => () => {})
+}));
 vi.mock('../services/ustadHader/morningBriefing', () => ({ loadMorningBriefing: mocks.loadMorningBriefing }));
-vi.mock('../services/ustadHader/speechService', () => ({ ustadSpeech: { speak: mocks.speak } }));
+vi.mock('../services/ustadHader/speechService', () => ({
+  ustadSpeech: {
+    speak: mocks.speak,
+    getVoiceReplyPreference: mocks.getVoiceReplyPreference,
+    subscribe: mocks.subscribe
+  }
+}));
 
 import UstadBriefingBanner, { USTAD_BRIEFING_AUTO_KEY } from '../components/ustadHader/UstadBriefingBanner';
 
@@ -27,6 +38,7 @@ const ready = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getVoiceReplyPreference.mockReturnValue(true);
   localStorage.clear();
 });
 
@@ -45,6 +57,16 @@ describe('UstadBriefingBanner', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /اسمع الملخص/ }));
     expect(mocks.speak).toHaveBeenCalledWith(ready.spokenText);
+  });
+
+  it('offers no listen button while voice replies are switched off', async () => {
+    mocks.getVoiceReplyPreference.mockReturnValue(false);
+    mocks.loadMorningBriefing.mockResolvedValue(ready);
+    render(<UstadBriefingBanner user={user} onOpenDetails={vi.fn()} />);
+
+    expect(await screen.findByText('ملخص اليوم من أستاذ حاضر')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /اسمع الملخص/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /التفاصيل/ })).toBeTruthy();
   });
 
   it('appears once per day for each user', async () => {

@@ -1126,6 +1126,19 @@ html.light-mode .ustad-panel {
 
 html.light-mode .ustad-badge { color: #047857; }
 
+/* شارة «قيد التطوير» للميزات غير المكتملة: كهرمانية بدل الأخضر في الوضعين */
+.ustad-badge--dev {
+  --tone: 251 191 36;
+  color: rgb(var(--tone));
+  background: rgb(var(--tone) / 0.12);
+  border-color: rgb(var(--tone) / 0.35);
+}
+
+html.light-mode .ustad-badge--dev {
+  --tone: 217 119 6;
+  color: rgb(var(--tone));
+}
+
 .ustad-surface {
   background: var(--ustad-soft);
   border: 1px solid var(--ustad-line);

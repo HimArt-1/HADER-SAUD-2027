@@ -63,13 +63,18 @@ const SettingSwitch: React.FC<{
   id: string;
   label: string;
   hint: string;
+  // شارة قصيرة بجوار العنوان، مثل «قيد التطوير»
+  badge?: string;
   checked: boolean;
   disabled?: boolean;
   onChange: (checked: boolean) => void;
-}> = ({ id, label, hint, checked, disabled, onChange }) => (
+}> = ({ id, label, hint, badge, checked, disabled, onChange }) => (
   <div className="ustad-row">
     <div className="min-w-0">
-      <div id={id} className="font-bold">{label}</div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span id={id} className="font-bold">{label}</span>
+        {badge && <span className="ustad-badge ustad-badge--dev">{badge}</span>}
+      </div>
       <div className="ustad-muted text-[11px]">{hint}</div>
     </div>
     <button
@@ -100,6 +105,7 @@ export const UstadHaderPanel: React.FC<UstadHaderPanelProps> = ({
   const [listeningMode, setListeningMode] = useState<UstadListeningMode>(() => ustadSpeech.getListeningMode());
   const [isSpeaking, setIsSpeaking] = useState(() => ustadSpeech.getIsSpeaking());
   const [wakeWordEnabled, setWakeWordEnabled] = useState(() => ustadSpeech.getWakeWordPreference());
+  const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(() => ustadSpeech.getVoiceReplyPreference());
   const [speechNotice, setSpeechNotice] = useState('');
 
   // المحادثة والنتائج
@@ -125,6 +131,7 @@ export const UstadHaderPanel: React.FC<UstadHaderPanelProps> = ({
   // سياق المحادثة الجارية، ليُفهم «وفي رابع أ؟» و«سجله حاضر»
   const conversationRef = useRef<UstadConversationContext | null>(null);
   const recognitionSupported = ustadSpeech.isRecognitionSupported();
+  const synthesisSupported = ustadSpeech.isSynthesisSupported();
 
   // إغلاق مع حركة انسحاب قصيرة؛ يُبقي الرد الصوتي حين يكون الرد نفسه هو الوداع أو تأكيد التنقل
   const dismissPanel = useCallback((keepSpeech = false) => {
@@ -224,6 +231,7 @@ export const UstadHaderPanel: React.FC<UstadHaderPanelProps> = ({
     onTranscript: (transcript) => setLiveTranscript(transcript),
     onCommand: (commandText) => processCommandRef.current(commandText),
     onSpeakingChange: (speaking) => setIsSpeaking(speaking),
+    onVoiceReplyChange: (enabled) => setVoiceReplyEnabled(enabled),
     onListeningStateChange: (listening, mode) => {
       setIsListening(listening);
       setListeningMode(mode);
@@ -319,6 +327,11 @@ export const UstadHaderPanel: React.FC<UstadHaderPanelProps> = ({
   const handleWakeWordChange = (enabled: boolean) => {
     setWakeWordEnabled(enabled);
     ustadSpeech.setWakeWordPreference(enabled);
+  };
+
+  const handleVoiceReplyChange = (enabled: boolean) => {
+    setVoiceReplyEnabled(enabled);
+    ustadSpeech.setVoiceReplyPreference(enabled);
   };
 
   const handleBriefingAutoChange = (enabled: boolean) => {
@@ -449,6 +462,15 @@ export const UstadHaderPanel: React.FC<UstadHaderPanelProps> = ({
               onChange={handleWakeWordChange}
             />
             <SettingSwitch
+              id="ustad-setting-voice-reply"
+              label="الرد الصوتي"
+              badge="قيد التطوير"
+              hint="نطق الردود بصوت المساعد. مغلق افتراضياً حتى يكتمل"
+              checked={voiceReplyEnabled}
+              disabled={!synthesisSupported}
+              onChange={handleVoiceReplyChange}
+            />
+            <SettingSwitch
               id="ustad-setting-briefing"
               label="الملخص الصباحي تلقائياً"
               hint="بطاقة اليوم بعد انتهاء مهلة الحضور"
@@ -460,7 +482,7 @@ export const UstadHaderPanel: React.FC<UstadHaderPanelProps> = ({
               <button type="button" onClick={handleForgetLearned} disabled={learnedCount === 0} className="ustad-btn !py-1 !px-2.5 !text-[11px]">مسح</button>
             </div>
             <p className="ustad-muted text-[11px] leading-relaxed">
-              <kbd className="ustad-kbd">Alt + H</kbd> فتح وإغلاق · <kbd className="ustad-kbd">Esc</kbd> إغلاق · قل «اسكت» لإيقاف الرد، و«أغلق» لإخفاء البطاقة.
+              <kbd className="ustad-kbd">Alt + H</kbd> فتح وإغلاق · <kbd className="ustad-kbd">Esc</kbd> إغلاق · {voiceReplyEnabled ? 'قل «اسكت» لإيقاف الرد، و«أغلق» لإخفاء البطاقة.' : 'قل «أغلق» لإخفاء البطاقة.'}
             </p>
           </div>
         )}

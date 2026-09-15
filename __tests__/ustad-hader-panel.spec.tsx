@@ -13,7 +13,7 @@ const engine = vi.hoisted(() => ({
 vi.mock('../services/ustadHader/intentEngine', () => ({ ustadIntentEngine: engine }));
 
 import UstadHaderPanel from '../components/ustadHader/UstadHaderPanel';
-import { ustadSpeech, USTAD_WAKE_WORD_STORAGE_KEY } from '../services/ustadHader/speechService';
+import { ustadSpeech, USTAD_VOICE_REPLY_STORAGE_KEY, USTAD_WAKE_WORD_STORAGE_KEY } from '../services/ustadHader/speechService';
 
 class FakeRecognition {
   onstart?: () => void;
@@ -240,5 +240,30 @@ describe('UstadHaderPanel', () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-checked')).toBe('false');
     expect(localStorage.getItem(USTAD_WAKE_WORD_STORAGE_KEY)).toBe('false');
+  });
+
+  it('keeps voice replies off by default and marks the switch as under development', () => {
+    const synth = { speak: vi.fn(), cancel: vi.fn(), getVoices: () => [] };
+    vi.stubGlobal('speechSynthesis', synth);
+    Object.assign(window, { speechSynthesis: synth });
+
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'الإعدادات' }));
+    const toggle = screen.getByRole('switch', { name: 'الرد الصوتي' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(toggle.hasAttribute('disabled')).toBe(false);
+    expect(screen.getByText('قيد التطوير')).toBeTruthy();
+    expect(screen.queryByText(/قل «اسكت»/)).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(ustadSpeech.getVoiceReplyPreference()).toBe(true);
+    expect(localStorage.getItem(USTAD_VOICE_REPLY_STORAGE_KEY)).toBe('true');
+    expect(screen.getByText(/قل «اسكت»/)).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(ustadSpeech.getVoiceReplyPreference()).toBe(false);
+    expect(localStorage.getItem(USTAD_VOICE_REPLY_STORAGE_KEY)).toBe('false');
   });
 });

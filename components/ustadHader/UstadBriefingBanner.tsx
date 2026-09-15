@@ -46,7 +46,11 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; tone: string }> = 
 export const UstadBriefingBanner: React.FC<UstadBriefingBannerProps> = ({ user, onOpenDetails }) => {
   const [briefing, setBriefing] = useState<ReadyBriefing | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // زر «اسمع الملخص» لا يظهر إلا حين يكون الرد الصوتي مفعّلاً في إعدادات المساعد
+  const [voiceReply, setVoiceReply] = useState(() => ustadSpeech.getVoiceReplyPreference());
   const userId = user?.id;
+
+  useEffect(() => ustadSpeech.subscribe({ onVoiceReplyChange: setVoiceReply }), []);
 
   useEffect(() => {
     if (!user || readStorage(USTAD_BRIEFING_AUTO_KEY) === 'off') return;
@@ -120,14 +124,16 @@ export const UstadBriefingBanner: React.FC<UstadBriefingBannerProps> = ({ user, 
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-        <button
-          type="button"
-          onClick={() => ustadSpeech.speak(briefing.spokenText)}
-          className="flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/15 px-3 py-1.5 font-bold text-sky-100 hover:bg-sky-500/25 transition-colors"
-        >
-          <Volume2 className="h-4 w-4" />
-          <span>اسمع الملخص</span>
-        </button>
+        {voiceReply && (
+          <button
+            type="button"
+            onClick={() => ustadSpeech.speak(briefing.spokenText)}
+            className="flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/15 px-3 py-1.5 font-bold text-sky-100 hover:bg-sky-500/25 transition-colors"
+          >
+            <Volume2 className="h-4 w-4" />
+            <span>اسمع الملخص</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {
