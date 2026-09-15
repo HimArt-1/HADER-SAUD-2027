@@ -134,7 +134,7 @@ def find_first_stub(element):
     row as an unreachable number.
     """
     def _stub(driver, selectors, timeout=0):
-        if list(selectors) == list(wpt._SELECTORS['invalid_popup']):
+        if list(selectors) in (list(wpt._SELECTORS['invalid_popup']), list(wpt._SELECTORS['discard_confirm'])):
             return None
         return element
     return _stub
@@ -580,6 +580,8 @@ class UnreachableNumberDialogTest(unittest.TestCase):
             selectors = list(selectors)
             if selectors == list(wpt._SELECTORS['invalid_popup']):
                 return object() if outer.dialog_open else None
+            if selectors == list(wpt._SELECTORS['discard_confirm']):
+                return None
             if any('role="dialog"' in s for s in selectors):
                 return DismissButton()
             return outer.element

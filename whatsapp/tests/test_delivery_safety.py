@@ -196,13 +196,28 @@ class PreviewSendButton:
 class AttachmentPage:
     """Answers the tool's element lookups the way WhatsApp's attachment flow would."""
 
-    def __init__(self, composer, *, attach=True, caption=True, preview_closes=True):
+    def __init__(self, composer, *, attach=True, caption=True, preview_closes=True, file_accepted=True,
+                 send_button=True, discard_pending=False):
         self.composer = composer
         self.attach_btn = mock.Mock() if attach else None
-        self.file_input = mock.Mock()
+        self.file_accepted = file_accepted
+        self.send_button = send_button
+        self.discard_pending = discard_pending      # a discard question left on screen by an earlier row
+        self.discards = 0
+        self.discard_btn = mock.Mock()
+        self.discard_btn.click.side_effect = self._discard
         self.caption_box = FakeElement(accepts=('keys',)) if caption else None
         self.send_btn = PreviewSendButton(closes=preview_closes)
         self.preview_open = False
+
+    def _discard(self):
+        self.discards += 1
+        self.discard_pending = False
+        self.preview_open = False
+
+    def _escaped_open_preview(self):
+        # Escape on an open preview makes WhatsApp ask whether to discard it.
+        return self.preview_open and any(('keys', wpt.Keys.ESCAPE) in chord for chord in FakeActionChains.performed)
 
     def find_first(self, driver, selectors, timeout=0):
         selectors = list(selectors)
@@ -210,13 +225,12 @@ class AttachmentPage:
             return None
         if selectors == wpt._SELECTORS['attach_btn']:
             return self.attach_btn
-        if selectors == wpt._SELECTORS['file_input']:
-            self.preview_open = True
-            return self.file_input
         if selectors == wpt._SELECTORS['caption_box']:
             return self.caption_box if self.preview_open else None
         if selectors == wpt._SELECTORS['send_btn']:
-            return None if self.send_btn.gone else self.send_btn
+            return None if (self.send_btn.gone or not self.send_button) else self.send_btn
+        if selectors == wpt._SELECTORS['discard_confirm']:
+            return self.discard_btn if (self.discard_pending or self._escaped_open_preview()) else None
         return self.composer
 
 
@@ -237,6 +251,15 @@ class AttachmentTest(unittest.TestCase):
 
     def send(self, page, press_send=wpt.SEND_SENT):
         tool = make_tool(page.composer)
+        self.chosen = []
+
+        def choose(path):
+            self.chosen.append(path)
+            self.discard_pending_at_choose = page.discard_pending
+            page.preview_open = page.file_accepted
+            return page.file_accepted
+
+        tool._choose_file = choose
         tool.history = []
         tool._update_status = lambda msg_id, status: tool.history.append(status)
         tool._open_chat = lambda phone: True
@@ -254,7 +277,7 @@ class AttachmentTest(unittest.TestCase):
         self.assertEqual(outcome, 'sent')
         self.assertEqual(page.caption_box.text, self.MESSAGE)
         self.assertEqual(page.send_btn.clicks, 1)
-        page.file_input.send_keys.assert_called_once_with(os.path.abspath(self.card))
+        self.assertEqual(self.chosen, [self.card])
         pressed.assert_not_called()                   # no second, text-only message
         self.assertEqual(page.composer.keys_log, [])
         self.assertEqual(tool.history, ['sending', 'confirming', 'sent'])
@@ -274,6 +297,30 @@ class AttachmentTest(unittest.TestCase):
         self.assertEqual(tool.history[-1], 'failed')
         pressed.assert_not_called()
         self.assertEqual(page.composer.keys_log, [])
+
+    def test_a_file_the_menu_would_not_take_fails_the_row_before_any_text(self):
+        page = AttachmentPage(FakeElement(accepts=('keys',)), file_accepted=False)
+        outcome, tool, pressed = self.send(page)
+        self.assertEqual(outcome, 'failed')
+        self.assertEqual(page.send_btn.clicks, 0)
+        pressed.assert_not_called()
+        self.assertEqual(page.composer.keys_log, [])
+
+    def test_giving_up_on_a_preview_answers_the_discard_question(self):
+        # Escape alone left «هل تريد تجاهل الاختيار؟» on screen, and it blocked the next row's clicks.
+        page = AttachmentPage(FakeElement(accepts=('keys',)), send_button=False)
+        outcome, tool, pressed = self.send(page)
+        self.assertEqual(outcome, 'failed')
+        self.assertEqual(page.discards, 1)
+        self.assertFalse(page.preview_open)
+        pressed.assert_not_called()
+
+    def test_a_discard_question_left_on_screen_is_answered_before_the_row_starts(self):
+        page = AttachmentPage(FakeElement(accepts=('keys',)), discard_pending=True)
+        outcome, tool, pressed = self.send(page)
+        self.assertEqual(outcome, 'sent')
+        self.assertEqual(page.discards, 1)
+        self.assertFalse(self.discard_pending_at_choose, 'the question must be gone before attaching')
 
     def test_a_preview_that_never_closes_means_the_file_did_not_leave(self):
         page = AttachmentPage(FakeElement(accepts=('keys',)), preview_closes=False)
@@ -295,6 +342,143 @@ class AttachmentTest(unittest.TestCase):
         gone = os.path.join(os.path.dirname(self.card), f'gone-{uuid.uuid4().hex}.png')
         row = {'id': 'card', 'phone': '0501234567', 'message': self.MESSAGE, 'attachment': gone}
         self.assertEqual(tool._send_single_message(row, 1, 1), 'skipped')
+
+
+class FilePickerDriver:
+    """WhatsApp's 2026 attach menu: each entry creates a file input on the spot and clicks it."""
+
+    def __init__(self, *, entries=('media', 'document'), asks_for_file=True):
+        self.entries = set(entries)
+        self.asks_for_file = asks_for_file
+        self.armed = False
+        self.captured = False
+        self.opened = []
+        self.cdp = []
+        self.page_input = mock.Mock()
+
+    def _entry(self, kind):
+        entry = mock.Mock()
+
+        def click():
+            self.opened.append(kind)
+            self.captured = self.armed and self.asks_for_file
+
+        entry.click.side_effect = click
+        return entry
+
+    def find_elements(self, by, xpath):
+        if 'menuitem' in xpath:
+            kind = 'media' if ('الصور' in xpath or 'Photos' in xpath) else 'document'
+            return [self._entry(kind)] if kind in self.entries else []
+        if 'type="file"' in xpath:
+            return [self.page_input]
+        return []
+
+    def execute_script(self, script, *args):
+        if '__haderCaptureFiles = true' in script:
+            self.armed = True
+        elif '__haderCaptureFiles = false' in script:
+            self.armed = False
+        elif '__haderFileInput' in script:
+            return self.captured
+        return True
+
+    def execute_cdp_cmd(self, command, params):
+        self.cdp.append((command, params))
+        return {'result': {'objectId': 'input-1'}} if command == 'Runtime.evaluate' else {}
+
+
+class FileChoiceTest(unittest.TestCase):
+    """
+    The 2026 attach menu creates its file input only when an entry is clicked, and clicking that
+    input would open the operating system's file dialog.
+    """
+
+    def setUp(self):
+        use_fake_clock(self)
+        self.image = os.path.join(tempfile.gettempdir(), 'card.png')
+        self.pdf = os.path.join(tempfile.gettempdir(), 'report.pdf')
+
+    @staticmethod
+    def choose(driver, path):
+        tool = make_tool(FakeElement())
+        tool.driver = driver
+        return tool._choose_file(path)
+
+    def test_an_image_goes_to_the_photos_entry_and_arrives_through_devtools(self):
+        driver = FilePickerDriver()
+        self.assertTrue(self.choose(driver, self.image))
+        self.assertEqual(driver.opened, ['media'])
+        self.assertIn(('DOM.setFileInputFiles', {'files': [os.path.abspath(self.image)], 'objectId': 'input-1'}), driver.cdp)
+        self.assertFalse(driver.armed, 'file inputs must behave normally again afterwards')
+        driver.page_input.send_keys.assert_not_called()
+
+    def test_the_os_file_dialog_is_held_back_while_choosing(self):
+        driver = FilePickerDriver()
+        self.choose(driver, self.image)
+        switches = [params['enabled'] for command, params in driver.cdp if command == 'Page.setInterceptFileChooserDialog']
+        self.assertEqual(switches, [True, False])
+
+    def test_a_pdf_goes_to_the_document_entry(self):
+        driver = FilePickerDriver()
+        self.assertTrue(self.choose(driver, self.pdf))
+        self.assertEqual(driver.opened, ['document'])
+
+    def test_a_menu_that_never_asks_for_the_file_attaches_nothing(self):
+        # The input already in the page may belong to another entry — a new sticker, for one.
+        driver = FilePickerDriver(asks_for_file=False)
+        self.assertFalse(self.choose(driver, self.image))
+        driver.page_input.send_keys.assert_not_called()
+        self.assertFalse(any(command == 'DOM.setFileInputFiles' for command, _ in driver.cdp))
+        self.assertFalse(driver.armed)
+
+    def test_builds_without_the_menu_fill_the_input_in_the_page(self):
+        driver = FilePickerDriver(entries=())
+        with mock.patch.object(wpt.WebDriverWait, 'until', side_effect=wpt.TimeoutException()):
+            self.assertTrue(self.choose(driver, self.image))
+        driver.page_input.send_keys.assert_called_once_with(os.path.abspath(self.image))
+
+
+class NewChatSearchTest(unittest.TestCase):
+    """The chat list's search box is always on screen; the number belongs in the new-chat drawer."""
+
+    def setUp(self):
+        FakeActionChains.performed.clear()
+        patcher = mock.patch.object(wpt, 'ActionChains', FakeActionChains)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        use_fake_clock(self)
+        self.side = FakeElement(accepts=('keys',))
+        self.drawer = FakeElement(accepts=('keys',))
+        self.new_chat = mock.Mock()
+
+    def tool(self, drawer_opens=True):
+        tool = make_tool(FakeElement())
+
+        def find_elements(by, xpath):
+            if 'دردشة جديدة' in xpath:
+                return [self.new_chat]
+            if 'not(ancestor' in xpath:
+                return [self.drawer] if drawer_opens else []
+            if '@id="side"' in xpath and 'input' in xpath:
+                return [self.side]
+            return []
+
+        tool.driver.find_elements = find_elements
+        tool._await_matching_row = lambda phone, timeout=9: None
+        return tool
+
+    def test_types_the_number_into_the_new_chat_drawer(self):
+        self.assertFalse(self.tool()._open_chat_via_search('966501234567'))   # no row matches in this fake
+        self.new_chat.click.assert_called_once()
+        self.assertEqual(self.drawer.text, '966501234567')
+        self.assertEqual(self.side.text, '')
+
+    def test_falls_back_to_the_chat_list_search_when_no_drawer_opens(self):
+        with mock.patch.object(wpt.WebDriverWait, 'until', side_effect=wpt.TimeoutException()):
+            self.tool(drawer_opens=False)._open_chat_via_search('966501234567')
+        self.assertEqual(self.side.text, '966501234567')
+        self.assertEqual(self.drawer.text, '')
 
 
 class QueueRulesTest(unittest.TestCase):

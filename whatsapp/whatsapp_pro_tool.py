@@ -215,20 +215,38 @@ _SELECTORS = {
         '//footer//div[@contenteditable="true"]',
         '//div[contains(@class,"copyable-text")][@contenteditable="true"]',
     ],
-    # Attach-button (paperclip icon)
+    # Attach button: the footer's "إرفاق" button with the plus-rounded icon (2026); older builds used a paperclip
     "attach_btn": [
+        '//footer//button[@aria-label="إرفاق"]',
+        '//footer//button[@aria-label="Attach"]',
+        '//footer//button[.//span[@data-icon="plus-rounded"]]',
         '//div[@data-testid="clip"]',
         '//button[@data-testid="clip"]',
         '//span[@data-icon="clip"]',
         '//span[@data-icon="plus"]',
     ],
-    # File input inside attach panel
+    # Attach menu entries (2026: role=menuitem buttons labelled in the interface language)
+    "attach_menu_media": [
+        '//*[@role="menu"]//*[@role="menuitem"][@aria-label="الصور ومقاطع الفيديو"]',
+        '//*[@role="menu"]//*[@role="menuitem"][@aria-label="Photos & videos"]',
+    ],
+    "attach_menu_document": [
+        '//*[@role="menu"]//*[@role="menuitem"][@aria-label="مستند"]',
+        '//*[@role="menu"]//*[@role="menuitem"][@aria-label="Document"]',
+    ],
+    # File input of older builds, whose attach panel kept its inputs in the page
     "file_input": [
         '//input[@accept][contains(@accept,"image")][@type="file"]',
         '//input[@type="file"]',
     ],
-    # Send button
+    # Send button: the composer's labelled button, and the attachment preview's round
+    # "إرسال العنصر المحدد" button (a div role=button holding the wds-ic-send-filled icon, 2026)
     "send_btn": [
+        '//button[@aria-label="إرسال"]',
+        '//button[@aria-label="Send"]',
+        '//*[@role="button"][@aria-label="إرسال العنصر المحدد"]',
+        '//*[@role="button"][.//span[@data-icon="wds-ic-send-filled"]]',
+        '//button[.//span[@data-icon="wds-ic-send-filled"]]',
         '//button[@data-testid="send"]',
         '//span[@data-icon="send"]',
         '//div[@role="button"][@aria-label="Send"]',
@@ -236,10 +254,17 @@ _SELECTORS = {
     ],
     # Caption box inside the attachment preview — the file's own text field, not the chat composer
     "caption_box": [
+        '//div[@contenteditable="true"][@data-testid="media-caption-input-container"]',
+        '//*[@data-testid="media-caption-input-container"]//div[@contenteditable="true"]',
         '//div[@contenteditable="true"][contains(@aria-label, "caption")]',
         '//div[@contenteditable="true"][contains(@aria-label, "Caption")]',
         '//div[@contenteditable="true"][contains(@aria-label, "شرح")]',
         '//div[@contenteditable="true"][contains(@aria-label, "تعليق")]',
+    ],
+    # "هل تريد تجاهل الاختيار؟" — asked when an attachment preview is closed without sending
+    "discard_confirm": [
+        '//div[@role="dialog"]//button[normalize-space()="تجاهل"]',
+        '//div[@role="dialog"]//button[normalize-space()="Discard"]',
     ],
     # Side panel (login check — present when authenticated)
     "side_panel": [
@@ -267,15 +292,21 @@ _SELECTORS = {
 # Composer text is read back after typing to prove the message really landed in the editor.
 _COMPOSER_TEXT_JS = "return (arguments[0].innerText || arguments[0].textContent || '').trim();"
 
-# The newest outgoing bubble in the open chat. Its message id tells a new bubble from an older one
+# The newest message we sent in the open chat. Its message id tells a new bubble from an older one
 # carrying the same text; its visible text tells our message from anything else.
+# The 2026 builds dropped the message-out class: an own message row carries a hidden sender label
+# ("أنت:" / "You:") instead. When no row has a label this code knows (another interface language),
+# the newest row of either side is used — a new message id holding our text still proves the send.
 _LAST_OUTGOING_JS = """
 const root = document.querySelector('#main') || document;
-const bubbles = root.querySelectorAll('.message-out');
-if (!bubbles.length) return null;
-const last = bubbles[bubbles.length - 1];
-const holder = last.closest('[data-id]');
-return {id: holder ? (holder.getAttribute('data-id') || '') : '', text: last.innerText || ''};
+const messages = [...root.querySelectorAll('[data-id]')];
+if (!messages.length) return null;
+const rowOf = (el) => el.closest('[role=row]') || el;
+const OWN = '.message-out, [aria-label="أنت:"], [aria-label="You:"]';
+const own = messages.filter((el) => el.matches('.message-out') || rowOf(el).querySelector(OWN));
+const pool = own.length ? own : messages;
+const last = pool[pool.length - 1];
+return {id: last.getAttribute('data-id') || '', text: rowOf(last).innerText || ''};
 """
 
 # Every candidate search-result row with the text a phone number can show up in, fetched in one
@@ -294,6 +325,30 @@ for (const xpath of arguments[0]) {
 }
 return rows;
 """
+
+# Entries of the 2026 attach menu create their file input on the spot and click it, which would open
+# the operating system's file dialog. While armed, that click is captured instead, so the file can be
+# handed to exactly that input through DevTools.
+_ARM_FILE_CAPTURE_JS = """
+const proto = HTMLInputElement.prototype;
+if (!window.__haderPicker) {
+  window.__haderPicker = {click: proto.click, showPicker: proto.showPicker};
+  const wrap = (original) => function (...args) {
+    if (this.type === 'file' && window.__haderCaptureFiles) {
+      window.__haderFileInput = this;
+      return undefined;
+    }
+    return original ? original.apply(this, args) : undefined;
+  };
+  proto.click = wrap(window.__haderPicker.click);
+  if (proto.showPicker) proto.showPicker = wrap(window.__haderPicker.showPicker);
+}
+window.__haderFileInput = null;
+window.__haderCaptureFiles = true;
+return true;
+"""
+_FILE_CAPTURED_JS = "return !!window.__haderFileInput;"
+_DISARM_FILE_CAPTURE_JS = "window.__haderCaptureFiles = false; window.__haderFileInput = null; return true;"
 
 # What pressing send proved. Only SEND_NOT_SENT may be retried: once send was pressed the message
 # may already be on the guardian's phone, so anything unproven is left for the operator to review.
@@ -1194,6 +1249,7 @@ class WhatsAppProTool:
             # A dialog left over from an earlier row would block this one too.
             if self._invalid_dialog() is not None:
                 self._dismiss_dialog()
+            self._confirm_discard()
 
             # فتح المحادثة: بحث الواجهة أولاً، ثم رابط الإرسال للأرقام غير المحفوظة
             if not self._open_chat(phone):
@@ -1332,16 +1388,13 @@ class WhatsAppProTool:
             attach_btn.click()
             time.sleep(random.uniform(0.8, 1.5))
 
-            file_input = _find_first(self.driver, _SELECTORS["file_input"], timeout=5)
-            if file_input is None:
-                logging.warning("  ⚠️  File input not found")
+            if not self._choose_file(file_path):
                 self._press_escape()
                 return SEND_NOT_SENT
-            file_input.send_keys(os.path.abspath(file_path))
 
             if _find_first(self.driver, _SELECTORS["send_btn"], timeout=10) is None:
                 logging.warning("  ⚠️  Send button not found after attach")
-                self._press_escape()
+                self._discard_preview()
                 return SEND_NOT_SENT
 
             with_caption = self._write_caption(caption)
@@ -1351,7 +1404,7 @@ class WhatsAppProTool:
             send_btn = _find_first(self.driver, _SELECTORS["send_btn"], timeout=5)
             if send_btn is None:
                 logging.warning("  ⚠️  Send button vanished from the attachment preview")
-                self._press_escape()
+                self._discard_preview()
                 return SEND_NOT_SENT
             if msg_id:
                 self._update_status(msg_id, 'confirming')
@@ -1364,7 +1417,7 @@ class WhatsAppProTool:
             # The preview closes the moment WhatsApp takes the file, and its send button leaves the page.
             if not self._await_gone(send_btn, timeout=20):
                 logging.warning("  ⚠️  The attachment preview is still open — the file was not sent.")
-                self._press_escape()
+                self._discard_preview()
                 return SEND_NOT_SENT
 
             verdict = self._confirm_outgoing(previous_bubble, caption if with_caption else '')
@@ -1385,8 +1438,92 @@ class WhatsAppProTool:
             logging.error(f"  ⚠️  Attachment error: {exc}")
             if clicked:
                 return SEND_UNCONFIRMED
-            self._press_escape()
+            self._discard_preview()
             return SEND_NOT_SENT
+
+    def _discard_preview(self) -> None:
+        """
+        Close an attachment preview that will not be sent, answering WhatsApp's discard question.
+
+        Escape alone left «هل تريد تجاهل الاختيار؟» on screen, and that modal swallowed every click of
+        the next row — even its new-chat button could not be pressed.
+        """
+        self._press_escape()
+        self._confirm_discard(timeout=2)
+
+    def _confirm_discard(self, timeout: float = 0) -> bool:
+        """Press «تجاهل» on a discard question when one is on screen. True when it was answered."""
+        confirm = _find_first(self.driver, _SELECTORS["discard_confirm"], timeout=timeout)
+        if confirm is None:
+            return False
+        try:
+            confirm.click()
+        except WebDriverException:
+            try:
+                self.driver.execute_script("arguments[0].click();", confirm)
+            except WebDriverException:
+                logging.warning("  ⚠️  Could not dismiss the discard question.")
+                return False
+        logging.info("  🧹 Discarded an unsent attachment preview.")
+        return True
+
+    _IMAGE_EXTENSIONS = frozenset({'png', 'jpg', 'jpeg', 'gif', 'webp'})
+
+    def _choose_file(self, file_path: str) -> bool:
+        """
+        Hand ``file_path`` to WhatsApp once the attach button was clicked. True when the file was given.
+
+        2026 builds open a menu whose entries create a file input and click it; that input is captured
+        and filled through DevTools. Builds without the menu keep a file input in the page, filled
+        directly. When the menu is there but no input could be captured, nothing is guessed: an input
+        already in the page may belong to another entry — a new sticker, for one.
+        """
+        path = os.path.abspath(file_path)
+        is_image = path.rsplit('.', 1)[-1].lower() in self._IMAGE_EXTENSIONS
+        entry = _find_first(
+            self.driver, _SELECTORS["attach_menu_media" if is_image else "attach_menu_document"], timeout=3
+        )
+        if entry is None:
+            file_input = _find_first(self.driver, _SELECTORS["file_input"], timeout=5)
+            if file_input is None:
+                logging.warning("  ⚠️  File input not found")
+                return False
+            file_input.send_keys(path)
+            return True
+
+        self._hold_file_dialog(True)
+        try:
+            self.driver.execute_script(_ARM_FILE_CAPTURE_JS)
+            entry.click()
+            deadline = time.time() + 4
+            while not self.driver.execute_script(_FILE_CAPTURED_JS):
+                if time.time() >= deadline:
+                    logging.warning("  ⚠️  The attach menu never asked for a file — nothing was attached.")
+                    return False
+                time.sleep(0.2)
+            handle = self.driver.execute_cdp_cmd(
+                'Runtime.evaluate', {'expression': 'window.__haderFileInput', 'returnByValue': False}
+            )
+            object_id = (handle.get('result') or {}).get('objectId')
+            if not object_id:
+                logging.warning("  ⚠️  The attach menu's file input could not be reached.")
+                return False
+            self.driver.execute_cdp_cmd('DOM.setFileInputFiles', {'files': [path], 'objectId': object_id})
+            logging.info("  📎 File handed to WhatsApp through the attach menu.")
+            return True
+        finally:
+            try:
+                self.driver.execute_script(_DISARM_FILE_CAPTURE_JS)
+            except WebDriverException:
+                pass
+            self._hold_file_dialog(False)
+
+    def _hold_file_dialog(self, held: bool) -> None:
+        """Keep the operating system's file dialog from opening while a file is handed over."""
+        try:
+            self.driver.execute_cdp_cmd('Page.setInterceptFileChooserDialog', {'enabled': held})
+        except WebDriverException as exc:
+            logging.debug(f"File dialog interception unavailable: {exc}")
 
     def _write_caption(self, caption: str) -> bool:
         """Type the message into the preview's caption box. False means the text must follow on its own."""
@@ -1706,6 +1843,22 @@ class WhatsAppProTool:
             return False
         return target in self._digits(haystack)
 
+    # The "new chat" drawer's own search box: an <input> outside #side in 2026 builds.
+    _NEW_CHAT_SEARCH_XPATHS = (
+        '//input[@role="textbox"][@data-tab="3"][not(ancestor::*[@id="side"])]',
+        '//*[@data-testid="chat-list-search-container"]//input[not(ancestor::*[@id="side"])]',
+        '//div[@contenteditable="true"][@data-tab="3"][not(ancestor::*[@id="side"])]',
+    )
+    # The chat list's search box is always on screen, so it is only the fallback.
+    _CHAT_LIST_SEARCH_XPATHS = (
+        '//*[@id="side"]//input[@role="textbox"]',
+        '//div[@data-testid="chat-list-search"]',
+        '//div[@contenteditable="true"][@data-tab="3"]',
+        '//div[@id="side"]//div[@contenteditable="true"]',
+        '//div[@role="textbox"][@title="Search input textbox"]',
+        '//div[@role="textbox"][@title]',
+    )
+
     # Rows that can appear in the "new chat" search results.
     _SEARCH_ROW_XPATHS = (
         '//div[@data-testid="cell-frame-container"]',
@@ -1856,6 +2009,9 @@ class WhatsAppProTool:
         try:
             # ── الخطوة 1: النقر على أيقونة محادثة جديدة ──
             new_chat_xpaths = [
+                # 2026 builds: a plain button in the top bar, labelled in the interface language
+                '//button[@aria-label="دردشة جديدة"]',
+                '//button[@aria-label="New chat"]',
                 '//span[@data-icon="new-chat-outline"]',
                 '//div[@data-testid="chat-list-header-menu-new"]',
                 '//span[@data-icon="chat"]',
@@ -1863,20 +2019,19 @@ class WhatsAppProTool:
                 '//div[@aria-label="New chat"]',
                 '//div[@aria-label="محادثة جديدة"]',
             ]
-            new_chat_btn = _find_first(self.driver, new_chat_xpaths, timeout=8)
+            new_chat_btn = _find_first(self.driver, new_chat_xpaths, timeout=5)
             if new_chat_btn:
                 new_chat_btn.click()
                 time.sleep(random.uniform(0.8, 1.5))
 
             # ── الخطوة 2: إيجاد مربع البحث ──
-            search_xpaths = [
-                '//div[@data-testid="chat-list-search"]',
-                '//div[@contenteditable="true"][@data-tab="3"]',
-                '//div[@id="side"]//div[@contenteditable="true"]',
-                '//div[@role="textbox"][@title="Search input textbox"]',
-                '//div[@role="textbox"][@title]',
-            ]
-            search_box = _find_first(self.driver, search_xpaths, timeout=8)
+            # مربع بحث قائمة الدردشات ظاهر دائماً، فلو بُحث عنه مع مربع نافذة "دردشة جديدة" لسبقها
+            # وكُتب الرقم في المكان الخطأ؛ لذا يُنتظر مربع النافذة أولاً ولا يُلجأ للقائمة إلا إن لم تظهر.
+            search_box = None
+            if new_chat_btn:
+                search_box = _find_first(self.driver, self._NEW_CHAT_SEARCH_XPATHS, timeout=4)
+            if search_box is None:
+                search_box = _find_first(self.driver, self._CHAT_LIST_SEARCH_XPATHS, timeout=4)
             if not search_box:
                 logging.warning(f"  ⚠️  Search box not found for {phone}")
                 return False
