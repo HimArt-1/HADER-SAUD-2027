@@ -116,6 +116,27 @@ class FakeBot:
         self.closed = True
 
 
+class HungBot(FakeBot):
+    """
+    A mission stuck inside a Selenium call: stop signals do nothing, and only closing the browser
+    (``closes_unblock``) or the test's own release makes the call return.
+    """
+
+    def __init__(self, *, closes_unblock=True, **kw):
+        super().__init__(**kw)
+        self.closes_unblock = closes_unblock
+        self.release = threading.Event()
+
+    def run_mission(self, **options):
+        self.calls.append('run_mission')
+        self.sending = True
+        self.mission_started.set()
+        while not self.release.is_set() and not (self.closes_unblock and self.closed):
+            time.sleep(0.005)
+        self.sending = False
+        return dict(self.mission_result)
+
+
 def wait_for(predicate, timeout=3.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -365,6 +386,46 @@ class EngineControllerTest(unittest.TestCase):
         self.assertTrue(controller.watchdog_check(max_idle_seconds=300))
         self.assertTrue(bot.closed)
         self.assertTrue(wait_for(lambda: controller.state in ('ready',) and 'run_mission' in bot2.calls, timeout=5))
+
+    def _freeze_mission(self, bot):
+        controller = self.make(bot)
+        if isinstance(bot, HungBot):
+            self.addCleanup(bot.release.set)      # runs before the controller's own cleanup
+        controller.start_engine()
+        self.assertTrue(wait_for(lambda: controller.state == 'ready'))
+        controller.start_sending()
+        self.assertTrue(bot.mission_started.wait(2))
+        self.assertTrue(wait_for(lambda: controller.state == 'sending'))
+        bot.last_activity_time = time.time() - 1000
+        return controller
+
+    def test_watchdog_closes_a_hung_browser_so_the_restart_goes_through(self):
+        # The hung call ignores stop signals. The old watchdog only asked the mission to stop, gave up
+        # waiting after 30 seconds and was refused the restart because the thread was still alive.
+        bot = HungBot()
+        controller = self._freeze_mission(bot)
+        bot2 = FakeBot()
+        controller._bot_factory = lambda: bot2
+        self.assertTrue(controller.watchdog_check(max_idle_seconds=300, restart_timeout=3))
+        self.assertTrue(bot.closed)
+        self.assertTrue(wait_for(lambda: controller.state == 'ready' and 'run_mission' in bot2.calls, timeout=5))
+
+    def test_watchdog_reports_a_restart_it_could_not_make(self):
+        bot = HungBot(closes_unblock=False)
+        controller = self._freeze_mission(bot)
+        self.assertTrue(controller.watchdog_check(max_idle_seconds=300, restart_timeout=0.1))
+        self.assertEqual(controller.state, 'error')
+        self.assertIn('تعذر إعادة التشغيل', controller.message)
+        self.assertEqual(controller.snapshot()['last_error'], 'watchdog_restart_failed')
+
+    def test_summary_mentions_messages_waiting_for_review(self):
+        bot = FakeBot(mission_result={"sent": 2, "failed": 0, "skipped": 0, "unconfirmed": 1})
+        controller = self.make(bot)
+        controller.start_engine()
+        self.assertTrue(wait_for(lambda: controller.state == 'ready'))
+        controller.start_sending()
+        self.assertTrue(wait_for(lambda: controller.state == 'ready' and controller.last_result is not None))
+        self.assertIn('1 بحاجة مراجعة', controller.message)
 
 
 if __name__ == '__main__':

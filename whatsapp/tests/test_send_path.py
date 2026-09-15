@@ -140,6 +140,42 @@ def find_first_stub(element):
     return _stub
 
 
+class FakeClock:
+    """Deterministic time for polling loops: sleeping advances the clock instead of waiting."""
+
+    def __init__(self, start=1_000.0):
+        self.now = start
+
+    def time(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += max(0.0, float(seconds))
+
+
+def use_fake_clock(test):
+    clock = FakeClock()
+    for name, fake in (('time', clock.time), ('sleep', clock.sleep)):
+        patcher = mock.patch.object(wpt.time, name, fake)
+        patcher.start()
+        test.addCleanup(patcher.stop)
+    return clock
+
+
+class BubbleDriver(FakeDriver):
+    """A driver whose open chat shows outgoing bubbles, the way WhatsApp Web renders them."""
+
+    def __init__(self, element, bubble=None):
+        super().__init__(element)
+        self.bubble = bubble
+
+    def execute_script(self, script, *args):
+        if 'message-out' in script:
+            self.scripts.append(script)
+            return self.bubble
+        return super().execute_script(script, *args)
+
+
 class ComposeMessageTest(unittest.TestCase):
     def setUp(self):
         FakeActionChains.performed.clear()
@@ -197,27 +233,25 @@ class PressSendTest(unittest.TestCase):
     def setUp(self):
         FakeActionChains.performed.clear()
         patcher_ac = mock.patch.object(wpt, 'ActionChains', FakeActionChains)
-        patcher_sleep = mock.patch.object(wpt.time, 'sleep', lambda *_: None)
-        patcher_ac.start(); patcher_sleep.start()
-        self.addCleanup(patcher_ac.stop); self.addCleanup(patcher_sleep.stop)
+        patcher_ac.start()
+        self.addCleanup(patcher_ac.stop)
+        self.clock = use_fake_clock(self)
 
     def test_refuses_to_send_an_empty_composer(self):
         element = FakeElement()
         tool = make_tool(element)
-        self.assertFalse(tool._press_send(element))
+        self.assertEqual(tool._press_send(element), wpt.SEND_NOT_SENT)
 
     def test_clicks_the_send_button_and_confirms_the_composer_emptied(self):
         element = FakeElement(); element.text = 'جاهزة'
         button = FakeSendButton(element, empties=True)
         tool = make_tool(element)
         with mock.patch.object(wpt, '_find_first', return_value=button):
-            self.assertTrue(tool._press_send(element))
+            self.assertEqual(tool._press_send(element), wpt.SEND_SENT)
         self.assertEqual(button.clicks, 1)
         self.assertEqual(element.text, '')
 
     def test_falls_back_to_enter_when_no_send_button_exists(self):
-        element = FakeElement(); element.text = 'جاهزة'
-
         class EnterSendsElement(FakeElement):
             def send_keys(self, value):
                 super().send_keys(value)
@@ -227,17 +261,61 @@ class PressSendTest(unittest.TestCase):
         element = EnterSendsElement(); element.text = 'جاهزة'
         tool = make_tool(element)
         with mock.patch.object(wpt, '_find_first', return_value=None):
-            self.assertTrue(tool._press_send(element))
+            self.assertEqual(tool._press_send(element), wpt.SEND_SENT)
         self.assertIn(wpt.Keys.ENTER, element.keys_log)
 
-    def test_reports_failure_when_the_message_stays_in_the_composer(self):
+    def test_reports_not_sent_when_the_message_stays_in_the_composer(self):
         element = FakeElement(); element.text = 'عالقة'
         button = FakeSendButton(element, empties=False)
         tool = make_tool(element)
-        with mock.patch.object(wpt, '_find_first', return_value=button), \
-             mock.patch.object(wpt.time, 'time', side_effect=[0, 1, 99, 99, 99]):
-            self.assertFalse(tool._press_send(element))
+        with mock.patch.object(wpt, '_find_first', return_value=button):
+            self.assertEqual(tool._press_send(element), wpt.SEND_NOT_SENT)
         self.assertEqual(element.text, 'عالقة')
+
+    def test_an_editor_that_cannot_be_read_back_is_not_counted_as_sent(self):
+        # WhatsApp re-renders the composer after a send, so reading the old node fails. That read
+        # used to count as "emptied" and the row was recorded sent whether or not anything left.
+        element = FakeElement(); element.text = 'جاهزة'
+        tool = make_tool(element)
+        read_script = tool.driver.execute_script
+        pressed = {'yes': False}
+
+        class Button:
+            def click(self_inner):
+                pressed['yes'] = True
+
+        def execute_script(script, *args):
+            if pressed['yes'] and 'innerText' in script:
+                raise wpt.WebDriverException('stale element reference')
+            return read_script(script, *args)
+
+        tool.driver.execute_script = execute_script
+        with mock.patch.object(wpt, '_find_first', return_value=Button()):
+            self.assertEqual(tool._press_send(element, 'جاهزة'), wpt.SEND_UNCONFIRMED)
+
+    def test_confirms_the_new_bubble_that_carries_the_message(self):
+        element = FakeElement(); element.text = 'مرحبا *أحمد* 🌟'
+        tool = make_tool(element)
+        tool.driver = BubbleDriver(element, bubble={'id': 'true_old', 'text': 'رسالة سابقة'})
+
+        class Button:
+            def click(self_inner):
+                element.text = ''
+                # The bubble's text loses the bold markers and the emoji image, and gains the time.
+                tool.driver.bubble = {'id': 'true_new', 'text': 'مرحبا أحمد\n10:32 ص'}
+
+        with mock.patch.object(wpt, '_find_first', return_value=Button()):
+            self.assertEqual(tool._press_send(element, 'مرحبا *أحمد* 🌟'), wpt.SEND_SENT)
+
+    def test_an_emptied_composer_without_a_new_bubble_is_left_for_review(self):
+        # The newest bubble carries the same text (yesterday's notice to this guardian) but no new
+        # bubble ever appears, so nothing proves today's message left.
+        element = FakeElement(); element.text = 'نفيدكم بغياب الطالب'
+        tool = make_tool(element)
+        tool.driver = BubbleDriver(element, bubble={'id': 'true_yesterday', 'text': 'نفيدكم بغياب الطالب'})
+        button = FakeSendButton(element, empties=True)
+        with mock.patch.object(wpt, '_find_first', return_value=button):
+            self.assertEqual(tool._press_send(element, 'نفيدكم بغياب الطالب'), wpt.SEND_UNCONFIRMED)
 
 
 class SendSingleMessageTest(unittest.TestCase):
@@ -278,7 +356,7 @@ class SendSingleMessageTest(unittest.TestCase):
         row = {'id': 'row-2', 'phone': '0501234567', 'message': 'اختبار'}
 
         with mock.patch.object(wpt, '_find_first', find_first_stub(element)), \
-             mock.patch.object(tool, '_press_send', return_value=False):
+             mock.patch.object(tool, '_press_send', return_value=wpt.SEND_NOT_SENT):
             outcome = tool._send_single_message(row, 1, 1)
 
         self.assertEqual(outcome, 'failed')
@@ -291,13 +369,86 @@ class SendSingleMessageTest(unittest.TestCase):
         row = {'id': 'row-3', 'phone': '0501234567', 'message': 'اختبار'}
 
         with mock.patch.object(wpt, '_find_first', find_first_stub(element)), \
-             mock.patch.object(tool, '_press_send', return_value=True):
+             mock.patch.object(tool, '_press_send', return_value=wpt.SEND_SENT):
             outcome = tool._send_single_message(row, 1, 1)
 
         self.assertEqual(outcome, 'sent')
         self.assertEqual(tool.statuses['row-3'], 'sent')
         self.assertEqual(tool.stats['sent'], 1)
         self.assertEqual(tool.stats['failed'], 0)
+
+    def test_an_unproven_send_is_left_for_review_rather_than_failed(self):
+        # 'failed' rows get retried; a message that may already be on the guardian's phone must not.
+        element = FakeElement(accepts=('keys',))
+        tool = self._tool(element)
+        row = {'id': 'row-4', 'phone': '0501234567', 'message': 'اختبار'}
+
+        with mock.patch.object(wpt, '_find_first', find_first_stub(element)), \
+             mock.patch.object(tool, '_press_send', return_value=wpt.SEND_UNCONFIRMED):
+            outcome = tool._send_single_message(row, 1, 1)
+
+        self.assertEqual(outcome, 'unconfirmed')
+        self.assertEqual(tool.statuses['row-4'], 'unconfirmed')
+        self.assertEqual((tool.stats['failed'], tool.stats['unconfirmed']), (0, 1))
+
+    def test_records_confirming_just_before_send_is_pressed(self):
+        element = FakeElement(accepts=('keys',))
+        tool = self._tool(element)
+        history = []
+        tool._update_status = lambda msg_id, status: history.append(status)
+        row = {'id': 'row-5', 'phone': '0501234567', 'message': 'اختبار'}
+
+        def press(input_box, message):
+            self.assertEqual(history[-1], 'confirming')
+            return wpt.SEND_SENT
+
+        with mock.patch.object(wpt, '_find_first', find_first_stub(element)), \
+             mock.patch.object(tool, '_press_send', side_effect=press):
+            tool._send_single_message(row, 1, 1)
+
+        self.assertEqual(history, ['sending', 'confirming', 'sent'])
+
+    def test_an_error_after_pressing_send_is_left_for_review(self):
+        element = FakeElement(accepts=('keys',))
+        tool = self._tool(element)
+        row = {'id': 'row-6', 'phone': '0501234567', 'message': 'اختبار'}
+
+        with mock.patch.object(wpt, '_find_first', find_first_stub(element)), \
+             mock.patch.object(tool, '_press_send', side_effect=RuntimeError('driver hung up')):
+            self.assertEqual(tool._send_single_message(row, 1, 1), 'unconfirmed')
+
+    def test_an_error_before_pressing_send_is_a_retryable_failure(self):
+        element = FakeElement(accepts=('keys',))
+        tool = self._tool(element)
+        row = {'id': 'row-7', 'phone': '0501234567', 'message': 'اختبار'}
+
+        with mock.patch.object(wpt, '_find_first', find_first_stub(element)), \
+             mock.patch.object(tool, '_compose_message', side_effect=RuntimeError('driver hung up')):
+            self.assertEqual(tool._send_single_message(row, 1, 1), 'failed')
+
+    def test_a_leftover_draft_is_cleared_before_typing(self):
+        # WhatsApp keeps an unsent draft per chat; typing after it would send both texts together.
+        element = FakeElement(accepts=('keys',)); element.text = 'مسودة قديمة'
+        tool = self._tool(element)
+        row = {'id': 'row-8', 'phone': '0501234567', 'message': 'اختبار'}
+        composer_at_send = []
+
+        def press(input_box, message):
+            composer_at_send.append(element.text)
+            return wpt.SEND_SENT
+
+        with mock.patch.object(wpt, '_find_first', find_first_stub(element)), \
+             mock.patch.object(tool, '_press_send', side_effect=press):
+            tool._send_single_message(row, 1, 1)
+
+        self.assertEqual(composer_at_send, ['اختبار'])
+
+    def test_a_number_that_fails_validation_never_touches_whatsapp(self):
+        tool = self._tool(FakeElement(accepts=('keys',)))
+        tool._open_chat = lambda phone: self.fail('an invalid number must not open a chat')
+        outcome = tool._send_single_message({'id': 'row-9', 'phone': '12', 'message': 'اختبار'}, 1, 1)
+        self.assertEqual(outcome, 'skipped')
+        self.assertEqual(tool.statuses['row-9'], 'invalid_phone')
 
 
 class FakeRow:
@@ -448,7 +599,7 @@ class UnreachableNumberDialogTest(unittest.TestCase):
     def test_dismisses_the_dialog_and_sends_when_the_retry_opens_the_chat(self):
         row = {'id': 'r1', 'phone': '0501234567', 'message': 'مرحبا'}
         with mock.patch.object(wpt, '_find_first', self._wire(retry_succeeds=True)), \
-             mock.patch.object(self.tool, '_press_send', return_value=True):
+             mock.patch.object(self.tool, '_press_send', return_value=wpt.SEND_SENT):
             outcome = self.tool._send_single_message(row, 1, 1)
 
         self.assertEqual(outcome, 'sent')
@@ -471,7 +622,7 @@ class UnreachableNumberDialogTest(unittest.TestCase):
     def test_clears_a_dialog_left_behind_by_the_previous_row(self):
         row = {'id': 'r3', 'phone': '0501234567', 'message': 'مرحبا'}
         with mock.patch.object(wpt, '_find_first', self._wire(retry_succeeds=True, dialog_already_open=True)), \
-             mock.patch.object(self.tool, '_press_send', return_value=True):
+             mock.patch.object(self.tool, '_press_send', return_value=wpt.SEND_SENT):
             outcome = self.tool._send_single_message(row, 1, 1)
 
         self.assertEqual(outcome, 'sent')
@@ -491,17 +642,42 @@ class AwaitMatchingRowTest(unittest.TestCase):
         late_row = FakeRow(text='+966 50 123 4567')
         calls = {'n': 0}
 
-        def find_elements(by, value):
+        def rows_script(script, *args):
             calls['n'] += 1
-            return [late_row] if calls['n'] > 6 else []
+            return [[late_row, late_row.text]] if calls['n'] > 3 else []
 
-        self.tool.driver.find_elements = find_elements
+        self.tool.driver.execute_script = rows_script
         self.assertIs(self.tool._await_matching_row('966501234567', timeout=5), late_row)
 
     def test_gives_up_rather_than_returning_someone_else(self):
         other = FakeRow(text='+966 55 999 8877')
-        self.tool.driver.find_elements = lambda by, value: [other]
+        self.tool.driver.execute_script = lambda script, *args: [[other, other.text]]
         self.assertIsNone(self.tool._await_matching_row('966501234567', timeout=1))
+
+    def test_reads_every_row_in_a_single_script_call(self):
+        # Reading text, title and aria-label over WebDriver cost three calls per row on every poll.
+        group = FakeRow(text='مجموعة الصف الأول')
+        target = FakeRow(text='+966 50 123 4567')
+        calls = []
+
+        def rows_script(script, *args):
+            calls.append(args)
+            return [[group, group.text], [target, target.text]]
+
+        self.tool.driver.execute_script = rows_script
+        self.tool.driver.find_elements = lambda by, value: self.fail('rows must not be read one by one')
+        self.assertIs(self.tool._matching_row_in_page('966501234567'), target)
+        self.assertEqual(len(calls), 1)
+
+    def test_falls_back_to_reading_rows_when_the_page_refuses_the_script(self):
+        late_row = FakeRow(text='+966 50 123 4567')
+
+        def refuse(script, *args):
+            raise wpt.WebDriverException('script blocked')
+
+        self.tool.driver.execute_script = refuse
+        self.tool.driver.find_elements = lambda by, value: [late_row]
+        self.assertIs(self.tool._matching_row_in_page('966501234567'), late_row)
 
 
 class InvalidPopupSelectorTest(unittest.TestCase):

@@ -28,6 +28,7 @@ import threading
 import time
 import random
 import logging
+import unicodedata
 from datetime import datetime
 
 import sqlite_db
@@ -233,6 +234,13 @@ _SELECTORS = {
         '//div[@role="button"][@aria-label="Send"]',
         '//div[@role="button"][@aria-label="إرسال"]',
     ],
+    # Caption box inside the attachment preview — the file's own text field, not the chat composer
+    "caption_box": [
+        '//div[@contenteditable="true"][contains(@aria-label, "caption")]',
+        '//div[@contenteditable="true"][contains(@aria-label, "Caption")]',
+        '//div[@contenteditable="true"][contains(@aria-label, "شرح")]',
+        '//div[@contenteditable="true"][contains(@aria-label, "تعليق")]',
+    ],
     # Side panel (login check — present when authenticated)
     "side_panel": [
         '//div[@id="side"]',
@@ -259,21 +267,88 @@ _SELECTORS = {
 # Composer text is read back after typing to prove the message really landed in the editor.
 _COMPOSER_TEXT_JS = "return (arguments[0].innerText || arguments[0].textContent || '').trim();"
 
+# The newest outgoing bubble in the open chat. Its message id tells a new bubble from an older one
+# carrying the same text; its visible text tells our message from anything else.
+_LAST_OUTGOING_JS = """
+const root = document.querySelector('#main') || document;
+const bubbles = root.querySelectorAll('.message-out');
+if (!bubbles.length) return null;
+const last = bubbles[bubbles.length - 1];
+const holder = last.closest('[data-id]');
+return {id: holder ? (holder.getAttribute('data-id') || '') : '', text: last.innerText || ''};
+"""
+
+# Every candidate search-result row with the text a phone number can show up in, fetched in one
+# round trip: reading text, title and aria-label over WebDriver cost three calls per row, every poll.
+_SEARCH_ROWS_JS = """
+const seen = new Set();
+const rows = [];
+for (const xpath of arguments[0]) {
+  const found = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+  for (let i = 0; i < found.snapshotLength; i++) {
+    const el = found.snapshotItem(i);
+    if (seen.has(el)) continue;
+    seen.add(el);
+    rows.push([el, [el.innerText || '', el.getAttribute('title') || '', el.getAttribute('aria-label') || ''].join(' ')]);
+  }
+}
+return rows;
+"""
+
+# What pressing send proved. Only SEND_NOT_SENT may be retried: once send was pressed the message
+# may already be on the guardian's phone, so anything unproven is left for the operator to review.
+SEND_SENT = 'sent'
+SEND_NOT_SENT = 'not_sent'
+SEND_UNCONFIRMED = 'unconfirmed'
+# The attachment went out on its own (no caption box), so the text still has to follow it.
+ATTACH_WITHOUT_CAPTION = 'sent_without_caption'
+# WhatsApp caps captions; a longer message follows the file as its own text.
+CAPTION_LIMIT = 1024
+
+# Row outcomes that never touched WhatsApp, so they do not consume a pacing gap.
+_UNTOUCHED_OUTCOMES = frozenset({'skipped'})
+
+
+def _has_non_bmp(text: str) -> bool:
+    """True for characters ChromeDriver cannot type — most emoji live outside the BMP."""
+    return any(ord(ch) > 0xFFFF for ch in (text or ''))
+
 
 def _find_first(driver, selectors: list, timeout: float = 0):
-    """Try each XPath/CSS selector and return the first matching element, or None."""
-    for xpath in selectors:
-        try:
-            if timeout > 0:
-                wait = WebDriverWait(driver, timeout)
-                return wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
-            else:
+    """
+    Return the first element matching ``selectors``, honouring their order of preference.
+
+    With a timeout, one wait covers every selector at once. Waiting on each selector in turn made a
+    selector that WhatsApp no longer renders cost its whole timeout before the next was even tried —
+    dead time paid again on every message. The winner is still picked in priority order, because
+    several selectors can match different editors (the chat search box is contenteditable too).
+    """
+    selectors = list(selectors)
+    if not selectors:
+        return None
+    union = " | ".join(selectors)
+    deadline = time.time() + max(0.0, float(timeout))
+    while True:
+        for xpath in selectors:
+            try:
                 elements = driver.find_elements(By.XPATH, xpath)
-                if elements:
-                    return elements[0]
-        except (TimeoutException, NoSuchElementException):
-            continue
-    return None
+            except NoSuchWindowException:
+                raise
+            except WebDriverException:
+                continue
+            if elements:
+                return elements[0]
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            return None
+        try:
+            WebDriverWait(driver, remaining, poll_frequency=0.25).until(
+                lambda d: d.find_elements(By.XPATH, union)
+            )
+        except NoSuchWindowException:
+            raise
+        except WebDriverException:
+            return None
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -295,7 +370,8 @@ class WhatsAppProTool:
     • _compose_message – tries human typing, then direct keys, then insertText,
                          reading the editor back after each until the text is really there
     • _press_send      – send button first, ENTER as fallback, confirmed by the
-                         composer emptying; otherwise the row is marked failed
+                         composer emptying AND the new outgoing bubble; a press
+                         that cannot be proven leaves the row "unconfirmed"
 
     Human-simulation highlights
     ───────────────────────────
@@ -328,8 +404,13 @@ class WhatsAppProTool:
         self.last_activity_time = time.time()
         # Refresh every 15–25 messages to prevent memory leaks
         self.refresh_threshold = random.randint(15, 25)
-        self.stats = {"sent": 0, "failed": 0, "skipped": 0, "total": 0, "start_time": None}
-        self.progress = {"current": 0, "total": 0, "sent": 0, "failed": 0, "skipped": 0,
+        # Pacing outlives a mission, so stopping and restarting cannot skip a gap or a long break.
+        self._next_send_at = None          # earliest time the next message may reach WhatsApp
+        self._batch_sent = 0               # messages since the last long break
+        self._batches_done = 0
+        self._break_due = False
+        self.stats = {"sent": 0, "failed": 0, "skipped": 0, "unconfirmed": 0, "total": 0, "start_time": None}
+        self.progress = {"current": 0, "total": 0, "sent": 0, "failed": 0, "skipped": 0, "unconfirmed": 0,
                          "last_phone": "", "last_name": ""}
 
     # ── Lifecycle controls ─────────────────────────────────────────
@@ -410,6 +491,8 @@ class WhatsAppProTool:
             remaining = deadline - time.time()
             if remaining <= 0:
                 return True
+            # A deliberate wait is not a frozen browser: keep the watchdog from restarting mid-break.
+            self.last_activity_time = time.time()
             time.sleep(min(self.SLEEP_TICK, remaining))
 
     def _wait_if_paused(self) -> bool:
@@ -879,11 +962,12 @@ class WhatsAppProTool:
         self.running = True
         self.paused = False
         self._pause_event.clear()
-        self.stats = {"sent": 0, "failed": 0, "skipped": 0, "total": 0, "start_time": datetime.now().isoformat()}
-        self.progress = {"current": 0, "total": 0, "sent": 0, "failed": 0, "skipped": 0,
+        self.stats = {"sent": 0, "failed": 0, "skipped": 0, "unconfirmed": 0, "total": 0,
+                      "start_time": datetime.now().isoformat()}
+        self.progress = {"current": 0, "total": 0, "sent": 0, "failed": 0, "skipped": 0, "unconfirmed": 0,
                          "last_phone": "", "last_name": ""}
         self.last_activity_time = time.time()
-        result = {"sent": 0, "failed": 0, "skipped": 0, "stopped": False, "session_lost": False}
+        result = {"sent": 0, "failed": 0, "skipped": 0, "unconfirmed": 0, "stopped": False, "session_lost": False}
 
         # Rows stuck in "sending" from a previous crash are re-queued.
         try:
@@ -930,12 +1014,17 @@ class WhatsAppProTool:
                 self.progress["total"] = self.progress["current"] + len(pending)
                 logging.info(f"📨 {len(pending)} messages pending in queue.")
 
-                for i, row in enumerate(pending):
+                for row in pending:
                     if not self.sending:
                         break
                     if not self._wait_if_paused():
                         break
                     self._service_focus_request()
+
+                    # Every message waits out its gap — including the first of the rows queued while
+                    # earlier ones were going out, which used to be sent with no wait at all.
+                    if not self._wait_for_send_slot():
+                        break
 
                     # Periodic browser refresh
                     if self.message_count > 0 and self.message_count % self.refresh_threshold == 0:
@@ -966,7 +1055,10 @@ class WhatsAppProTool:
                     self.progress["sent"] = self.stats["sent"]
                     self.progress["failed"] = self.stats["failed"]
                     self.progress["skipped"] = self.stats["skipped"]
+                    self.progress["unconfirmed"] = self.stats["unconfirmed"]
                     self._emit_progress()
+                    if outcome not in _UNTOUCHED_OUTCOMES:
+                        self._schedule_next_send(batch_size, min_delay, max_delay, long_break)
 
                     if outcome == 'session_lost':
                         result["session_lost"] = True
@@ -981,23 +1073,6 @@ class WhatsAppProTool:
                         if not self._sleep(random.uniform(30, 90)):
                             break
 
-                    # Batch break vs normal inter-message delay
-                    is_last = (i + 1) >= len(pending)
-                    if (i + 1) % batch_size == 0 and not is_last:
-                        jitter     = random.uniform(0.8, 1.2)
-                        sleep_time = long_break * jitter
-                        logging.info(
-                            f"☕ Batch #{(i + 1) // batch_size} done — human-like break: {int(sleep_time)}s"
-                        )
-                        self._idle_browsing()
-                        if not self._sleep(sleep_time):
-                            break
-                    elif not is_last:
-                        sleep_time = random.uniform(min_delay, max_delay)
-                        logging.info(f"   ⏱  Next message in {int(sleep_time)}s…")
-                        if not self._sleep(sleep_time):
-                            break
-
             if not self.sending and not result["session_lost"]:
                 result["stopped"] = True
 
@@ -1005,6 +1080,42 @@ class WhatsAppProTool:
             logging.error(f"💥 Critical mission error: {exc}", exc_info=True)
             result["error"] = str(exc)
         return self._finish_mission(result)
+
+    def _schedule_next_send(self, batch_size: int, min_delay: float, max_delay: float, long_break: float) -> None:
+        """
+        Record that a message reached WhatsApp and set how long the next one must wait.
+
+        The batch counter runs across queue reads and missions: counting inside each read let rows
+        that trickle in a few at a time go out for hours without ever reaching a long break.
+        """
+        self._batch_sent += 1
+        if self._batch_sent >= max(1, int(batch_size)):
+            self._batch_sent = 0
+            self._batches_done += 1
+            self._break_due = True
+            gap = float(long_break) * random.uniform(0.8, 1.2)
+        else:
+            self._break_due = False
+            gap = random.uniform(float(min_delay), float(max_delay))
+        self._next_send_at = time.time() + gap
+
+    def _wait_for_send_slot(self) -> bool:
+        """Hold the next message until its gap has passed. False when sending stopped meanwhile."""
+        if self._next_send_at is None:
+            return self.sending
+        remaining = self._next_send_at - time.time()
+        if remaining <= 0:
+            # The queue sat empty for longer than the gap: there is nothing left to wait for.
+            self._break_due = False
+            return self.sending
+        if self._break_due:
+            self._break_due = False
+            logging.info(f"☕ Batch #{self._batches_done} done — human-like break: {int(remaining)}s")
+            self._idle_browsing()
+            remaining = self._next_send_at - time.time()
+        else:
+            logging.info(f"   ⏱  Next message in {int(remaining)}s…")
+        return self._sleep(remaining) if remaining > 0 else self.sending
 
     def _finish_mission(self, result: dict) -> dict:
         was_stopped_by_user = not self.sending
@@ -1016,12 +1127,13 @@ class WhatsAppProTool:
             "sent": self.stats["sent"],
             "failed": self.stats["failed"],
             "skipped": self.stats["skipped"],
+            "unconfirmed": self.stats["unconfirmed"],
         })
         if "stopped" not in result:
             result["stopped"] = was_stopped_by_user
         logging.info(
             f"🏁 Mission finished — sent={result['sent']} failed={result['failed']} "
-            f"skipped={result['skipped']} stopped={result['stopped']}"
+            f"skipped={result['skipped']} unconfirmed={result['unconfirmed']} stopped={result['stopped']}"
         )
         return result
 
@@ -1034,10 +1146,23 @@ class WhatsAppProTool:
     # ── Single message ─────────────────────────────────────────────
 
     def _send_single_message(self, row, current: int, total: int) -> str:
+        """
+        Deliver one queue row and record what really happened to it.
+
+        'sent'           delivered
+        'failed'         never reached the send button — safe to retry
+        'unconfirmed'    send was pressed but delivery could not be proven; left for the operator,
+                         because a retry could reach the guardian twice
+        'invalid_phone'  WhatsApp refused the number
+        'skipped'        nothing was sent to WhatsApp at all, so it costs no pacing gap
+        'session_lost'   the WhatsApp window went away
+        """
+        msg_id = row.get('id', f'msg_{current}')
+        phone = str(row.get('phone', '?'))
+        pressed = False            # from here on the message may already be on its way
         try:
             phone   = self._normalize_phone(row['phone'])
             message = str(row.get('message', '')).strip()
-            msg_id  = row.get('id', f'msg_{current}')
 
             if not message:
                 self._update_status(msg_id, 'skipped')
@@ -1048,7 +1173,20 @@ class WhatsAppProTool:
                 logging.warning(f"[{current}/{total}] ⚠️  Invalid phone: {phone}")
                 self._update_status(msg_id, 'invalid_phone')
                 self.stats["skipped"] += 1
-                return 'invalid_phone'
+                return 'skipped'
+
+            attachment = str(row.get('attachment') or '').strip()
+            if attachment == 'None':
+                attachment = ''
+            if attachment and not (os.path.exists(attachment) and is_safe_path(attachment)):
+                # The message announces a file that is gone (uploads are cleaned after a day):
+                # sending the text alone would promise a card the guardian never receives.
+                logging.error(
+                    f"[{current}/{total}] ⚠️  Attachment missing or outside the upload folders — skipping: {attachment}"
+                )
+                self._update_status(msg_id, 'skipped')
+                self.stats["skipped"] += 1
+                return 'skipped'
 
             logging.info(f"[{current}/{total}] Processing: {phone}")
             self._update_status(msg_id, 'sending')
@@ -1061,9 +1199,7 @@ class WhatsAppProTool:
             if not self._open_chat(phone):
                 logging.warning(f"  ⚠️  Could not open a chat with {phone}")
                 self._dismiss_dialog()
-                self._update_status(msg_id, 'failed')
-                self.stats["failed"] += 1
-                return 'failed'
+                return self._mark_failed(msg_id)
 
             # WhatsApp raises this dialog for a number it cannot reach. The send link also
             # raises it spuriously while the app is still booting, so it is dismissed and the
@@ -1083,92 +1219,202 @@ class WhatsAppProTool:
             time.sleep(random.uniform(2, 5))
             self._simulate_human_activity()
 
-            # Send attachment first (if any)
-            attachment = row.get('attachment')
-            if attachment and str(attachment).strip() and str(attachment).strip() != 'None':
-                self._send_attachment(str(attachment).strip())
-                time.sleep(random.uniform(2, 4))
-
-            # Find input box
             input_box = _find_first(self.driver, _SELECTORS["input_box"], timeout=10)
             if input_box is None:
                 logging.warning(f"  ⚠️  Could not find input box for {phone}")
-                self._update_status(msg_id, 'failed')
-                self.stats["failed"] += 1
-                return 'failed'
+                return self._mark_failed(msg_id)
+            # WhatsApp keeps an unsent draft for every chat; typing after one would send both texts.
+            self._discard_draft(input_box)
+
+            file_went_alone = False
+            if attachment:
+                file_outcome = self._send_attachment(attachment, caption=message, msg_id=msg_id)
+                if file_outcome == SEND_NOT_SENT:
+                    return self._mark_failed(msg_id)
+                pressed = True
+                if file_outcome == SEND_SENT:
+                    return self._mark_sent(msg_id, phone)
+                if file_outcome == SEND_UNCONFIRMED:
+                    return self._mark_unconfirmed(msg_id, phone)
+                # The file went out without a caption, so the text follows as its own message.
+                file_went_alone = True
+                time.sleep(random.uniform(2, 4))
+                input_box = _find_first(self.driver, _SELECTORS["input_box"], timeout=10)
+                if input_box is None:
+                    logging.warning(f"  ⚠️  Could not find input box for {phone} after the attachment")
+                    return self._mark_unconfirmed(msg_id, phone)
 
             logging.info("  → Typing message…")
             if not self._compose_message(input_box, message):
                 logging.error(f"  ❌ Message never reached the composer for {phone} — not sending.")
-                self._update_status(msg_id, 'failed')
-                self.stats["failed"] += 1
-                return 'failed'
+                self._discard_draft(input_box)
+                return self._mark_unconfirmed(msg_id, phone) if file_went_alone else self._mark_failed(msg_id)
 
             self._reading_pause()          # look at the typed text before sending
 
-            if not self._press_send(input_box):
+            self._update_status(msg_id, 'confirming')
+            pressed = True
+            verdict = self._press_send(input_box, message)
+            if verdict == SEND_SENT:
+                return self._mark_sent(msg_id, phone)
+            if verdict == SEND_NOT_SENT and not file_went_alone:
                 logging.error(f"  ❌ Message stayed in the composer for {phone} — send failed.")
-                self._update_status(msg_id, 'failed')
-                self.stats["failed"] += 1
-                return 'failed'
-
-            logging.info(f"  ✅ Sent → {phone}")
-            self._update_status(msg_id, 'sent')
-            self.stats["sent"] += 1
-            return 'sent'
+                outcome = self._mark_failed(msg_id)
+                self._discard_draft(input_box)
+                return outcome
+            return self._mark_unconfirmed(msg_id, phone)
 
         except NoSuchWindowException:
             logging.error("  ❌ WhatsApp window was closed — session lost.")
-            self._update_status(row.get('id', ''), 'pending')
+            if pressed:
+                self._mark_unconfirmed(msg_id, phone)
+            else:
+                self._update_status(msg_id, 'pending')
             return 'session_lost'
         except StaleElementReferenceException:
-            logging.warning(f"  ⚠️  Stale element for {row.get('phone', '?')} — retrying skipped")
-            self._update_status(row.get('id', ''), 'failed')
-            self.stats["failed"] += 1
-            return 'failed'
+            logging.warning(f"  ⚠️  Stale element for {phone}")
+            return self._mark_unconfirmed(msg_id, phone) if pressed else self._mark_failed(msg_id)
         except Exception as exc:
-            logging.error(f"  ❌ Send failed for {row.get('phone', '?')}: {exc}")
-            self._update_status(row.get('id', ''), 'failed')
-            self.stats["failed"] += 1
-            return 'failed'
+            logging.error(f"  ❌ Send failed for {phone}: {exc}")
+            return self._mark_unconfirmed(msg_id, phone) if pressed else self._mark_failed(msg_id)
+
+    def _mark_sent(self, msg_id: str, phone: str) -> str:
+        logging.info(f"  ✅ Sent → {phone}")
+        self._update_status(msg_id, 'sent')
+        self.stats["sent"] += 1
+        return 'sent'
+
+    def _mark_failed(self, msg_id: str) -> str:
+        """Nothing reached the send button, so the row may be retried."""
+        self._update_status(msg_id, 'failed')
+        self.stats["failed"] += 1
+        return 'failed'
+
+    def _mark_unconfirmed(self, msg_id: str, phone: str) -> str:
+        """Send was pressed without proof of delivery: a retry could reach the guardian twice."""
+        logging.warning(f"  ❓ Delivery to {phone} could not be confirmed — marked for review, it will not be resent.")
+        self._update_status(msg_id, 'unconfirmed')
+        self.stats["unconfirmed"] += 1
+        return 'unconfirmed'
+
+    def _discard_draft(self, input_box) -> None:
+        """Empty a composer that already holds text — WhatsApp keeps an unsent draft for every chat."""
+        if input_box is not None and self._normalize_for_compare(self._composer_text(input_box)):
+            logging.info("  🧹 Clearing a leftover draft in this chat.")
+            self._clear_composer(input_box)
+
+    def _press_escape(self) -> None:
+        try:
+            ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+        except WebDriverException:
+            pass
 
     # ── Attachment ─────────────────────────────────────────────────
 
-    def _send_attachment(self, file_path: str):
-        if not os.path.exists(file_path) or not is_safe_path(file_path):
-            logging.error(f"Invalid/unsafe attachment path: {file_path}")
-            return
+    def _send_attachment(self, file_path: str, caption: str = '', msg_id: str = None) -> str:
+        """
+        Send a file, carrying the message as its caption when the preview offers a caption box.
+
+        Returns SEND_SENT (file and caption left as one message), ATTACH_WITHOUT_CAPTION (the file
+        went alone, so the text must follow), SEND_NOT_SENT (nothing left — safe to retry) or
+        SEND_UNCONFIRMED (send was pressed but nothing proves the file left).
+
+        Every failure used to be swallowed here, so a barcode card that never went out still had its
+        row marked sent once the text behind it was delivered.
+        """
+        previous_bubble = self._last_outgoing()
+        clicked = False
         try:
             attach_btn = _find_first(self.driver, _SELECTORS["attach_btn"], timeout=10)
             if attach_btn is None:
                 logging.warning("  ⚠️  Attach button not found")
-                return
+                return SEND_NOT_SENT
             attach_btn.click()
             time.sleep(random.uniform(0.8, 1.5))
 
             file_input = _find_first(self.driver, _SELECTORS["file_input"], timeout=5)
             if file_input is None:
                 logging.warning("  ⚠️  File input not found")
-                ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
-                return
-
+                self._press_escape()
+                return SEND_NOT_SENT
             file_input.send_keys(os.path.abspath(file_path))
 
-            send_btn = _find_first(self.driver, _SELECTORS["send_btn"], timeout=10)
-            if send_btn:
-                time.sleep(random.uniform(1.0, 2.0))
-                send_btn.click()
-                logging.info(f"  📎 Attachment queued: {os.path.basename(file_path)}")
-            else:
+            if _find_first(self.driver, _SELECTORS["send_btn"], timeout=10) is None:
                 logging.warning("  ⚠️  Send button not found after attach")
-                ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+                self._press_escape()
+                return SEND_NOT_SENT
 
+            with_caption = self._write_caption(caption)
+            time.sleep(random.uniform(1.0, 2.0))
+
+            # Looked up again: typing the caption can re-render the preview's send button.
+            send_btn = _find_first(self.driver, _SELECTORS["send_btn"], timeout=5)
+            if send_btn is None:
+                logging.warning("  ⚠️  Send button vanished from the attachment preview")
+                self._press_escape()
+                return SEND_NOT_SENT
+            if msg_id:
+                self._update_status(msg_id, 'confirming')
+            clicked = True
+            try:
+                send_btn.click()
+            except WebDriverException:
+                self.driver.execute_script("arguments[0].click();", send_btn)
+
+            # The preview closes the moment WhatsApp takes the file, and its send button leaves the page.
+            if not self._await_gone(send_btn, timeout=20):
+                logging.warning("  ⚠️  The attachment preview is still open — the file was not sent.")
+                self._press_escape()
+                return SEND_NOT_SENT
+
+            verdict = self._confirm_outgoing(previous_bubble, caption if with_caption else '')
+            if verdict == SEND_UNCONFIRMED:
+                return SEND_UNCONFIRMED
+            if verdict is None:
+                logging.warning("  ⚠️  No outgoing bubble could be read in this WhatsApp version — trusting the closed preview.")
+            name = os.path.basename(file_path)
+            if with_caption:
+                logging.info(f"  📎 Attachment sent with the message as its caption: {name}")
+                return SEND_SENT
+            logging.info(f"  📎 Attachment sent: {name}")
+            return ATTACH_WITHOUT_CAPTION
+
+        except NoSuchWindowException:
+            raise
         except Exception as exc:
             logging.error(f"  ⚠️  Attachment error: {exc}")
+            if clicked:
+                return SEND_UNCONFIRMED
+            self._press_escape()
+            return SEND_NOT_SENT
+
+    def _write_caption(self, caption: str) -> bool:
+        """Type the message into the preview's caption box. False means the text must follow on its own."""
+        caption = (caption or '').strip()
+        if not caption or len(caption) > CAPTION_LIMIT:
+            return False
+        box = _find_first(self.driver, _SELECTORS["caption_box"], timeout=4)
+        if box is None:
+            logging.info("  ℹ️  No caption box in the attachment preview — the text will follow as its own message.")
+            return False
+        if self._compose_message(box, caption):
+            return True
+        logging.warning("  ⚠️  The caption did not land — the text will follow as its own message.")
+        self._clear_composer(box)
+        return False
+
+    def _await_gone(self, element, timeout: float) -> bool:
+        """True once ``element`` has left the page or been hidden — how a closed preview shows."""
+        deadline = time.time() + timeout
+        while True:
             try:
-                ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
-            except Exception:
-                pass
+                if not element.is_displayed():
+                    return True
+            except StaleElementReferenceException:
+                return True
+            if time.time() >= deadline:
+                return False
+            time.sleep(0.4)
 
     # ── Composing & sending ────────────────────────────────────────
 
@@ -1177,12 +1423,14 @@ class WhatsAppProTool:
         """Collapse whitespace so composer text can be compared with the intended message."""
         return re.sub(r'\s+', ' ', (value or '')).strip()
 
-    def _composer_text(self, element) -> str:
-        """Read back what the editor currently holds."""
+    def _composer_text(self, element):
+        """Read back what the editor holds, or None when it cannot be read (e.g. WhatsApp re-rendered it)."""
         try:
             return str(self.driver.execute_script(_COMPOSER_TEXT_JS, element) or '')
+        except NoSuchWindowException:
+            raise
         except WebDriverException:
-            return ''
+            return None
 
     def _clear_composer(self, element) -> None:
         _mod_key = Keys.COMMAND if PLATFORM == 'Darwin' else Keys.CONTROL
@@ -1210,6 +1458,10 @@ class WhatsAppProTool:
             ('direct keys', self._type_direct),
             ('insertText command', self._insert_text_via_command),
         )
+        if _has_non_bmp(message):
+            # ChromeDriver cannot type characters outside the BMP (most emoji): both key strategies
+            # died halfway, leaving half a message to clear before insertText finally worked.
+            strategies = strategies[-1:]
 
         for label, strategy in strategies:
             try:
@@ -1304,15 +1556,21 @@ class WhatsAppProTool:
         )
         time.sleep(random.uniform(0.3, 0.7))
 
-    def _press_send(self, input_box) -> bool:
+    def _press_send(self, input_box, message: str = None) -> str:
         """
-        Send the composed message and confirm it actually left the composer.
-        Prefers the send button, falls back to ENTER.
+        Press send and report what can be proven: SEND_SENT, SEND_NOT_SENT or SEND_UNCONFIRMED.
+
+        An emptied composer is not proof on its own: an editor that could not be read back — WhatsApp
+        re-renders it — used to count as emptied, and the row was marked sent. The newest outgoing
+        bubble must carry the message as well. Only when this WhatsApp build shows no readable
+        bubbles at all is an emptied composer trusted, as before.
         """
-        before = self._normalize_for_compare(self._composer_text(input_box))
-        if not before:
+        before = self._composer_text(input_box)
+        if not self._normalize_for_compare(before):
             logging.warning("  ⚠️  Nothing to send — composer is empty.")
-            return False
+            return SEND_NOT_SENT
+        expected = before if message is None else message
+        previous_bubble = self._last_outgoing()
 
         send_btn = _find_first(self.driver, _SELECTORS["send_btn"], timeout=3)
         if send_btn is not None:
@@ -1328,23 +1586,92 @@ class WhatsAppProTool:
                 input_box.send_keys(Keys.ENTER)
             except WebDriverException as exc:
                 logging.warning(f"  ⚠️  ENTER failed: {exc}")
-                return False
+                return SEND_NOT_SENT
 
-        # The composer empties once WhatsApp accepts the message.
-        deadline = time.time() + 12
-        while time.time() < deadline:
+        state, input_box = self._await_empty_composer(input_box, timeout=12)
+        if state == 'holds':
+            # One last attempt with ENTER in case the button click was swallowed.
+            try:
+                input_box.send_keys(Keys.ENTER)
+            except WebDriverException:
+                return SEND_NOT_SENT
+            state, input_box = self._await_empty_composer(input_box, timeout=3)
+        if state == 'holds':
+            return SEND_NOT_SENT
+
+        time.sleep(random.uniform(0.6, 1.4))   # let the bubble render
+        verdict = self._confirm_outgoing(previous_bubble, expected)
+        if verdict == SEND_SENT:
+            return SEND_SENT
+        if verdict is None and state == 'empty':
+            logging.warning("  ⚠️  No outgoing bubble could be read in this WhatsApp version — trusting the emptied composer.")
+            return SEND_SENT
+        return SEND_UNCONFIRMED
+
+    def _await_empty_composer(self, input_box, timeout: float):
+        """
+        Watch the composer after pressing send. Returns (state, element): 'empty', 'holds' (the text
+        is still there) or 'unreadable' (the editor could not be read back, even after a fresh lookup).
+        """
+        deadline = time.time() + timeout
+        while True:
             time.sleep(0.4)
-            if not self._normalize_for_compare(self._composer_text(input_box)):
-                time.sleep(random.uniform(0.6, 1.4))   # let the bubble render
-                return True
+            text = self._composer_text(input_box)
+            if text is None:
+                fresh = _find_first(self.driver, _SELECTORS["input_box"])
+                if fresh is not None:
+                    input_box = fresh
+                    text = self._composer_text(fresh)
+            if text is not None and not self._normalize_for_compare(text):
+                return 'empty', input_box
+            if time.time() >= deadline:
+                return ('unreadable' if text is None else 'holds'), input_box
 
-        # One last attempt with ENTER in case the button click was swallowed.
+    def _last_outgoing(self):
+        """The newest outgoing bubble in the open chat as {'id', 'text'}, or None when none can be read."""
         try:
-            input_box.send_keys(Keys.ENTER)
-            time.sleep(1.5)
-            return not self._normalize_for_compare(self._composer_text(input_box))
+            bubble = self.driver.execute_script(_LAST_OUTGOING_JS)
+        except NoSuchWindowException:
+            raise
         except WebDriverException:
-            return False
+            return None
+        return bubble if isinstance(bubble, dict) else None
+
+    def _confirm_outgoing(self, previous, message: str, timeout: float = 8.0, grace: float = 3.0):
+        """
+        Wait for the bubble of the message just sent.
+
+        Returns SEND_SENT once a new outgoing bubble carries the text, SEND_UNCONFIRMED when bubbles
+        are readable but none is ours, and None when this WhatsApp build shows no readable bubbles at
+        all (given up after ``grace`` seconds). A bubble still showing the clock counts as sent:
+        WhatsApp holds the message and delivers it on its own.
+        """
+        key = self._bubble_key(message)[:120]
+        previous_id = (previous or {}).get('id') or ''
+        bubbles_seen = previous is not None
+        started = time.time()
+        while True:
+            bubble = self._last_outgoing()
+            if bubble is not None:
+                bubbles_seen = True
+                is_new = not previous_id or bubble.get('id') != previous_id
+                if is_new and (not key or key in self._bubble_key(bubble.get('text'))):
+                    return SEND_SENT
+            elapsed = time.time() - started
+            if not bubbles_seen and elapsed >= grace:
+                return None
+            if elapsed >= timeout:
+                return SEND_UNCONFIRMED
+            time.sleep(0.5)
+
+    @classmethod
+    def _bubble_key(cls, value) -> str:
+        """
+        Letters and digits only, so a bubble can be compared with the message behind it: a bubble's
+        visible text drops emoji (drawn as images) and *bold* markers, and gains the send time.
+        """
+        text = str(value or '').translate(cls._DIGIT_TRANSLATION)
+        return ''.join(ch for ch in text if unicodedata.category(ch)[0] in 'LN')
 
     # ── Human simulation ───────────────────────────────────────────
 
@@ -1398,18 +1725,38 @@ class WhatsAppProTool:
         """
         deadline = time.time() + timeout
         while True:
-            rows = []
-            for xpath in self._SEARCH_ROW_XPATHS:
-                try:
-                    rows.extend(self.driver.find_elements(By.XPATH, xpath))
-                except WebDriverException:
-                    continue
-            match = next((row for row in rows if self._row_matches_phone(row, phone)), None)
+            match = self._matching_row_in_page(phone)
             if match is not None:
                 return match
             if time.time() >= deadline:
                 return None
             time.sleep(0.6)
+
+    def _matching_row_in_page(self, phone: str):
+        """One look at the search results for a row that belongs to ``phone``."""
+        target = phone[-9:]
+        if not target:
+            return None
+        try:
+            rows = self.driver.execute_script(_SEARCH_ROWS_JS, list(self._SEARCH_ROW_XPATHS))
+        except NoSuchWindowException:
+            raise
+        except WebDriverException:
+            rows = None
+        if isinstance(rows, list):
+            for entry in rows:
+                if isinstance(entry, (list, tuple)) and len(entry) == 2 and target in self._digits(entry[1]):
+                    return entry[0]
+            return None
+
+        # The page refused the script: read each row over WebDriver instead.
+        elements = []
+        for xpath in self._SEARCH_ROW_XPATHS:
+            try:
+                elements.extend(self.driver.find_elements(By.XPATH, xpath))
+            except WebDriverException:
+                continue
+        return next((row for row in elements if self._row_matches_phone(row, phone)), None)
 
     def _invalid_dialog(self):
         """Return WhatsApp's "this number is not on WhatsApp" dialog if it is on screen."""
@@ -1703,21 +2050,16 @@ class WhatsAppProTool:
 
     # ── Queue helpers ──────────────────────────────────────────────
 
-    def _read_queue(self):
+    def _pending_rows(self):
+        """Rows to send now: fresh ones first, then failed rows that still have their one retry."""
         try:
             if self.file_lock:
                 with self.file_lock:
-                    return sqlite_db.get_queue()
-            return sqlite_db.get_queue()
+                    return sqlite_db.get_pending_with_retry()
+            return sqlite_db.get_pending_with_retry()
         except Exception as exc:
             logging.error(f"Queue read error: {exc}")
             return []
-
-    def _pending_rows(self):
-        return [
-            row for row in self._read_queue()
-            if (row.get('status') or '') in ('', 'pending', 'sending')
-        ]
 
     def _reset_stuck_rows(self):
         if self.file_lock:

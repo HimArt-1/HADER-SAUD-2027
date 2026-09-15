@@ -708,7 +708,7 @@ def get_stats():
         return jsonify(stats)
     except Exception as e:
         logging.error(f"خطأ في استرجاع الإحصائيات: {e}")
-        return jsonify({"total": 0, "sent": 0, "failed": 0, "pending": 0, "skipped": 0})
+        return jsonify({"total": 0, "sent": 0, "failed": 0, "pending": 0, "skipped": 0, "unconfirmed": 0})
 
 @api_bp.route('/delete/<id>', methods=['DELETE'])
 @api_bp.route('/queue/<id>', methods=['DELETE'])
@@ -800,22 +800,33 @@ def send_list():
             formatted_data.append(formatted_item)
 
         # Logic for Append vs Overwrite
+        # Rows whose id is already queued are ignored, so an automatic notice raised twice — two open
+        # dashboards, a reload — reaches the guardian once.
         with file_lock:
             if append_mode:
-                persisted = sqlite_db.append_to_queue(formatted_data)
+                saved = sqlite_db.append_to_queue(formatted_data)
             else:
-                persisted = sqlite_db.overwrite_queue(formatted_data)
-        if not persisted:
+                saved = len(formatted_data) if sqlite_db.overwrite_queue(formatted_data) else None
+        if saved is None:
             return jsonify({"message": "تعذر حفظ الرسائل في قائمة الانتظار"}), 500
+        duplicates = len(formatted_data) - saved
                 
-        logging.info(f"تم تحديث قائمة الإرسال: {len(formatted_data)} جهة اتصال (Append={append_mode}).")
-        _broadcast_queue_change('send', len(formatted_data))
+        logging.info(
+            f"تم تحديث قائمة الإرسال: {saved} جهة اتصال (Append={append_mode})."
+            + (f" تم تجاهل {duplicates} رسالة مكررة." if duplicates else "")
+        )
+        _broadcast_queue_change('send', saved)
         hint = ''
         if engine.state == 'ready':
             hint = ' اضغط "إبدأ الإرسال" لبدء الإرسال.'
         elif not engine.alive:
             hint = ' شغّل المحرك ثم اضغط "إبدأ الإرسال".'
-        return jsonify({"message": f"تم حفظ {len(formatted_data)} رسالة في قائمة الانتظار بنجاح.{hint}"})
+        note = f" (تم تجاهل {duplicates} رسالة مكررة)" if duplicates else ''
+        return jsonify({
+            "message": f"تم حفظ {saved} رسالة في قائمة الانتظار بنجاح.{note}{hint}",
+            "saved": saved,
+            "duplicates": duplicates,
+        })
 
     except Exception as e:
         logging.error(f"خطأ في حفظ القائمة: {e}")

@@ -146,7 +146,7 @@ class EngineController:
 
     @staticmethod
     def _empty_progress() -> Dict[str, Any]:
-        return {'current': 0, 'total': 0, 'sent': 0, 'failed': 0, 'skipped': 0,
+        return {'current': 0, 'total': 0, 'sent': 0, 'failed': 0, 'skipped': 0, 'unconfirmed': 0,
                 'last_phone': '', 'last_name': ''}
 
     @property
@@ -353,8 +353,16 @@ class EngineController:
         if thread:
             thread.join(timeout)
 
-    def watchdog_check(self, max_idle_seconds: float = 300) -> bool:
-        """Restart the engine when a mission has frozen. Returns True when a restart was triggered."""
+    def watchdog_check(self, max_idle_seconds: float = 300, restart_timeout: float = 150) -> bool:
+        """
+        Restart the engine when a mission has frozen. Returns True when a restart was attempted.
+
+        A frozen mission is usually a Selenium call that never returns, and Selenium only gives up on
+        it after about two minutes; until then the engine thread cannot finish. The browser is closed
+        from here, which makes that call fail at once, and the wait outlasts Selenium's own timeout.
+        The old 30-second wait ran out first, the restart was refused because the thread was still
+        alive, and the engine sat in "error" with no browser and no word about it.
+        """
         with self._lock:
             bot = self._bot
             if self.state != 'sending' or bot is None:
@@ -365,8 +373,16 @@ class EngineController:
         logging.error(f"🚨 Watchdog: browser frozen for {int(self._clock() - last)}s - restarting engine")
         self._set('error', 'المتصفح لا يستجيب - جاري إعادة التشغيل تلقائياً...', error='watchdog')
         self.stop_engine()
-        self.join(timeout=30)
-        self.start_engine(auto_send=True)
+        try:
+            bot.close()
+        except Exception as exc:  # pragma: no cover - defensive
+            logging.warning(f"Watchdog could not close the browser: {exc}")
+        self.join(timeout=restart_timeout)
+        ok, message, _ = self.start_engine(auto_send=True)
+        if not ok:
+            logging.error(f"🚨 Watchdog: automatic restart failed - {message}")
+            self._set('error', 'تعذر إعادة التشغيل تلقائياً - أعد تشغيل المحرك من لوحة التحكم',
+                      error='watchdog_restart_failed')
         return True
 
     # ── Internals ──────────────────────────────────────────────────
@@ -511,6 +527,7 @@ class EngineController:
             sent = int(result.get('sent', stats.get('sent', 0)) or 0)
             failed = int(result.get('failed', stats.get('failed', 0)) or 0)
             skipped = int(result.get('skipped', stats.get('skipped', 0)) or 0)
+            unconfirmed = int(result.get('unconfirmed', stats.get('unconfirmed', 0)) or 0)
             session_lost = bool(result.get('session_lost'))
 
         if session_lost:
@@ -519,9 +536,10 @@ class EngineController:
             self._set('waiting_login', 'انتهت جلسة واتساب أثناء الإرسال - امسح رمز QR مجدداً')
             return
 
-        summary = f"اكتمل الإرسال: {sent} نجحت، {failed} فشلت"
+        prefix = 'تم إيقاف الإرسال' if result.get('stopped') else 'اكتمل الإرسال'
+        summary = f"{prefix}: {sent} نجحت، {failed} فشلت"
         if skipped:
             summary += f"، {skipped} تم تخطيها"
-        if result.get('stopped'):
-            summary = f"تم إيقاف الإرسال: {sent} نجحت، {failed} فشلت"
+        if unconfirmed:
+            summary += f"، {unconfirmed} بحاجة مراجعة"
         self._set('ready', summary + ' - المحرك جاهز لإرسال جديد')

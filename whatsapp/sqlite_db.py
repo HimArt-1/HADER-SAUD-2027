@@ -1,13 +1,16 @@
 import sqlite3
 import os
 import logging
-from typing import List, Dict, Any
-from datetime import datetime
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta
 
 DB_FILE = os.path.join(os.path.dirname(__file__), "contacts.db")
 
-# Maximum retry attempts for failed messages
-MAX_RETRY_COUNT = 3
+# A failed row is attempted at most this many times in total: the first send plus one retry.
+# Only rows that never reached the send button are marked 'failed', so a retry cannot deliver twice.
+MAX_RETRY_COUNT = 2
+# Retries cover glitches within the same sitting; yesterday's absence notice is not sent today.
+RETRY_WINDOW_HOURS = 6
 
 
 def get_db():
@@ -61,15 +64,21 @@ def get_queue() -> List[Dict[str, Any]]:
 
 
 def get_pending_with_retry() -> List[Dict[str, Any]]:
-    """Get messages that are pending or failed but under max retry count."""
+    """
+    Rows the engine should send now: fresh rows first, then failed rows that still have a retry.
+
+    Rows mid-flight ('sending' / 'confirming') are left out — the running mission owns them, and a
+    new mission recovers any leftovers through reset_stuck_sending first.
+    """
+    retry_since = (datetime.now() - timedelta(hours=RETRY_WINDOW_HOURS)).isoformat()
     try:
         with get_db() as conn:
             rows = conn.execute('''
                 SELECT * FROM queue
-                WHERE (status IS NULL OR status = '' OR status = 'pending'
-                       OR (status = 'failed' AND (retry_count IS NULL OR retry_count < ?)))
-                ORDER BY created_at ASC
-            ''', (MAX_RETRY_COUNT,)).fetchall()
+                WHERE status IS NULL OR status = '' OR status = 'pending'
+                   OR (status = 'failed' AND COALESCE(retry_count, 0) < ? AND created_at >= ?)
+                ORDER BY CASE WHEN status = 'failed' THEN 1 ELSE 0 END, created_at ASC, rowid ASC
+            ''', (MAX_RETRY_COUNT, retry_since)).fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
         logging.error(f"Error getting pending with retry: {e}")
@@ -96,9 +105,14 @@ def clear_queue() -> bool:
         return False
 
 
-def append_to_queue(items: List[Dict[str, Any]]) -> bool:
+def append_to_queue(items: List[Dict[str, Any]]) -> Optional[int]:
+    """
+    Add rows to the queue, ignoring any whose id is already there.
+    Returns how many rows were new, or None when the queue could not be written.
+    """
     try:
         now = datetime.now().isoformat()
+        inserted = 0
         with get_db() as conn:
             cursor = conn.cursor()
             for item in items:
@@ -118,10 +132,11 @@ def append_to_queue(items: List[Dict[str, Any]]) -> bool:
                     item.get('sent_at'),
                     item.get('retry_count', 0),
                 ))
-            return True
+                inserted += cursor.rowcount
+            return inserted
     except Exception as e:
         logging.error(f"Error appending to queue: {e}")
-        return False
+        return None
 
 
 def overwrite_queue(items: List[Dict[str, Any]]) -> bool:
@@ -179,23 +194,29 @@ def update_status(item_id: str, status: str) -> bool:
 
 
 def reset_stuck_sending() -> int:
-    """Re-queue rows left in 'sending' by a crashed/interrupted mission."""
+    """
+    Recover rows left mid-flight by a crashed or restarted mission.
+
+    'sending' never reached the send button, so it is queued again. 'confirming' was pressed and may
+    already be on the guardian's phone, so it waits for the operator instead of risking a duplicate.
+    """
     try:
         with get_db() as conn:
-            cursor = conn.execute("UPDATE queue SET status = 'pending' WHERE status = 'sending'")
-            return cursor.rowcount
+            requeued = conn.execute("UPDATE queue SET status = 'pending' WHERE status = 'sending'").rowcount
+            flagged = conn.execute("UPDATE queue SET status = 'unconfirmed' WHERE status = 'confirming'").rowcount
+            return requeued + flagged
     except Exception as e:
         logging.error(f"Error resetting stuck rows: {e}")
         return 0
 
 
 def count_pending() -> int:
-    """Number of rows waiting to be sent (pending / empty / stuck sending)."""
+    """Number of rows waiting to be sent or on their way (pending / empty / sending / confirming)."""
     try:
         with get_db() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) AS c FROM queue "
-                "WHERE status IS NULL OR status = '' OR status = 'pending' OR status = 'sending'"
+                "WHERE status IS NULL OR status IN ('', 'pending', 'sending', 'confirming')"
             ).fetchone()
             return int(row['c']) if row else 0
     except Exception as e:
@@ -212,17 +233,18 @@ def get_stats() -> Dict[str, int]:
                     COUNT(*) as total,
                     COALESCE(SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END), 0) as sent,
                     COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed,
-                    COALESCE(SUM(CASE WHEN status = 'pending' OR status = 'sending' OR status IS NULL OR status = '' THEN 1 ELSE 0 END), 0) as pending,
-                    COALESCE(SUM(CASE WHEN status = 'skipped' OR status = 'invalid_phone' THEN 1 ELSE 0 END), 0) as skipped
+                    COALESCE(SUM(CASE WHEN status IS NULL OR status IN ('', 'pending', 'sending', 'confirming') THEN 1 ELSE 0 END), 0) as pending,
+                    COALESCE(SUM(CASE WHEN status = 'skipped' OR status = 'invalid_phone' THEN 1 ELSE 0 END), 0) as skipped,
+                    COALESCE(SUM(CASE WHEN status = 'unconfirmed' THEN 1 ELSE 0 END), 0) as unconfirmed
                 FROM queue
             ''').fetchone()
             if row:
                 res = dict(row)
                 return {k: (v if v is not None else 0) for k, v in res.items()}
-            return {"total": 0, "sent": 0, "failed": 0, "pending": 0, "skipped": 0}
+            return {"total": 0, "sent": 0, "failed": 0, "pending": 0, "skipped": 0, "unconfirmed": 0}
     except Exception as e:
         logging.error(f"Error getting stats: {e}")
-        return {"total": 0, "sent": 0, "failed": 0, "pending": 0, "skipped": 0}
+        return {"total": 0, "sent": 0, "failed": 0, "pending": 0, "skipped": 0, "unconfirmed": 0}
 
 
 # ─── Auto-initialize on import ────────────────────────────────────
