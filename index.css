@@ -961,7 +961,9 @@ html.light-mode .ustad-panel {
   -webkit-backdrop-filter: blur(28px) saturate(170%);
   backdrop-filter: blur(28px) saturate(170%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--ustad-shadow);
+  /* قصّ بلا تمرير: الهالة واللمعة تتجاوز الحدود، والتركيز على زر داخلي كان يزيح المحتوى أفقياً */
   overflow: hidden;
+  overflow: clip;
   isolation: isolate;
   transform-origin: bottom center;
   animation: ustadPanelIn 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.12) both;
