@@ -28,8 +28,11 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const QUEUE_STATUS_PRIORITY: Record<WhatsAppQueueStatus, number> = {
   sending: 0,
   pending: 1,
-  failed: 2,
-  sent: 3
+  unconfirmed: 2,
+  failed: 3,
+  invalid_phone: 4,
+  skipped: 5,
+  sent: 6
 };
 
 /** Every simple command maps to one POST route on the local bridge. */
@@ -99,6 +102,7 @@ const normalizeProgress = (value: unknown): WhatsAppProgress | undefined => {
     sent: asCount(raw.sent),
     failed: asCount(raw.failed),
     skipped: asCount(raw.skipped),
+    unconfirmed: asCount(raw.unconfirmed),
     lastPhone: asText(raw.last_phone ?? raw.lastPhone),
     lastName: asText(raw.last_name ?? raw.lastName)
   };
@@ -128,10 +132,18 @@ const normalizeStatus = (value: unknown): WhatsAppStatus => {
   };
 };
 
-const normalizeQueueStatus = (value: unknown): WhatsAppQueueStatus =>
-  value === 'sending' || value === 'sent' || value === 'failed'
-    ? value
-    : 'pending';
+const isQueueStatus = (value: unknown): value is WhatsAppQueueStatus =>
+  typeof value === 'string' && Object.prototype.hasOwnProperty.call(QUEUE_STATUS_PRIORITY, value);
+
+/**
+ * Skipped rows and numbers without WhatsApp used to fall through to 'pending', so the dashboard
+ * listed them as still waiting while the bridge's own pending count had already dropped them.
+ */
+const normalizeQueueStatus = (value: unknown): WhatsAppQueueStatus => {
+  // 'confirming' is the bridge's last step before a message leaves.
+  if (value === 'confirming') return 'sending';
+  return isQueueStatus(value) ? value : 'pending';
+};
 
 const normalizeQueue = (value: unknown): WhatsAppQueueItem[] => {
   if (!Array.isArray(value)) {

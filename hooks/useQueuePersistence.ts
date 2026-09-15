@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { WhatsAppQueueStatus } from '../modules/whatsapp';
 
 // ═══════════════════════════════════════════════════════════════
 // 💾 Queue Persistence Hook
@@ -14,7 +15,7 @@ export interface QueueItem {
   studentName: string;
   phone: string;
   message: string;
-  status: 'pending' | 'sending' | 'sent' | 'failed';
+  status: WhatsAppQueueStatus;
   timestamp: number;
   statusLabel?: string;
   attachment?: string;

@@ -1,14 +1,17 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageSquare, CheckCircle, Clock, Smartphone } from 'lucide-react';
+import { MessageSquare, CheckCircle, Clock, Smartphone, AlertTriangle, PhoneOff, SkipForward } from 'lucide-react';
+import { WHATSAPP_QUEUE_STATUS_LABELS, type WhatsAppQueueStatus } from '../../modules/whatsapp';
 
 interface QueueItem {
     id: string;
     studentName: string;
-    status: 'pending' | 'sending' | 'sent' | 'failed';
+    status: WhatsAppQueueStatus;
     timestamp: number;
     statusLabel?: string;
 }
+
+const NOTED_STATUSES: ReadonlySet<WhatsAppQueueStatus> = new Set(['unconfirmed', 'invalid_phone', 'skipped']);
 
 interface QueueVisualizerProps {
     queue: QueueItem[];
@@ -40,9 +43,12 @@ const QueueVisualizer: React.FC<QueueVisualizerProps> = ({ queue, processingId, 
                                 borderColor: item.id === processingId ? '#3b82f6' : 'rgba(255,255,255,0.1)'
                             }}
                             exit={{ opacity: 0, scale: 0.5, y: 50 }}
+                            title={WHATSAPP_QUEUE_STATUS_LABELS[item.status]}
                             className={`flex flex-col items-center justify-center min-w-[100px] h-[100px] rounded-2xl border bg-black/40 backdrop-blur-md relative
                                 ${item.status === 'sent' ? 'border-green-500/30 bg-green-500/5' : ''}
                                 ${item.status === 'failed' ? 'border-red-500/30 bg-red-500/5' : ''}
+                                ${item.status === 'unconfirmed' ? 'border-amber-500/40 bg-amber-500/10' : ''}
+                                ${item.status === 'invalid_phone' || item.status === 'skipped' ? 'border-slate-500/30 bg-slate-500/5 opacity-70' : ''}
                                 ${item.id === processingId ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'border-white/10'}
                             `}
                         >
@@ -50,12 +56,21 @@ const QueueVisualizer: React.FC<QueueVisualizerProps> = ({ queue, processingId, 
                             <div className="mb-1">
                                 {item.status === 'sent' && <CheckCircle className="w-5 h-5 text-green-400" />}
                                 {item.status === 'failed' && <Smartphone className="w-5 h-5 text-red-400" />}
+                                {item.status === 'unconfirmed' && <AlertTriangle className="w-5 h-5 text-amber-400" />}
+                                {item.status === 'invalid_phone' && <PhoneOff className="w-5 h-5 text-slate-400" />}
+                                {item.status === 'skipped' && <SkipForward className="w-5 h-5 text-slate-400" />}
                                 {(item.status === 'pending' || item.status === 'sending') && <MessageSquare className={`w-5 h-5 ${item.id === processingId ? 'text-blue-400' : 'text-gray-500'}`} />}
                             </div>
 
                             <div className="text-[10px] font-bold text-gray-200 text-center px-2 truncate w-full mb-1">
                                 {item.studentName.split(' ').slice(0, 2).join(' ')}
                             </div>
+
+                            {NOTED_STATUSES.has(item.status) && (
+                                <div className={`text-[9px] leading-tight text-center px-2 mb-1 ${item.status === 'unconfirmed' ? 'text-amber-300 font-bold' : 'text-slate-400'}`}>
+                                    {WHATSAPP_QUEUE_STATUS_LABELS[item.status]}
+                                </div>
+                            )}
 
                             {item.statusLabel && (
                                 <div className={`text-[9px] px-2 py-0.5 rounded-full ${item.statusLabel === 'غياب' || item.statusLabel === 'غائب' ? 'bg-red-500/20 text-red-300' :

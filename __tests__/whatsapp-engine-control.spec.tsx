@@ -108,11 +108,12 @@ describe('EngineControlPanel — two-phase WhatsApp engine controls', () => {
       logged_in: true,
       sending: true,
       pending: 2,
-      progress: { current: 3, total: 5, sent: 2, failed: 1, skipped: 0, lastPhone: '9665', lastName: 'سارة' }
+      progress: { current: 3, total: 5, sent: 2, failed: 1, skipped: 0, unconfirmed: 1, lastPhone: '9665', lastName: 'سارة' }
     }));
     expect(screen.queryByTestId('sending-start')).toBeNull();
     expect(screen.getByTestId('engine-progress').textContent).toContain('3/5');
     expect(screen.getByTestId('engine-progress').textContent).toContain('سارة');
+    expect(screen.getByTestId('engine-progress').textContent).toContain('بحاجة مراجعة 1');
     fireEvent.click(button('sending-pause'));
     expect(onCommand).toHaveBeenCalledWith('sending:pause');
     fireEvent.click(button('sending-stop'));

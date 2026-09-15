@@ -1,4 +1,25 @@
-export type WhatsAppQueueStatus = 'pending' | 'sending' | 'sent' | 'failed';
+/**
+ * Where a queued message stands. `unconfirmed` means send was pressed but delivery could not be
+ * proven; the bridge never resends it on its own, so it waits for the operator to check.
+ */
+export type WhatsAppQueueStatus =
+  | 'pending'
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'skipped'
+  | 'invalid_phone'
+  | 'unconfirmed';
+
+export const WHATSAPP_QUEUE_STATUS_LABELS: Readonly<Record<WhatsAppQueueStatus, string>> = {
+  pending: 'في الانتظار',
+  sending: 'جاري الإرسال',
+  sent: 'تم الإرسال',
+  failed: 'فشل',
+  skipped: 'متخطاة',
+  invalid_phone: 'رقم غير موجود على واتساب',
+  unconfirmed: 'بحاجة مراجعة'
+};
 
 /**
  * Engine lifecycle reported by the local bridge (whatsapp/engine_controller.py).
@@ -31,6 +52,8 @@ export type WhatsAppProgress = Readonly<{
   sent: number;
   failed: number;
   skipped: number;
+  /** Pressed but unproven deliveries — left for the operator, never resent automatically. */
+  unconfirmed: number;
   lastPhone: string;
   lastName: string;
 }>;
@@ -147,7 +170,7 @@ export class WhatsAppCommandError extends Error {
 }
 
 const EMPTY_PROGRESS: WhatsAppProgress = {
-  current: 0, total: 0, sent: 0, failed: 0, skipped: 0, lastPhone: '', lastName: ''
+  current: 0, total: 0, sent: 0, failed: 0, skipped: 0, unconfirmed: 0, lastPhone: '', lastName: ''
 };
 
 /** A second adapter for component tests and offline prototypes — mirrors the bridge state machine. */

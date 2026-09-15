@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Send, CheckCircle, XCircle, Clock, Loader2, Zap, TrendingUp } from 'lucide-react';
+import { WHATSAPP_QUEUE_STATUS_LABELS, type WhatsAppQueueStatus } from '../../modules/whatsapp';
 
 // ═══════════════════════════════════════════════════════════════
 // 📊 Sending Progress Component
@@ -8,8 +9,11 @@ import { Send, CheckCircle, XCircle, Clock, Loader2, Zap, TrendingUp } from 'luc
 
 interface QueueItem {
   id: string;
-  status: 'pending' | 'sending' | 'sent' | 'failed';
+  status: WhatsAppQueueStatus;
 }
+
+/** A message the bridge has finished with, whatever the result. */
+const isSettled = (status: WhatsAppQueueStatus): boolean => status !== 'pending' && status !== 'sending';
 
 interface SendingProgressProps {
   queue: QueueItem[];
@@ -29,12 +33,16 @@ const SendingProgress: React.FC<SendingProgressProps> = ({
     const failed = queue.filter(q => q.status === 'failed').length;
     const pending = queue.filter(q => q.status === 'pending').length;
     const sending = queue.filter(q => q.status === 'sending').length;
-    
-    const completed = sent + failed;
+    const review = queue.filter(q => q.status === 'unconfirmed').length;
+    const skipped = queue.filter(q => q.status === 'skipped' || q.status === 'invalid_phone').length;
+
+    const completed = queue.filter(q => isSettled(q.status)).length;
     const progress = total > 0 ? (completed / total) * 100 : 0;
-    const successRate = completed > 0 ? (sent / completed) * 100 : 0;
-    
-    return { total, sent, failed, pending, sending, completed, progress, successRate };
+    // Skipped rows never reached WhatsApp, so they do not count against the success rate.
+    const attempted = sent + failed + review;
+    const successRate = attempted > 0 ? (sent / attempted) * 100 : 0;
+
+    return { total, sent, failed, pending, sending, review, skipped, completed, attempted, progress, successRate };
   }, [queue]);
 
   // لا تعرض أي شيء إذا كان الطابور فارغاً
@@ -119,8 +127,10 @@ const SendingProgress: React.FC<SendingProgressProps> = ({
                   ${item.status === 'sent' ? 'bg-emerald-500/20' : ''}
                   ${item.status === 'failed' ? 'bg-red-500/30' : ''}
                   ${item.status === 'sending' ? 'bg-cyan-500/40 animate-pulse' : ''}
+                  ${item.status === 'unconfirmed' ? 'bg-amber-500/30' : ''}
+                  ${item.status === 'skipped' || item.status === 'invalid_phone' ? 'bg-slate-500/20' : ''}
                 `}
-                title={`رسالة ${index + 1}: ${item.status === 'sent' ? 'تم الإرسال' : item.status === 'failed' ? 'فشل' : item.status === 'sending' ? 'جاري الإرسال' : 'في الانتظار'}`}
+                title={`رسالة ${index + 1}: ${WHATSAPP_QUEUE_STATUS_LABELS[item.status]}`}
               />
             ))}
           </div>
@@ -167,8 +177,23 @@ const SendingProgress: React.FC<SendingProgressProps> = ({
         />
       </div>
 
+      {(stats.review > 0 || stats.skipped > 0) && (
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+          {stats.review > 0 && (
+            <span className="rounded-lg bg-amber-500/10 px-2 py-1 font-bold text-amber-300">
+              بحاجة مراجعة {stats.review} — لن يُعاد إرسالها تلقائياً
+            </span>
+          )}
+          {stats.skipped > 0 && (
+            <span className="rounded-lg bg-slate-500/10 px-2 py-1 text-slate-300">
+              متخطاة أو بلا واتساب {stats.skipped}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* نسبة النجاح */}
-      {stats.completed > 0 && (
+      {stats.attempted > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-700/30 flex items-center justify-between">
           <span className="text-xs text-gray-500">نسبة النجاح</span>
           <div className="flex items-center gap-2">
@@ -241,7 +266,7 @@ export const MiniProgress: React.FC<{
 }> = ({ queue, className = '' }) => {
   const stats = useMemo(() => {
     const total = queue.length;
-    const completed = queue.filter(q => q.status === 'sent' || q.status === 'failed').length;
+    const completed = queue.filter(q => isSettled(q.status)).length;
     const sending = queue.filter(q => q.status === 'sending').length;
     const progress = total > 0 ? (completed / total) * 100 : 0;
     return { total, completed, sending, progress };

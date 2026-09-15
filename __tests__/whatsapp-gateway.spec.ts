@@ -160,6 +160,32 @@ describe('WhatsApp gateway interface', () => {
     expect(Object.values(WHATSAPP_COMMAND_ROUTES).every(route => route.startsWith('/api/'))).toBe(true);
   });
 
+  it('keeps skipped, unreachable and unconfirmed rows apart from the ones still waiting', async () => {
+    const gateway = createHttpWhatsAppGateway({
+      fetcher: async input => String(input).endsWith('/api/queue')
+        ? jsonResponse([
+          { id: 'p', phone: '1', message: 'a', status: 'pending', timestamp: 1 },
+          { id: 'c', phone: '2', message: 'b', status: 'confirming', timestamp: 2 },
+          { id: 'u', phone: '3', message: 'c', status: 'unconfirmed', timestamp: 3 },
+          { id: 'i', phone: '4', message: 'd', status: 'invalid_phone', timestamp: 4 },
+          { id: 's', phone: '5', message: 'e', status: 'skipped', timestamp: 5 },
+          { id: 'x', phone: '6', message: 'f', status: 'something-new', timestamp: 6 }
+        ])
+        : jsonResponse({ running: true, progress: { current: 1, total: 2, sent: 0, failed: 0, skipped: 0, unconfirmed: 1 } })
+    });
+
+    const queue = await gateway.getQueue();
+    expect(queue.map(item => [item.id, item.status])).toEqual([
+      ['c', 'sending'],
+      ['p', 'pending'],
+      ['x', 'pending'],
+      ['u', 'unconfirmed'],
+      ['i', 'invalid_phone'],
+      ['s', 'skipped']
+    ]);
+    expect((await gateway.getStatus()).progress?.unconfirmed).toBe(1);
+  });
+
   it('surfaces the bridge message when a control command is rejected', async () => {
     const gateway = createHttpWhatsAppGateway({
       fetcher: async () => jsonResponse({ message: 'امسح رمز QR في نافذة واتساب ويب أولاً', ok: false, state: 'waiting_login' }, 409)

@@ -8,9 +8,11 @@ interface StatsPanelProps {
     success: number;
     pending: number;
     failed: number;
+    /** Pressed but unproven deliveries the operator should check. */
+    review?: number;
 }
 
-const StatsPanel: React.FC<StatsPanelProps> = ({ total, success, pending, failed }) => {
+const StatsPanel: React.FC<StatsPanelProps> = ({ total, success, pending, failed, review = 0 }) => {
     const data = [
         { name: 'تم الإرسال', value: success, color: '#22c55e' }, // Green
         { name: 'قيد الانتظار', value: pending, color: '#f59e0b' }, // Amber
@@ -85,6 +87,9 @@ const StatsPanel: React.FC<StatsPanelProps> = ({ total, success, pending, failed
                     <AlertTriangle className="w-6 h-6 text-red-400 mb-2" />
                     <span className="text-2xl font-bold text-red-100">{failed}</span>
                     <span className="text-xs text-red-300/70">فشل/خطأ</span>
+                    {review > 0 && (
+                        <span className="mt-1 text-[10px] font-bold text-amber-300">بحاجة مراجعة: {review}</span>
+                    )}
                 </div>
             </motion.div>
         </div>

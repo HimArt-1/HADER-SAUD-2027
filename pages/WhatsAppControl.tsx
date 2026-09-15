@@ -360,7 +360,8 @@ const WhatsAppControl: React.FC = () => {
         total: executionQueue.length,
         success: executionQueue.filter(i => i.status === 'sent').length,
         pending: executionQueue.filter(i => i.status === 'pending' || i.status === 'sending').length,
-        failed: executionQueue.filter(i => i.status === 'failed').length
+        failed: executionQueue.filter(i => i.status === 'failed').length,
+        review: executionQueue.filter(i => i.status === 'unconfirmed').length
     }), [executionQueue]);
 
     // Attachments
@@ -1152,7 +1153,7 @@ const WhatsAppControl: React.FC = () => {
             ) : (
                 <>
                     {/* Stats & Queue (Only show in Compose mode) */}
-                    <StatsPanel total={stats.total} success={stats.success} pending={stats.pending} failed={stats.failed} />
+                    <StatsPanel total={stats.total} success={stats.success} pending={stats.pending} failed={stats.failed} review={stats.review} />
 
                     {/* Queue Visualization */}
                     <div className="mb-8">

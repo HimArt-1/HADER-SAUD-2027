@@ -216,6 +216,11 @@ const EngineControlPanel: React.FC<EngineControlPanelProps> = ({
             <span className="rounded-lg bg-red-500/10 text-red-300 py-1">فشلت {progress.failed}</span>
             <span className="rounded-lg bg-gray-500/10 text-gray-300 py-1">تخطي {progress.skipped}</span>
           </div>
+          {progress.unconfirmed > 0 && (
+            <div className="mt-2 rounded-lg bg-amber-500/10 py-1 text-center text-[10px] font-bold text-amber-300">
+              بحاجة مراجعة {progress.unconfirmed} — لن يُعاد إرسالها تلقائياً
+            </div>
+          )}
         </div>
       )}
 
