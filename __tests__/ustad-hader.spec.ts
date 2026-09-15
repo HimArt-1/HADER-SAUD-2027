@@ -187,6 +187,13 @@ describe('أستاذ حاضر (Ustadh Hader) - Speech and NLU Engine', () => {
       expect(result.title).toContain('صلاحيات');
     });
 
+    it('closes the card on «أغلق» and answers a thank-you before closing', async () => {
+      expect(await ustadIntentEngine.executeCommand('أغلق', siteAdmin, navigate)).toMatchObject({ type: 'dismiss', spokenText: '' });
+      const thanks = await ustadIntentEngine.executeCommand('شكراً', siteAdmin, navigate);
+      expect(thanks.type).toBe('dismiss');
+      expect(thanks.spokenText).toContain('العفو');
+    });
+
     it('treats the wake word inside a typed command as a greeting, not as the command', async () => {
       const withCommand = await ustadIntentEngine.executeCommand('يا أستاذ حاضر كم طالب غائب اليوم', siteAdmin, navigate);
       expect(withCommand.type).toBe('stats_absence');

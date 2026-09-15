@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const chimes = vi.hoisted(() => ({ playWakeChime: vi.fn(), playStopChime: vi.fn(), playSuccessChime: vi.fn() }));
+vi.mock('../services/ustadHader/audioEffects', () => chimes);
+
 import { UstadSpeechService, containsWakeWord, stripWakeWord } from '../services/ustadHader/speechService';
 
 class FakeRecognition {
@@ -93,6 +97,26 @@ afterEach(() => {
 });
 
 describe('UstadSpeechService', () => {
+  it('listens for the wake word by default and remembers being switched off', () => {
+    expect(new UstadSpeechService().getWakeWordPreference()).toBe(true);
+    localStorage.setItem('hader:ustad_wake_word_enabled', 'false');
+    expect(new UstadSpeechService().getWakeWordPreference()).toBe(false);
+  });
+
+  it('chimes once for a wake-word call, not again when the card opens', () => {
+    const service = new UstadSpeechService();
+    service.startWakeWordStandby();
+    FakeRecognition.instances[0].hear('يا أستاذ حاضر', true);
+    expect(chimes.playWakeChime).toHaveBeenCalledTimes(1);
+
+    service.startActiveListening();
+    expect(chimes.playWakeChime).toHaveBeenCalledTimes(1);
+
+    service.stopListening();
+    service.startActiveListening();
+    expect(chimes.playWakeChime).toHaveBeenCalledTimes(2);
+  });
+
   it('delivers each final command exactly once', () => {
     const service = new UstadSpeechService();
     const commands = recordCommands(service);

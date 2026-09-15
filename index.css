@@ -900,6 +900,531 @@ html.light-mode ::selection {
   animation: soundWaveBar 0.75s ease-in-out 0.2s infinite alternate;
 }
 
+/* --------------------------------------------------------------------------
+   البطاقة الزجاجية العائمة لـ «أستاذ حاضر»
+   بطاقة غير معترضة أسفل الشاشة: زجاج سائل، هالة محيطية تتنفس مع الحالة،
+   وكرة ضوئية تستجيب للنداء. الألوان عبر متغيرات لتناسب الوضعين.
+   -------------------------------------------------------------------------- */
+
+.ustad-panel,
+.ustad-edge-glow,
+.ustad-orb {
+  --ustad-accent: 56 189 248;
+  --ustad-accent-2: 52 211 153;
+  --ustad-accent-3: 167 139 250;
+}
+
+.ustad-panel {
+  --ustad-glass: rgba(8, 22, 30, 0.74);
+  --ustad-line: rgba(255, 255, 255, 0.12);
+  --ustad-line-strong: rgba(255, 255, 255, 0.24);
+  --ustad-text: #f1f7f8;
+  --ustad-muted: #9fb6ba;
+  --ustad-soft: rgba(255, 255, 255, 0.06);
+  --ustad-soft-hover: rgba(255, 255, 255, 0.12);
+  --ustad-on-accent: #06191e;
+  --ustad-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --ustad-sheen: rgba(255, 255, 255, 0.16);
+  --ustad-notice: #fcd34d;
+}
+
+html.light-mode .ustad-panel {
+  --ustad-glass: rgba(255, 255, 255, 0.76);
+  --ustad-line: rgba(13, 43, 49, 0.1);
+  --ustad-line-strong: rgba(13, 43, 49, 0.2);
+  --ustad-text: #0d2b31;
+  --ustad-muted: #587075;
+  --ustad-soft: rgba(13, 43, 49, 0.05);
+  --ustad-soft-hover: rgba(13, 43, 49, 0.1);
+  --ustad-on-accent: #ffffff;
+  --ustad-shadow: 0 30px 80px rgba(13, 43, 49, 0.22), 0 8px 24px rgba(13, 43, 49, 0.12);
+  --ustad-sheen: rgba(255, 255, 255, 0.55);
+  --ustad-notice: #b45309;
+}
+
+.ustad-panel {
+  position: fixed;
+  z-index: 400;
+  inset-inline: 0;
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  margin-inline: auto;
+  width: min(calc(100vw - 1.5rem), 37rem);
+  max-height: min(82dvh, 44rem);
+  display: flex;
+  flex-direction: column;
+  color: var(--ustad-text);
+  border-radius: 1.75rem;
+  border: 1px solid var(--ustad-line);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 42%),
+    var(--ustad-glass);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  backdrop-filter: blur(28px) saturate(170%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--ustad-shadow);
+  overflow: hidden;
+  isolation: isolate;
+  transform-origin: bottom center;
+  animation: ustadPanelIn 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.12) both;
+}
+
+.ustad-panel[data-closing='true'] {
+  animation: ustadPanelOut 0.18s ease-in forwards;
+}
+
+/* هالة محيطية تتنفس: أهدأ في السكون، أوضح عند الاستماع والرد */
+.ustad-panel::before {
+  content: '';
+  position: absolute;
+  inset: -45%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 38% at 18% 12%, rgb(var(--ustad-accent) / 0.32), transparent 62%),
+    radial-gradient(34% 34% at 86% 88%, rgb(var(--ustad-accent-2) / 0.26), transparent 62%),
+    radial-gradient(28% 28% at 72% 22%, rgb(var(--ustad-accent-3) / 0.18), transparent 62%);
+  filter: blur(34px);
+  opacity: 0.5;
+  transition: opacity 0.7s ease;
+  animation: ustadAmbientDrift 16s ease-in-out infinite alternate;
+}
+
+.ustad-panel[data-state='listening']::before { opacity: 1; }
+.ustad-panel[data-state='speaking']::before { opacity: 0.9; }
+.ustad-panel[data-state='thinking']::before { opacity: 0.75; }
+
+/* لمعة زجاجية تعبر البطاقة مرة عند الظهور */
+.ustad-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 32%, var(--ustad-sheen) 46%, rgba(255, 255, 255, 0.04) 54%, transparent 68%);
+  transform: translateX(-140%) skewX(-12deg);
+  animation: ustadSheen 1.3s ease-out 0.2s 1 both;
+}
+
+/* توهج «الاستجابة» عند سماع النداء */
+.ustad-awaken {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: ustadAwaken 1.4s ease-out both;
+}
+
+.ustad-edge-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 390;
+  pointer-events: none;
+}
+
+.ustad-edge-glow::before,
+.ustad-edge-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  animation: ustadEdgeGlow 1.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.ustad-edge-glow::before {
+  box-shadow: inset 0 0 120px 28px rgb(var(--ustad-accent) / 0.42), inset 0 0 40px 6px rgb(var(--ustad-accent-3) / 0.28);
+}
+
+.ustad-edge-glow::after {
+  box-shadow: inset 0 0 160px 40px rgb(var(--ustad-accent-2) / 0.28);
+  animation-delay: 0.12s;
+}
+
+/* الكرة الضوئية */
+.ustad-orb {
+  position: relative;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+}
+
+.ustad-orb[data-size='xs'] { width: 1.25rem; height: 1.25rem; }
+.ustad-orb[data-size='lg'] { width: 4rem; height: 4rem; }
+
+.ustad-orb__body {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transition: transform 0.4s ease;
+}
+
+.ustad-orb__core {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg, #38bdf8, #a78bfa, #34d399, #22d3ee, #38bdf8);
+  box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.5), 0 0 16px rgb(var(--ustad-accent) / 0.35);
+  animation: ustadOrbSpin 10s linear infinite;
+}
+
+.ustad-orb__glass {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.12) 34%, transparent 58%),
+    radial-gradient(circle at 70% 80%, rgba(255, 255, 255, 0.22), transparent 45%);
+}
+
+.ustad-orb__ring {
+  position: absolute;
+  inset: -0.35rem;
+  border-radius: inherit;
+  border: 2px solid rgb(var(--ustad-accent) / 0.55);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ustad-orb[data-state='listening'] .ustad-orb__core { animation-duration: 4s; box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.55), 0 0 26px rgb(var(--ustad-accent) / 0.65); }
+.ustad-orb[data-state='listening'] .ustad-orb__ring { animation: ustadOrbRing 1.7s ease-out infinite; }
+.ustad-orb[data-state='listening'] .ustad-orb__ring:nth-child(2) { animation-delay: 0.55s; }
+
+.ustad-orb[data-state='speaking'] .ustad-orb__body { animation: ustadOrbBreath 0.9s ease-in-out infinite alternate; }
+.ustad-orb[data-state='speaking'] .ustad-orb__core { animation-duration: 2.5s; box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.6), 0 0 30px rgb(var(--ustad-accent-2) / 0.65); }
+
+.ustad-orb[data-state='thinking'] .ustad-orb__ring:first-child {
+  opacity: 1;
+  border-style: dashed;
+  border-color: rgb(var(--ustad-accent-3) / 0.8);
+  animation: ustadOrbSpin 1.1s linear infinite;
+}
+
+.ustad-orb[data-awake='true'] .ustad-orb__ring:first-child { animation: ustadOrbRing 1.2s ease-out 1; }
+.ustad-orb[data-awake='true'] .ustad-orb__ring:nth-child(2) { animation: ustadOrbRing 1.2s ease-out 0.2s 1; }
+
+/* عناصر البطاقة */
+.ustad-muted { color: var(--ustad-muted); }
+.ustad-notice { color: var(--ustad-notice); }
+
+/* رسالة تعذر الميكروفون تُقرأ كاملة على سطرين بدل قطعها */
+.ustad-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ustad-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.5rem;
+  border-radius: 9999px;
+  color: rgb(var(--ustad-accent-2));
+  background: rgb(var(--ustad-accent-2) / 0.12);
+  border: 1px solid rgb(var(--ustad-accent-2) / 0.3);
+}
+
+html.light-mode .ustad-badge { color: #047857; }
+
+.ustad-surface {
+  background: var(--ustad-soft);
+  border: 1px solid var(--ustad-line);
+  border-radius: 1.1rem;
+}
+
+.ustad-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: 0.9rem;
+  background: var(--ustad-soft);
+  border: 1px solid var(--ustad-line);
+  font-size: 0.75rem;
+}
+
+.ustad-transcript {
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.ustad-transcript::before { content: '«'; color: var(--ustad-muted); margin-inline-end: 0.15rem; }
+.ustad-transcript::after { content: '»'; color: var(--ustad-muted); margin-inline-start: 0.15rem; }
+
+.ustad-wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 1.5rem;
+  flex: none;
+}
+
+.ustad-wave span {
+  display: block;
+  width: 3px;
+  border-radius: 9999px;
+  background: rgb(var(--ustad-accent));
+}
+
+.ustad-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 0.9rem;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ustad-text);
+  background: var(--ustad-soft);
+  border: 1px solid var(--ustad-line);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease, filter 0.15s ease;
+}
+
+.ustad-btn:hover { background: var(--ustad-soft-hover); border-color: var(--ustad-line-strong); }
+.ustad-btn:active { transform: scale(0.98); }
+.ustad-btn:disabled { opacity: 0.5; pointer-events: none; }
+
+.ustad-btn--primary {
+  color: var(--ustad-on-accent);
+  border-color: transparent;
+  background: linear-gradient(135deg, rgb(var(--ustad-accent)), rgb(var(--ustad-accent-2)));
+  box-shadow: 0 8px 20px rgb(var(--ustad-accent) / 0.25);
+}
+
+.ustad-btn--primary:hover { background: linear-gradient(135deg, rgb(var(--ustad-accent)), rgb(var(--ustad-accent-2))); filter: brightness(1.06); }
+
+.ustad-btn--success {
+  color: #062a26;
+  border-color: transparent;
+  background: linear-gradient(135deg, #34d399, #14b8a6);
+  box-shadow: 0 8px 20px rgba(52, 211, 153, 0.25);
+}
+
+.ustad-btn--success:hover { background: linear-gradient(135deg, #34d399, #14b8a6); filter: brightness(1.06); }
+
+.ustad-btn--danger {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.32);
+}
+
+html.light-mode .ustad-btn--danger { color: #b91c1c; background: rgba(220, 38, 38, 0.08); border-color: rgba(220, 38, 38, 0.25); }
+
+.ustad-icon-btn {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 0.8rem;
+  color: var(--ustad-muted);
+  border: 1px solid transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ustad-icon-btn:hover { background: var(--ustad-soft-hover); color: var(--ustad-text); }
+.ustad-icon-btn[aria-expanded='true'] { background: var(--ustad-soft-hover); color: var(--ustad-text); border-color: var(--ustad-line); }
+.ustad-icon-btn:disabled { opacity: 0.4; pointer-events: none; }
+
+.ustad-icon-btn--send {
+  color: var(--ustad-on-accent);
+  background: linear-gradient(135deg, rgb(var(--ustad-accent)), rgb(var(--ustad-accent-2)));
+  border-radius: 1rem;
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+.ustad-icon-btn--send:hover { color: var(--ustad-on-accent); filter: brightness(1.06); }
+
+.ustad-chip {
+  border-radius: 9999px;
+  padding: 0.42rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--ustad-text);
+  background: var(--ustad-soft);
+  border: 1px solid var(--ustad-line);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.ustad-chip:hover { background: rgb(var(--ustad-accent) / 0.14); border-color: rgb(var(--ustad-accent) / 0.45); }
+.ustad-chip:active { transform: scale(0.97); }
+.ustad-chip:disabled { opacity: 0.5; pointer-events: none; }
+
+.ustad-input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 1rem;
+  padding: 0.7rem 1rem;
+  font-size: 0.85rem;
+  color: var(--ustad-text);
+  background: var(--ustad-soft);
+  border: 1px solid var(--ustad-line);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ustad-input::placeholder { color: var(--ustad-muted); }
+.ustad-input:focus { outline: none; border-color: rgb(var(--ustad-accent) / 0.6); box-shadow: 0 0 0 3px rgb(var(--ustad-accent) / 0.18); }
+
+.ustad-mic {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 1rem;
+  color: var(--ustad-text);
+  background: var(--ustad-soft);
+  border: 1px solid var(--ustad-line);
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ustad-mic:hover { background: var(--ustad-soft-hover); }
+
+.ustad-mic[data-active='true'] {
+  color: var(--ustad-on-accent);
+  border-color: transparent;
+  background: linear-gradient(135deg, rgb(var(--ustad-accent)), rgb(var(--ustad-accent-2)));
+  box-shadow: 0 0 0 4px rgb(var(--ustad-accent) / 0.18), 0 0 26px rgb(var(--ustad-accent) / 0.4);
+  animation: ustadAuraPulse 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.ustad-switch {
+  position: relative;
+  flex: none;
+  width: 2.5rem;
+  height: 1.4rem;
+  border-radius: 9999px;
+  background: var(--ustad-soft-hover);
+  border: 1px solid var(--ustad-line-strong);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.ustad-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  inset-inline-start: 2px;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s ease;
+}
+
+.ustad-switch[aria-checked='true'] {
+  border-color: transparent;
+  background: linear-gradient(90deg, rgb(var(--ustad-accent)), rgb(var(--ustad-accent-2)));
+}
+
+.ustad-switch[aria-checked='true']::after { transform: translateX(-1.1rem); }
+.ustad-switch:disabled { opacity: 0.45; }
+
+.ustad-stat {
+  border-radius: 1rem;
+  padding: 0.7rem 0.4rem;
+  text-align: center;
+  background: rgb(var(--tone) / 0.1);
+  border: 1px solid rgb(var(--tone) / 0.22);
+}
+
+.ustad-stat__value { font-size: 1.45rem; font-weight: 900; line-height: 1.15; color: rgb(var(--tone)); }
+.ustad-stat__label { margin-top: 0.25rem; font-size: 0.68rem; font-weight: 700; color: var(--ustad-muted); }
+
+.ustad-tone { color: rgb(var(--tone)); }
+.ustad-tone-pill {
+  font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 0.5rem;
+  color: rgb(var(--tone));
+  background: rgb(var(--tone) / 0.14);
+}
+
+[data-tone='success'] { --tone: 52 211 153; }
+[data-tone='danger'] { --tone: 248 113 113; }
+[data-tone='warning'] { --tone: 251 191 36; }
+[data-tone='info'] { --tone: 56 189 248; }
+[data-tone='neutral'] { --tone: 148 163 184; }
+
+html.light-mode [data-tone='success'] { --tone: 5 150 105; }
+html.light-mode [data-tone='danger'] { --tone: 220 38 38; }
+html.light-mode [data-tone='warning'] { --tone: 217 119 6; }
+html.light-mode [data-tone='info'] { --tone: 2 132 199; }
+html.light-mode [data-tone='neutral'] { --tone: 71 85 105; }
+
+.ustad-bar-track { background: var(--ustad-soft-hover); }
+.ustad-bar-fill { background: linear-gradient(to top, rgb(var(--ustad-accent-2)), rgb(var(--ustad-accent))); }
+
+.ustad-kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.65rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.35rem;
+  color: var(--ustad-text);
+  background: var(--ustad-soft-hover);
+  border: 1px solid var(--ustad-line);
+}
+
+.ustad-drawer {
+  border-top: 1px solid var(--ustad-line);
+  padding-top: 0.75rem;
+  animation: fade-in 0.2s ease both;
+}
+
+.ustad-footer { border-top: 1px solid var(--ustad-line); }
+
+.ustad-scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ustad-line-strong) transparent; }
+.ustad-scroll::-webkit-scrollbar { width: 6px; }
+.ustad-scroll::-webkit-scrollbar-thumb { background: var(--ustad-line-strong); border-radius: 9999px; }
+
+@keyframes ustadPanelIn {
+  from { opacity: 0; transform: translateY(28px) scale(0.94); filter: blur(6px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes ustadPanelOut {
+  to { opacity: 0; transform: translateY(16px) scale(0.97); }
+}
+
+@keyframes ustadSheen {
+  from { transform: translateX(-140%) skewX(-12deg); }
+  to { transform: translateX(140%) skewX(-12deg); }
+}
+
+@keyframes ustadAmbientDrift {
+  from { transform: translate(-3%, -2%) rotate(0deg); }
+  to { transform: translate(3%, 3%) rotate(8deg); }
+}
+
+@keyframes ustadAwaken {
+  0% { box-shadow: 0 0 0 0 rgb(var(--ustad-accent) / 0.75), inset 0 0 0 0 rgb(var(--ustad-accent) / 0); }
+  35% { box-shadow: 0 0 0 5px rgb(var(--ustad-accent) / 0.28), 0 0 80px rgb(var(--ustad-accent) / 0.55), inset 0 0 60px rgb(var(--ustad-accent) / 0.16); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--ustad-accent) / 0), 0 0 0 rgb(var(--ustad-accent) / 0), inset 0 0 0 0 rgb(var(--ustad-accent) / 0); }
+}
+
+@keyframes ustadEdgeGlow {
+  0% { opacity: 0; }
+  22% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes ustadOrbSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ustadOrbBreath {
+  from { transform: scale(0.94); }
+  to { transform: scale(1.1); }
+}
+
+@keyframes ustadOrbRing {
+  0% { transform: scale(0.7); opacity: 0.85; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
 /* ========================================
    🎯 Interactive States - Micro-interactions
    ======================================== */

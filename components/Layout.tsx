@@ -29,7 +29,8 @@ import { PAGE_HELP } from '../constants/pageHelp';
 import { applyDarkMode, getCurrentColorMode, getStoredColorMode } from '../utils/colorMode';
 import { hasSurveyAdminAccess } from '../services/surveys';
 import UstadHaderButton from './ustadHader/UstadHaderButton';
-import UstadHaderModal from './ustadHader/UstadHaderModal';
+import UstadHaderPanel from './ustadHader/UstadHaderPanel';
+import UstadWakeGlow from './ustadHader/UstadWakeGlow';
 import UstadBriefingBanner from './ustadHader/UstadBriefingBanner';
 import { ustadSpeech } from '../services/ustadHader/speechService';
 
@@ -112,9 +113,10 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showUstadModal, setShowUstadModal] = useState(false);
   const [ustadInitialCommand, setUstadInitialCommand] = useState<string | null>(null);
+  const [ustadWakeSignal, setUstadWakeSignal] = useState(0);
   const [isUstadListening, setIsUstadListening] = useState(false);
   const [isUstadSpeaking, setIsUstadSpeaking] = useState(false);
-  const [isWakeWordActive, setIsWakeWordActive] = useState(() => ustadSpeech.getWakeWordPreference());
+  const [isWakeWordActive, setIsWakeWordActive] = useState(false);
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateStatus | null>(null);
   const bellRef = useRef<HTMLButtonElement>(null);
   const lastReadKey = `hader:lastNotifSeen:${user?.id}`;
@@ -187,14 +189,16 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
 
     const unsubscribeUstad = ustadSpeech.subscribe({
       onWakeWordDetected: () => {
+        setUstadWakeSignal(signal => signal + 1);
         setShowUstadModal(true);
       },
       onSpeakingChange: (speaking) => {
         setIsUstadSpeaking(speaking);
       },
+      // المؤشرات تعكس ما يفعله الميكروفون فعلاً، لا ما هو مفضَّل في الإعدادات
       onListeningStateChange: (listening, mode) => {
-        setIsUstadListening(listening);
-        setIsWakeWordActive(mode === 'wake_word_standby' || ustadSpeech.getWakeWordPreference());
+        setIsUstadListening(listening && mode === 'active_command');
+        setIsWakeWordActive(listening && mode === 'wake_word_standby');
       }
     });
 
@@ -1170,8 +1174,10 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
             );
           })()}
 
-          {/* نافذة المساعد الذكي «أستاذ حاضر» */}
-          <UstadHaderModal
+          {/* المساعد الذكي «أستاذ حاضر»: توهج النداء والبطاقة العائمة */}
+          <UstadWakeGlow signal={ustadWakeSignal} />
+          <UstadHaderPanel
+            wakeSignal={ustadWakeSignal}
             isOpen={showUstadModal}
             onClose={() => setShowUstadModal(false)}
             currentUser={user}

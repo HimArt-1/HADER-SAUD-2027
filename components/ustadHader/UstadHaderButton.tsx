@@ -1,9 +1,10 @@
 // =============================================================================
-// نظام حاضر (Hader) - زر «أستاذ حاضر» مع الهالة الضوئية المتموجة
+// نظام حاضر (Hader) - زر «أستاذ حاضر» في الشريط العلوي
 // =============================================================================
+// كرة ضوئية صغيرة تعكس حالة المساعد: ساكنة، أو تستمع، أو تتحدث، مع مؤشر النداء الصوتي.
 
 import React from 'react';
-import { Mic, Sparkles, Volume2 } from 'lucide-react';
+import { UstadOrb } from './UstadOrb';
 
 interface UstadHaderButtonProps {
   onClick: () => void;
@@ -21,10 +22,16 @@ export const UstadHaderButton: React.FC<UstadHaderButtonProps> = ({
   compact = false
 }) => {
   const isGlowing = isListening || isSpeaking;
+  const orbState = isSpeaking ? 'speaking' : isListening ? 'listening' : 'idle';
+  const title = isListening
+    ? 'أستاذ حاضر يستمع إليك الآن'
+    : isWakeWordActive
+    ? 'النداء الصوتي مفعّل: قل «يا أستاذ حاضر» (أو Alt+H)'
+    : 'المساعد الذكي «أستاذ حاضر» (Alt+H)';
 
   return (
-    <div className="relative inline-flex items-center group">
-      {/* 🌟 الهالة الضوئية المتموجة المشعة عند التفاعل أو الاستماع */}
+    <div className="relative inline-flex items-center group" data-ustad-ignore-outside="true">
+      {/* الهالة الضوئية المتموجة عند الاستماع أو الرد */}
       {isGlowing && (
         <>
           <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-sky-400 via-primary-500 to-emerald-400 blur-md opacity-75 animate-ustad-ripple pointer-events-none" />
@@ -42,50 +49,25 @@ export const UstadHaderButton: React.FC<UstadHaderButtonProps> = ({
             ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-500/50'
             : 'bg-white/5 border-white/10 text-slate-200 hover:bg-primary-500/10 hover:border-primary-500/30 hover:text-white'
         }`}
-        title="المساعد الصوتي الذكي «أستاذ حاضر» (اضغط أو Alt+H)"
+        title={title}
         aria-label="أستاذ حاضر"
       >
-        {/* أيقونة الحالة */}
-        <div className="relative flex items-center justify-center">
-          {isSpeaking ? (
-            <Volume2 className="w-4 h-4 text-emerald-300 animate-bounce" />
-          ) : isListening ? (
-            <Mic className="w-4 h-4 text-sky-200 animate-pulse" />
-          ) : (
-            <Sparkles className="w-4 h-4 text-primary-400 group-hover:rotate-12 transition-transform" />
-          )}
-
-          {/* نقطة مؤشر حالة الميكروفون الحية الدائمة */}
+        <span className="relative flex items-center justify-center">
+          <UstadOrb state={orbState} size="xs" />
+          {/* نقطة حالة النداء الصوتي */}
           <span
             className={`absolute -top-1 -right-1 w-2 h-2 rounded-full border border-slate-900 ${
-              isListening
-                ? 'bg-sky-400 animate-ping'
-                : isWakeWordActive
-                ? 'bg-emerald-400'
-                : 'bg-slate-500'
+              isListening ? 'bg-sky-400 animate-ping' : isWakeWordActive ? 'bg-emerald-400' : 'bg-slate-500'
             }`}
-            title={
-              isListening
-                ? 'الميكروفون يستمع إليك الآن'
-                : isWakeWordActive
-                ? 'النداء الصوتي (يا أستاذ حاضر) مفعل'
-                : 'المساعد جاهز'
-            }
           />
-        </div>
-
-        {/* النص الرسمي */}
-        <span className="font-sans font-bold tracking-wide">
-          أستاذ حاضر
         </span>
 
-        {/* شارة الاختصار في الأجهزة المكتبية */}
+        <span className="font-sans font-bold tracking-wide">أستاذ حاضر</span>
+
         {!compact && (
           <span
             className={`hidden lg:inline-block text-[10px] px-1.5 py-0.5 rounded font-mono ${
-              isGlowing
-                ? 'bg-black/30 text-white/90'
-                : 'bg-white/10 text-slate-300 group-hover:text-white'
+              isGlowing ? 'bg-black/30 text-white/90' : 'bg-white/10 text-slate-300 group-hover:text-white'
             }`}
           >
             Alt+H

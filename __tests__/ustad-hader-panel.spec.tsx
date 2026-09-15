@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Role, User } from '../types';
 
@@ -12,7 +12,7 @@ const engine = vi.hoisted(() => ({
 }));
 vi.mock('../services/ustadHader/intentEngine', () => ({ ustadIntentEngine: engine }));
 
-import UstadHaderModal from '../components/ustadHader/UstadHaderModal';
+import UstadHaderPanel from '../components/ustadHader/UstadHaderPanel';
 import { ustadSpeech, USTAD_WAKE_WORD_STORAGE_KEY } from '../services/ustadHader/speechService';
 
 class FakeRecognition {
@@ -33,14 +33,14 @@ const user: User = { id: 'u-admin', username: 'admin', name: 'مدير النظ�
 const onClose = vi.fn();
 const onThemeChange = vi.fn();
 
-const renderModal = () => render(
+const renderPanel = (props: Partial<React.ComponentProps<typeof UstadHaderPanel>> = {}) => render(
   <MemoryRouter>
-    <UstadHaderModal isOpen onClose={onClose} currentUser={user} onThemeChange={onThemeChange} />
+    <UstadHaderPanel isOpen onClose={onClose} currentUser={user} onThemeChange={onThemeChange} {...props} />
   </MemoryRouter>
 );
 
 const typeCommand = (text: string) => {
-  fireEvent.change(screen.getByPlaceholderText(/اكتب أمرك/), { target: { value: text } });
+  fireEvent.change(screen.getByPlaceholderText(/اكتب/), { target: { value: text } });
   fireEvent.click(screen.getByTitle('إرسال الأمر'));
 };
 
@@ -52,16 +52,15 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   ustadSpeech.stopListening();
-  ustadSpeech.setWakeWordPreference(false);
   vi.unstubAllGlobals();
   delete (window as { SpeechRecognition?: unknown }).SpeechRecognition;
 });
 
-describe('UstadHaderModal', () => {
+describe('UstadHaderPanel', () => {
   it('offers typing when the browser cannot recognise speech', () => {
-    renderModal();
+    renderPanel();
     expect(screen.getByText(/لا يدعم التعرّف على الكلام/)).toBeTruthy();
-    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: /الميكروفون/ })).toBeNull();
   });
 
   it('changes attendance only after the confirmation button is pressed', async () => {
@@ -79,7 +78,7 @@ describe('UstadHaderModal', () => {
       spokenText: 'تم تسجيل حضور الطالب خالد.'
     });
 
-    renderModal();
+    renderPanel();
     typeCommand('سجل حضور الطالب خالد');
 
     expect(await screen.findByText(/هل تريد بالتأكيد تسجيل الطالب خالد حاضر اليوم/)).toBeTruthy();
@@ -113,28 +112,13 @@ describe('UstadHaderModal', () => {
       spokenText: 'تعذر إرسال التنبيهات، ولم تُضف أي رسالة إلى الطابور.'
     });
 
-    renderModal();
+    renderPanel();
     typeCommand('أرسل تنبيه لأولياء أمور الغائبين');
     fireEvent.click(await screen.findByRole('button', { name: 'تأكيد وإرسال التنبيهات عبر واتساب' }));
 
     expect(await screen.findByText('تعذر إرسال التنبيهات، ولم تُضف أي رسالة إلى الطابور.')).toBeTruthy();
     expect(engine.executeConfirmedAction).toHaveBeenCalledWith(pendingAction, user);
     expect(screen.queryByText(/بنجاح/)).toBeNull();
-  });
-
-  it('asks for consent before keeping the microphone on in the background', () => {
-    vi.stubGlobal('SpeechRecognition', FakeRecognition);
-    Object.assign(window, { SpeechRecognition: FakeRecognition });
-
-    renderModal();
-    fireEvent.click(screen.getByRole('checkbox'));
-
-    expect(screen.getByText('قبل تفعيل النداء الصوتي')).toBeTruthy();
-    expect(localStorage.getItem(USTAD_WAKE_WORD_STORAGE_KEY)).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'فهمت، فعّل النداء الصوتي' }));
-    expect(localStorage.getItem(USTAD_WAKE_WORD_STORAGE_KEY)).toBe('true');
-    expect(screen.queryByText('قبل تفعيل النداء الصوتي')).toBeNull();
   });
 
   it('continues the original request with the student chosen from similar names', async () => {
@@ -161,7 +145,7 @@ describe('UstadHaderModal', () => {
       pendingAction: { type: 'call_dismissal', studentId: 's5' }
     });
 
-    renderModal();
+    renderPanel();
     typeCommand('نادي خالد');
     fireEvent.click(await screen.findByRole('button', { name: /خالد فهد الغامدي/ }));
 
@@ -171,7 +155,7 @@ describe('UstadHaderModal', () => {
 
   it('routes voice theme changes through the layout so the setting is saved', async () => {
     engine.executeCommand.mockResolvedValue({ type: 'theme_changed', title: 'تم تفعيل الوضع الداكن', spokenText: '', data: { mode: 'dark' } });
-    renderModal();
+    renderPanel();
     typeCommand('الوضع الداكن');
     expect(await screen.findByText('تم تفعيل الوضع الداكن')).toBeTruthy();
     expect(onThemeChange).toHaveBeenCalledWith('dark');
@@ -187,7 +171,7 @@ describe('UstadHaderModal', () => {
     });
     engine.executeSuggestion.mockResolvedValue({ type: 'info', title: 'الملخص لم يجهز بعد', spokenText: 'سيجهز ملخص اليوم بعد انتهاء مهلة الحضور.' });
 
-    renderModal();
+    renderPanel();
     typeCommand('عطني الزبدة');
     const hint = await screen.findByText('بعد اختيارك سيتذكر المساعد صياغتك على هذا الجهاز.');
     fireEvent.click(within(hint.parentElement!).getByRole('button', { name: 'ملخص اليوم' }));
@@ -202,7 +186,7 @@ describe('UstadHaderModal', () => {
       .mockResolvedValueOnce({ type: 'info', title: 'كشف غياب الصف ثالث', spokenText: '', context })
       .mockResolvedValueOnce({ type: 'info', title: 'كشف غياب الصف رابع', spokenText: '' });
 
-    renderModal();
+    renderPanel();
     typeCommand('اعرض غياب ثالث');
     expect(await screen.findByText('كشف غياب الصف ثالث')).toBeTruthy();
     typeCommand('وفي رابع؟');
@@ -215,14 +199,46 @@ describe('UstadHaderModal', () => {
   it('runs the command it was opened for', async () => {
     engine.executeCommand.mockResolvedValue({ type: 'info', title: 'الملخص لم يجهز بعد', spokenText: '' });
     const onInitialCommandHandled = vi.fn();
-    render(
-      <MemoryRouter>
-        <UstadHaderModal isOpen onClose={onClose} currentUser={user} initialCommand="ملخص اليوم" onInitialCommandHandled={onInitialCommandHandled} />
-      </MemoryRouter>
-    );
+    renderPanel({ initialCommand: 'ملخص اليوم', onInitialCommandHandled });
 
     expect(await screen.findByText('الملخص لم يجهز بعد')).toBeTruthy();
     expect(engine.executeCommand).toHaveBeenCalledWith('ملخص اليوم', user, expect.any(Function), null);
     expect(onInitialCommandHandled).toHaveBeenCalled();
+  });
+
+  it('closes itself when told to', async () => {
+    engine.executeCommand.mockResolvedValue({ type: 'dismiss', title: 'إلى اللقاء', spokenText: '' });
+    renderPanel();
+    typeCommand('أغلق');
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('closes on Escape and on a click outside the card', async () => {
+    renderPanel();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+
+    cleanup();
+    onClose.mockClear();
+    renderPanel();
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('listens for the wake word by default and lets the user switch it off', () => {
+    vi.stubGlobal('SpeechRecognition', FakeRecognition);
+    Object.assign(window, { SpeechRecognition: FakeRecognition });
+
+    renderPanel();
+    expect(screen.getByText('النداء مفعّل')).toBeTruthy();
+    expect(screen.queryByText(/قبل تفعيل النداء الصوتي/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'الإعدادات' }));
+    const toggle = screen.getByRole('switch', { name: /النداء الصوتي/ });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(localStorage.getItem(USTAD_WAKE_WORD_STORAGE_KEY)).toBe('false');
   });
 });

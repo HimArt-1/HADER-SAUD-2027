@@ -83,11 +83,12 @@ export class UstadSpeechService {
     );
   }
 
+  // النداء الصوتي مفعّل افتراضياً؛ لا يُحفظ إلا قرار إيقافه
   public loadWakeWordPreference(): boolean {
     try {
-      return localStorage.getItem(USTAD_WAKE_WORD_STORAGE_KEY) === 'true';
+      return localStorage.getItem(USTAD_WAKE_WORD_STORAGE_KEY) !== 'false';
     } catch {
-      return false;
+      return true;
     }
   }
 
@@ -263,6 +264,8 @@ export class UstadSpeechService {
    */
   public startActiveListening(): boolean {
     if (!this.initRecognition()) return false;
+    // بعد التقاط النداء تكون النغمة قد عُزفت، فلا تُكرر عند فتح البطاقة
+    const alreadyActive = this.isListening && this.listeningMode === 'active_command';
     this.stopSpeaking(false);
     this.shouldKeepListening = true;
     this.listeningMode = 'active_command';
@@ -273,7 +276,7 @@ export class UstadSpeechService {
     } else if (!this.beginRecognition()) {
       return false;
     }
-    playWakeChime();
+    if (!alreadyActive) playWakeChime();
     return true;
   }
 

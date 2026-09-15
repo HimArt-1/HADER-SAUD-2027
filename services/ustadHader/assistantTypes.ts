@@ -21,7 +21,9 @@ export type UstadResultType =
   | 'info'
   | 'success'
   | 'error'
-  | 'silence';
+  | 'silence'
+  // «أغلق» أو «شكراً»: تُغلق البطاقة بعد الرد إن وُجد
+  | 'dismiss';
 
 export interface UstadStudentSummary {
   id: string;

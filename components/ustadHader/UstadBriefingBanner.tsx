@@ -72,7 +72,6 @@ export const UstadBriefingBanner: React.FC<UstadBriefingBannerProps> = ({ user, 
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, reloadToken]);
 
   if (!briefing || !user) return null;

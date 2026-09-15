@@ -53,6 +53,9 @@ export type {
 
 const WEEKDAY_NAMES = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const SILENCE_COMMANDS = new Set(['اسكت', 'توقف', 'اصمت', 'بس']);
+// إغلاق البطاقة بالصوت: أمر مباشر، أو عبارة ختام تُرد بتحية قصيرة
+const DISMISS_COMMANDS = new Set(['اغلق', 'اقفل', 'سكر', 'الغاء', 'انتهيت', 'خلاص', 'باي', 'مع السلامه', 'وداعا']);
+const FAREWELL_COMMANDS = new Set(['شكرا', 'شكرا لك', 'شكرا جزيلا', 'يعطيك العافيه', 'الله يعطيك العافيه', 'ما قصرت', 'تسلم', 'كفو']);
 // المتابعة «وفي رابع أ؟» أو «سجله حاضر» تُفهم خلال دقائق من الطلب السابق فقط
 const CONTEXT_TTL_MS = 3 * 60 * 1000;
 const CLASS_FOLLOW_UP_INTENTS = new Set<string>(['class.absence', 'stats.absence', 'stats.attendance', 'stats.late', 'briefing.today']);
@@ -153,6 +156,12 @@ class UstadIntentEngine {
     }
     if (SILENCE_COMMANDS.has(norm)) {
       return { type: 'silence', title: 'تم إيقاف الرد الصوتي', spokenText: '' };
+    }
+    if (DISMISS_COMMANDS.has(norm)) {
+      return { type: 'dismiss', title: 'إلى اللقاء', spokenText: '' };
+    }
+    if (FAREWELL_COMMANDS.has(norm)) {
+      return { type: 'dismiss', title: 'في الخدمة دائماً', spokenText: 'العفو، في الخدمة.' };
     }
 
     const activeContext = context && Date.now() - context.at <= CONTEXT_TTL_MS ? context : null;
