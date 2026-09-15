@@ -9,7 +9,7 @@ const { homepage: APP_PRODUCTION_URL } = require('../package.json');
 const { isTrustedAppNavigation } = require('./appNavigationPolicy.cjs');
 const {
   assertSafeCapturePolicy,
-  isAllowedNoorResourceUrl,
+  isAllowedNoorRequest,
   isAllowedNoorSessionUrl
 } = require('./noor-session-policy.cjs');
 const MAX_IPC_FILE_BYTES = 10 * 1024 * 1024;
@@ -172,7 +172,7 @@ async function openNoorSessionWindow() {
   });
   isolatedSession.webRequest.onBeforeRequest(
     { urls: ['<all_urls>'] },
-    (details, callback) => callback({ cancel: !isAllowedNoorResourceUrl(details.url) })
+    (details, callback) => callback({ cancel: !isAllowedNoorRequest(details) })
   );
   isolatedSession.on('will-download', event => event.preventDefault());
 
