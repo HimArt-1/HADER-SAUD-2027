@@ -346,3 +346,58 @@ class TestHealthEndpoint(unittest.TestCase):
 
     def test_status_is_still_protected(self):
         self.assertEqual(self.app.get('/api/status').status_code, 401)
+
+
+class TestBannerIsNotPublic(unittest.TestCase):
+    """صفحة الترحيب خلف المفتاح؛ فحص الحياة وحده مفتوح."""
+
+    def setUp(self):
+        self.app = server.app.test_client()
+        server.API_SECRET_KEY = 'b' * 64
+
+    def tearDown(self):
+        server.API_SECRET_KEY = None
+
+    def test_banner_needs_the_key_on_both_mounts(self):
+        # الـ blueprint مُسجّل مرتين: بالبادئة /api وبلا بادئة
+        for path in ('/', '/api/'):
+            with self.subTest(path=path):
+                self.assertEqual(self.app.get(path).status_code, 401)
+
+    def test_banner_still_works_with_the_key(self):
+        res = self.app.get('/api/', headers={'X-API-Key': 'b' * 64})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.get_json()['status'], 'online')
+
+    def test_health_stays_open(self):
+        self.assertEqual(self.app.get('/api/health').status_code, 200)
+
+
+class TestNothingIsCacheable(unittest.TestCase):
+    """لا ردّ من هذا الخادم يُخزَّن في أي وسيط — الحافة خزّنت ردوداً مُصادَقة وخدمتها بلا مفتاح."""
+
+    def setUp(self):
+        self.app = server.app.test_client()
+        server.API_SECRET_KEY = 'c' * 64
+
+    def tearDown(self):
+        server.API_SECRET_KEY = None
+
+    def test_every_response_says_no_store(self):
+        cases = [
+            self.app.get('/api/health'),
+            self.app.get('/api/status'),                                    # 401
+            self.app.get('/api/status', headers={'X-API-Key': 'c' * 64}),   # 200
+            self.app.get('/api/queue', headers={'X-API-Key': 'c' * 64}),
+            self.app.get('/api/', headers={'X-API-Key': 'c' * 64}),
+        ]
+        for res in cases:
+            with self.subTest(status=res.status_code):
+                self.assertIn('no-store', res.headers.get('Cache-Control', ''))
+
+    def test_the_qr_response_is_never_cacheable(self):
+        """رمز QR تحديداً: تخزينه يعني تسليم رمز ربط حساب لمن يطلب العنوان لاحقاً."""
+        with patch.object(server.engine, 'get_qr_code',
+                          return_value={'qr': None, 'authenticated': True, 'state': 'ready'}):
+            res = self.app.get('/api/qr', headers={'X-API-Key': 'c' * 64})
+        self.assertIn('no-store', res.headers.get('Cache-Control', ''))

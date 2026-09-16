@@ -109,41 +109,37 @@ describe('WhatsApp Proxy RBAC & Security Handler (api/whatsapp.ts)', () => {
     expect(json.error).toMatch(/غير مصرح/);
   });
 
-  it('rejects forbidden roles (e.g. guardian, student, kiosk) with 403 Forbidden', async () => {
-    // Mock Supabase getUser to return a guardian user
+  it('rejects a session the database will not vouch for', async () => {
+    // ولي أمر، أو جلسة منتهية، أو رمز مُلفَّق: في كل هذه الحالات ترفع
+    // require_hader_survey_admin استثناءً داخل list_hader_surveys، فيصل الخطأ
+    // إلى الوسيط. الدور لا يُقرأ من المتصفح أصلاً — القاعدة هي من تقرّره.
     process.env.VITE_SUPABASE_URL = 'https://example.supabase.co';
     process.env.VITE_SUPABASE_ANON_KEY = 'anon-key';
 
+    let upstreamWasCalled = false;
     const mockFetch = vi.fn().mockImplementation(async (url: string) => {
-      if (url.includes('/auth/v1/user')) {
+      if (url.includes('/rest/v1/rpc/list_hader_surveys')) {
         return new Response(
-          JSON.stringify({
-            id: 'user-guardian-1',
-            user_metadata: { role: 'guardian' },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          JSON.stringify({ message: 'جلسة إدارة الاستبيانات غير صالحة أو منتهية' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
+      upstreamWasCalled = true;
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
     vi.stubGlobal('fetch', mockFetch);
 
     const req = createMockRequest({
       url: '/api/whatsapp/status',
-      headers: {
-        host: 'hader.edu.sa',
-        authorization: 'Bearer valid-guardian-token',
-      },
+      headers: { host: 'hader.edu.sa', 'x-hader-auth-token': 'expired-or-forged' },
     });
     const { res, getStatusCode, getJSON } = createMockResponse();
 
     await handler(req, res);
 
-    expect(getStatusCode()).toBe(403);
-    const json = getJSON();
-    expect(json.code).toBe('forbidden');
-    expect(json.role).toBe('guardian');
-    expect(json.error).toMatch(/ممنوع - ليس لديك صلاحية/);
+    expect(getStatusCode()).toBe(401);
+    expect(getJSON().error).toMatch(/انتهت جلسة حاضر/);
+    expect(upstreamWasCalled).toBe(false);
   });
 
   it('allows authorized roles (e.g. school_admin, admin) and forwards to upstream', async () => {
@@ -156,14 +152,9 @@ describe('WhatsApp Proxy RBAC & Security Handler (api/whatsapp.ts)', () => {
     let forwardedHeaders: Record<string, string> = {};
 
     const mockFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
-      if (url.includes('/auth/v1/user')) {
-        return new Response(
-          JSON.stringify({
-            id: 'user-admin-1',
-            user_metadata: { role: 'school_admin' },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        );
+      if (url.includes('/rest/v1/rpc/list_hader_surveys')) {
+        // جلسة إدارية صالحة: الدالة تردّ بلا خطأ
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       forwardedUpstreamUrl = url;
       forwardedHeaders = (init?.headers as Record<string, string>) || {};
@@ -178,7 +169,7 @@ describe('WhatsApp Proxy RBAC & Security Handler (api/whatsapp.ts)', () => {
       url: '/api/whatsapp/status',
       headers: {
         host: 'hader.edu.sa',
-        authorization: 'Bearer valid-school-admin-token',
+        'x-hader-auth-token': 'a-valid-hader-admin-session',
       },
     });
     const { res, getStatusCode, getJSON } = createMockResponse();

@@ -10,6 +10,7 @@ import {
   type WhatsAppStatus,
   type WhatsAppSubscription
 } from '../modules/whatsapp';
+import { secureSessionStorage } from './secureStorage';
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -123,24 +124,33 @@ export const resolveBaseUrl = (optionsBaseUrl?: string): string => {
   return (import.meta.env.VITE_WHATSAPP_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
 };
 
+/**
+ * The session token the backend proxy can actually verify.
+ *
+ * Hader staff do not sign in through Supabase Auth: the hader-auth edge function
+ * checks the credentials itself and hands back a plain user record, and the
+ * session kept in the browser is an encrypted blob whose own token is a
+ * crypto.randomUUID() minted on this device. None of that proves anything to a
+ * server, which is why the proxy's search for an "sb-*-auth-token" always came up
+ * empty and every call to /api/whatsapp answered 401.
+ *
+ * The one credential the server issued is surveyAdminToken: created by
+ * create_hader_survey_admin_session, stored hashed with an expiry, and verified
+ * against the database. It is only minted for site_admin and school_admin, so
+ * that is the reach of this path for now — a general Hader session token is the
+ * follow-up that will widen it to anyone with can_use_whatsapp.
+ */
 const resolveAuthToken = (): string | null => {
   try {
-    if (typeof localStorage !== 'undefined') {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed?.access_token) return parsed.access_token;
-          }
-        }
-      }
-    }
+    const session = secureSessionStorage.get();
+    const token = session?.surveyAdminToken;
+    if (!token) return null;
+    if (session?.surveyAdminExpiresAt && session.surveyAdminExpiresAt <= Date.now()) return null;
+    return token;
   } catch {
-    // Ignore storage access error
+    // Storage may be unavailable in hardened browser contexts.
+    return null;
   }
-  return null;
 };
 
 const asRecord = (value: unknown): UnknownRecord =>
@@ -280,8 +290,9 @@ export const createHttpWhatsAppGateway = (
     const apiKey = usesBackendProxy ? '' : resolveApiKey();
     if (apiKey) result['X-API-Key'] = apiKey;
 
+    // ليست JWT، فلا تُرسل كـ Bearer: الوسيط يتحقق منها عبر قاعدة البيانات
     const token = resolveAuthToken();
-    if (token) result['Authorization'] = `Bearer ${token}`;
+    if (token) result['X-Hader-Auth-Token'] = token;
 
     if (json) result['Content-Type'] = 'application/json';
     return result;

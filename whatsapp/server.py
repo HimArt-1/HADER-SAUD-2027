@@ -55,6 +55,26 @@ if VPS_MODE:
 CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS, "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "X-API-Key", "Cache-Control"]}})
 
 
+@app.after_request
+def _forbid_caching(response):
+    """امنع تخزين أي رد من هذا الخادم، في أي وسيط بينه وبين المتصفح.
+
+    الخادم صار خلف Cloudflare، وCloudflare خزّن ردود الـ API وبدأ يخدمها من
+    الحافة: طلب بلا مفتاح API استلم ردّ /api/status كاملاً — حالة المحرك،
+    logged_in، وأسطر من سجل الخادم — لأن مفتاح التخزين يُبنى من العنوان وحده
+    ولا يشمل ترويسة X-API-Key. أي ردّ ناجح لطلب مُصادَق يصير بذلك متاحاً لمن
+    لا يملك المفتاح، وحالة قديمة تُعرض في لوحة حاضر بدل الحالة الحقيقية.
+
+    لا شيء هنا يحتمل التخزين أصلاً: كل نقطة تصف لحظة راهنة أو تغيّر حالة.
+    no-store تمنع الحافة والمتصفح معاً، ولا تعتمد على إعداد في لوحة Cloudflare
+    قد يتغيّر أو يُورَّث من قواعد النطاق الأب.
+    """
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+
 # إنشاء Blueprint للتعامل مع بادئة /api
 api_bp = Blueprint('api', __name__)
 
@@ -592,8 +612,15 @@ watchdog_thread.start()
 
 @api_bp.route('/', methods=['GET'])
 @rate_limit(general_limiter)
+@require_api_key
 def index():
-    """رسالة ترحيبية عند زيارة الصفحة الرئيسية"""
+    """رسالة ترحيبية — خلف المفتاح منذ أن صار الخادم على نطاق عام.
+
+    كانت تُعرض لأي زائر: رقم الإصدار وقائمة المزايا وأسماء نقاط التحكم. لا شيء
+    منها سرّ بذاته، لكنه يختصر على من يستطلع الخادم نصف الطريق. فحص الحياة
+    /api/health يبقى مفتوحاً لأن أدوات التشغيل تحتاجه، وهو لا يقول أكثر من
+    أن العملية ترد.
+    """
     return jsonify({
         "status": "online",
         "message": "WhatsApp Control Server is Running. Use /status, /start, /sending/start, /stop endpoints.",

@@ -47,7 +47,28 @@ const extractBearerToken = (request: IncomingMessage): string | null => {
   return null;
 };
 
-/** Verify user authentication & role */
+/**
+ * Verify the caller holds a real Hader staff session, and say what it proves.
+ *
+ * The first version of this asked Supabase Auth to validate a JWT. Hader never
+ * issues one: staff credentials are checked by the hader-auth edge function,
+ * which returns a plain user record, and the browser session is an encrypted
+ * blob holding a locally generated UUID. So the header was always absent and
+ * every request answered 401 — the page looked broken while the tunnel, the key
+ * and the bridge were all fine.
+ *
+ * What the server did issue is the survey-admin session token: minted by
+ * create_hader_survey_admin_session, stored as a hash with an expiry, and bound
+ * to a user who is site_admin or school_admin and still active. list_hader_surveys
+ * is used to check it because it calls require_hader_survey_admin first and
+ * raises on an invalid, expired or revoked session — it is granted to anon, so
+ * the anon key is enough and no service-role secret has to live on Vercel.
+ *
+ * That check proves "an active Hader admin session", which is why the role
+ * returned is hader_admin rather than a guess at which of the two roles it was.
+ * It is narrower than the WhatsApp page's own rule (site_admin OR
+ * can_use_whatsapp); widening it is the general session token that comes next.
+ */
 const authenticateUser = async (request: IncomingMessage): Promise<{ ok: boolean; role?: string; error?: string }> => {
   // In development mode on localhost, allow bypass if explicitly configured
   const isDev = process.env.NODE_ENV === 'development';
@@ -70,13 +91,13 @@ const authenticateUser = async (request: IncomingMessage): Promise<{ ok: boolean
   }
 
   try {
-    const { data, error } = await supabase.auth.getUser(token);
-    if (error || !data?.user) {
-      return { ok: false, error: 'جلسة المستخدم منتهية الصلاحية أو غير صالحة' };
-    }
-    const role = (data.user.user_metadata as Record<string, unknown>)?.role as string | undefined;
-    return { ok: true, role: role || 'authenticated' };
-  } catch (err) {
+    const { error } = await supabase.rpc('list_hader_surveys', { p_session_token: token });
+    if (!error) return { ok: true, role: 'hader_admin' };
+    return {
+      ok: false,
+      error: 'انتهت جلسة حاضر أو لا تملك صلاحية إدارية. سجّل الخروج ثم ادخل مجدداً.'
+    };
+  } catch {
     return { ok: false, error: 'فشل التحقق من الجلسة' };
   }
 };
@@ -106,7 +127,7 @@ const handler = async (request: IncomingMessage, response: ServerResponse): Prom
   // CORS Preflight
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Idempotency-Key');
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Hader-Auth-Token, X-Idempotency-Key');
 
   if (request.method === 'OPTIONS') {
     response.statusCode = 204;
@@ -123,6 +144,7 @@ const handler = async (request: IncomingMessage, response: ServerResponse): Prom
 
   // 2. Authorize permissions: only admins/managers/supervisors can access WhatsApp engine
   const ALLOWED_WHATSAPP_ROLES = new Set([
+    'hader_admin',
     'site_admin',
     'school_admin',
     'supervisor_global',
