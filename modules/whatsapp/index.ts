@@ -146,13 +146,37 @@ export type WhatsAppSubscription = Readonly<{
   onError?: (error: Error) => void;
 }>;
 
+/**
+ * The schedule that raises late and absence notices. It lives on the bridge, not in
+ * this page: a schedule that only ticks while someone keeps the dashboard open is not
+ * a schedule, and two open dashboards used to raise the same notice twice.
+ */
+export type WhatsAppSchedule = Readonly<{
+  enabled: boolean;
+  time: string;
+  timezone: string;
+  categories: readonly string[];
+  weekdays: readonly number[];
+  templates: Readonly<Record<string, string>>;
+}>;
+
+export type WhatsAppScheduleState = Readonly<{
+  settings: WhatsAppSchedule;
+  next_run_at: string | null;
+  server_time: string;
+  recent_runs: ReadonlyArray<Readonly<{ run_key: string; created_at: string; queued: number }>>;
+}>;
+
 export type WhatsAppGateway = Readonly<{
   getStatus(options?: Readonly<{ timeoutMs?: number }>): Promise<WhatsAppStatus>;
   getQueue(): Promise<WhatsAppQueueItem[]>;
-  enqueue(messages: readonly WhatsAppOutboundMessage[]): Promise<void>;
+  enqueue(messages: readonly WhatsAppOutboundMessage[], options?: Readonly<{ append?: boolean; idempotencyKey?: string }>): Promise<void>;
   upload(file: File): Promise<string>;
   control(command: WhatsAppCommand): Promise<void>;
   subscribe(observer: WhatsAppSubscription): () => void;
+  getQrCode?(options?: Readonly<{ timeoutMs?: number }>): Promise<{ qr: string | null; authenticated: boolean; state: string }>;
+  getSchedule?(): Promise<WhatsAppScheduleState>;
+  updateSchedule?(patch: Partial<WhatsAppSchedule>): Promise<WhatsAppScheduleState>;
 }>;
 
 type InMemoryWhatsAppGatewayOptions = Readonly<{
@@ -315,6 +339,15 @@ export const createInMemoryWhatsAppGateway = (
         default:
           return;
       }
+    },
+    async getQrCode() {
+      const requireQr = options.requireQrScan ?? false;
+      const waiting = state() === 'waiting_login';
+      return {
+        qr: waiting ? 'data:image/png;base64,mockqr' : null,
+        authenticated: !requireQr && alive(),
+        state: state()
+      };
     },
     subscribe(observer) {
       observers.add(observer);

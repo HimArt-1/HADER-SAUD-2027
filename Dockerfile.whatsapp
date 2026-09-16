@@ -1,0 +1,164 @@
+# ══════════════════════════════════════════════════════════════
+# Hader WhatsApp Pro Server — VPS Docker Image
+# Chrome + Xvfb + noVNC for remote QR scanning
+# ══════════════════════════════════════════════════════════════
+FROM python:3.12-slim
+
+LABEL maintainer="Hader Team"
+LABEL description="WhatsApp Pro Server with Chrome, Xvfb, and noVNC"
+
+# Prevent interactive prompts during install
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV DISPLAY=:99
+ENV SCREEN_WIDTH=1280
+ENV SCREEN_HEIGHT=900
+ENV SCREEN_DEPTH=24
+
+# ── System dependencies ──────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Display server
+    xvfb \
+    # VNC server for the emergency screen (the web client comes from pip/GitHub below)
+    x11vnc \
+    # Chrome dependencies
+    wget \
+    gnupg2 \
+    curl \
+    unzip \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+    fonts-freefont-ttf \
+    fonts-noto \
+    # Arabic font support
+    fonts-arabeyes \
+    # Misc
+    procps \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Process manager + VNC web client, on the image's own Python ─
+# Debian's supervisor, websockify and novnc packages all depend on the distro
+# python3, which means a second interpreter beside the one this image is built on.
+# Installing them with pip keeps a single Python, drops a large dependency tree,
+# and avoids the distro python3 post-install step — which is also the step that
+# segfaults when the image is built for amd64 under QEMU emulation, so this is
+# what makes an emulated cross-build possible at all.
+ARG NOVNC_VERSION=1.5.0
+RUN set -eux; \
+    # setuptools<81: supervisor 4.2.5 still imports pkg_resources, which setuptools 81
+    # dropped. Without the pin the container starts, prints a traceback and exits.
+    pip install --no-cache-dir "supervisor==4.2.5" "websockify==0.12.0" "setuptools<81"; \
+    supervisord --version; \
+    curl -fsSL -o /tmp/novnc.tar.gz "https://github.com/novnc/noVNC/archive/refs/tags/v${NOVNC_VERSION}.tar.gz"; \
+    mkdir -p /usr/share/novnc; \
+    tar -xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1; \
+    rm -f /tmp/novnc.tar.gz; \
+    test -f /usr/share/novnc/vnc.html
+
+# ── Browser + matching driver, both pinned at build time ─────
+# The driver is installed here, never downloaded at start-up: a container that
+# fetches its own chromedriver on boot needs outbound internet on every restart,
+# and silently picks up a version that may not match the browser. A mismatch
+# only shows up as a failed login hours later.
+#
+#   amd64 → Google Chrome Stable from apt, plus the chromedriver published for
+#           the same milestone by Chrome for Testing.
+#   arm64 → Debian chromium + chromium-driver, which apt keeps in lockstep.
+#           Google publishes no Chrome build for Linux arm64, so an arm64 image
+#           is a development convenience and not what production runs.
+RUN set -eux; \
+    ARCH="$(dpkg --print-architecture)"; \
+    if [ "$ARCH" = "amd64" ]; then \
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg; \
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends google-chrome-stable; \
+        rm -rf /var/lib/apt/lists/*; \
+        ln -sf /usr/bin/google-chrome-stable /usr/bin/google-chrome; \
+        CHROME_FULL="$(google-chrome-stable --version | grep -oE '[0-9]+(\.[0-9]+){3}')"; \
+        CHROME_MAJOR="$(echo "$CHROME_FULL" | cut -d. -f1)"; \
+        echo "Chrome ${CHROME_FULL} (milestone ${CHROME_MAJOR})"; \
+        CFT="https://storage.googleapis.com/chrome-for-testing-public"; \
+        if curl -fsSL -o /tmp/chromedriver.zip "${CFT}/${CHROME_FULL}/linux64/chromedriver-linux64.zip"; then \
+            echo "chromedriver pinned to the exact Chrome build ${CHROME_FULL}"; \
+        else \
+            DRIVER_VERSION="$(curl -fsSL "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR}")"; \
+            echo "no exact build; using milestone ${CHROME_MAJOR} driver ${DRIVER_VERSION}"; \
+            curl -fsSL -o /tmp/chromedriver.zip "${CFT}/${DRIVER_VERSION}/linux64/chromedriver-linux64.zip"; \
+        fi; \
+        unzip -q -j /tmp/chromedriver.zip '*/chromedriver' -d /usr/local/bin; \
+        rm -f /tmp/chromedriver.zip; \
+        chmod +x /usr/local/bin/chromedriver; \
+    else \
+        apt-get update; \
+        apt-get install -y --no-install-recommends chromium chromium-driver; \
+        rm -rf /var/lib/apt/lists/*; \
+        ln -sf /usr/bin/chromium /usr/bin/google-chrome; \
+        ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver; \
+    fi; \
+    BROWSER_MAJOR="$(/usr/bin/google-chrome --version | grep -oE '[0-9]+' | head -1)"; \
+    DRIVER_MAJOR="$(/usr/local/bin/chromedriver --version | grep -oE '[0-9]+' | head -1)"; \
+    echo "browser milestone ${BROWSER_MAJOR} / driver milestone ${DRIVER_MAJOR}"; \
+    test "$BROWSER_MAJOR" = "$DRIVER_MAJOR"
+
+# The last line of the RUN above fails the build when the browser and the driver
+# disagree on the milestone, so a mismatched pair can never reach a server.
+
+# The engine reads this and never reaches for webdriver-manager.
+ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
+
+# ── Create non-root user for security ────────────────────────
+RUN groupadd -g 1000 hader && \
+    useradd -u 1000 -g hader -m -s /bin/bash hader && \
+    mkdir -p /home/hader/.vnc /app/whatsapp /tmp/.X11-unix && \
+    chmod 1777 /tmp/.X11-unix && \
+    chown -R hader:hader /home/hader
+
+# ── Working directory ────────────────────────────────────────
+WORKDIR /app/whatsapp
+
+# ── Python dependencies ──────────────────────────────────────
+COPY whatsapp/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Copy application code ────────────────────────────────────
+COPY whatsapp/server.py ./
+COPY whatsapp/whatsapp_pro_tool.py ./
+COPY whatsapp/engine_controller.py ./
+COPY whatsapp/sqlite_db.py ./
+COPY whatsapp/scheduler.py ./
+COPY whatsapp/bridge.py ./
+COPY .env* /app/
+
+# ── Create required directories with hader ownership ─────────
+RUN mkdir -p /app/whatsapp/uploads \
+             /app/whatsapp/certificates \
+             /app/whatsapp/logs \
+             /app/whatsapp/whatsapp_session \
+             /app/whatsapp/whatsapp_data && \
+    chown -R hader:hader /app/whatsapp
+
+# ── Supervisor config (manages Xvfb + x11vnc + noVNC + server) ─
+# /etc/supervisord.conf is where supervisorctl looks by default. Putting the file
+# under /etc/supervisor/conf.d instead meant "supervisorctl status" ignored it and
+# tried http://localhost:9001, so the documented emergency commands all failed.
+COPY whatsapp/deploy/supervisord.conf /etc/supervisord.conf
+
+# ── Startup script ───────────────────────────────────────────
+COPY whatsapp/deploy/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# ── Ports ────────────────────────────────────────────────────
+# 5001 = WhatsApp API server
+# 6080 = noVNC web interface (for QR scanning via browser)
+EXPOSE 5001 6080
+
+# ── Volumes for persistent data ──────────────────────────────
+VOLUME ["/app/whatsapp/whatsapp_session", "/app/whatsapp/logs"]
+
+# ── Health check ─────────────────────────────────────────────
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:5001/api/health || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]

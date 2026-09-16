@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createInMemoryWhatsAppGateway, isEngineAlive } from '../modules/whatsapp';
 import {
   createHttpWhatsAppGateway,
+  resolveBaseUrl,
   WHATSAPP_COMMAND_ROUTES,
   WhatsAppGatewayError
 } from '../services/whatsappGateway';
@@ -273,5 +274,61 @@ describe('WhatsApp gateway interface', () => {
       })
     );
     streamController?.close();
+  });
+
+  it('locks baseUrl to /api/whatsapp in production and ignores malicious localStorage overrides', () => {
+    // When import.meta.env.DEV is false (production mode simulation)
+    const originalDev = import.meta.env.DEV;
+    try {
+      (import.meta.env as any).DEV = false;
+      localStorage.setItem('hader:whatsapp_api_url', 'https://malicious-site.com/steal-data');
+
+      const url = resolveBaseUrl();
+      expect(url).toBe('/api/whatsapp');
+      expect(url).not.toContain('malicious-site.com');
+    } finally {
+      (import.meta.env as any).DEV = originalDev;
+      localStorage.removeItem('hader:whatsapp_api_url');
+    }
+  });
+
+  it('supports getQrCode() and attaches idempotencyKey in enqueue', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/qr')) {
+        return jsonResponse({ qr: 'data:image/png;base64,mockqr', authenticated: false, state: 'waiting_login' });
+      }
+      if (url.includes('/api/send')) {
+        return jsonResponse({ message: 'saved', saved: 1, duplicates: 0 });
+      }
+      return jsonResponse({});
+    });
+
+    const gateway = createHttpWhatsAppGateway({
+      baseUrl: 'http://localhost:5001',
+      fetcher
+    });
+
+    // 1. Test getQrCode
+    const qrInfo = await gateway.getQrCode?.();
+    expect(qrInfo).toMatchObject({
+      qr: 'data:image/png;base64,mockqr',
+      authenticated: false,
+      state: 'waiting_login'
+    });
+
+    // 2. Test enqueue with idempotency key
+    await gateway.enqueue(
+      [{ phone: '0501234567', message: 'Hello' }],
+      { idempotencyKey: 'client-key-abc-123' }
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://localhost:5001/api/send?append=true',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'X-Idempotency-Key': 'client-key-abc-123'
+        })
+      })
+    );
   });
 });

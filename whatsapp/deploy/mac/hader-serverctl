@@ -1,0 +1,163 @@
+#!/bin/bash
+# ══════════════════════════════════════════════════════════════
+# hader-serverctl — تشغيل خادم واتساب حاضر على جهاز ماك
+#
+# الماك هنا ليس جهاز تطوير بل خادم: لا شاشة يراقبها أحد، ولا يد تضغط زراً
+# بعد كل إعادة تشغيل. لذلك كل أمر هنا قابل لإعادة التنفيذ بلا ضرر، ويتحقق
+# من النتيجة بدل أن يفترضها.
+#
+#   hader-serverctl up          شغّل Colima والحاوية
+#   hader-serverctl down        أوقف الحاوية (Colima تبقى)
+#   hader-serverctl status      حالة كل طبقة
+#   hader-serverctl serve on    وضع الخدمة: امنع سكون النظام (الشاشة تنطفئ)
+#   hader-serverctl serve off   أنهِ وضع الخدمة
+#   hader-serverctl supervise   حلقة إشراف (يستدعيها LaunchAgent)
+#   hader-serverctl logs        سجل المحرك
+# ══════════════════════════════════════════════════════════════
+set -uo pipefail
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+PROJECT_DIR="${HADER_PROJECT_DIR:-$HOME/Downloads/Hader-ma-main}"
+COMPOSE_FILE="$PROJECT_DIR/docker-compose.whatsapp.yml"
+CONTAINER="hader-whatsapp"
+STATE_DIR="$HOME/.hader"
+AWAKE_PID_FILE="$STATE_DIR/serve-awake.pid"
+LOG_FILE="$STATE_DIR/serverctl.log"
+
+mkdir -p "$STATE_DIR"
+
+log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"; }
+quiet_log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"; }
+
+# ── Colima ───────────────────────────────────────────────────
+colima_running() { colima status >/dev/null 2>&1; }
+
+ensure_colima() {
+  if colima_running; then return 0; fi
+  log "Colima متوقفة — جارٍ تشغيلها…"
+  # بلا وسائط: تستخدم إعدادات الـ VM المحفوظة، فلا نغيّر حجم القرص أو الذاكرة
+  # ولا نخاطر بحذف الحجوم التي تحمل جلسة واتساب.
+  colima start >>"$LOG_FILE" 2>&1 || { log "تعذّر تشغيل Colima"; return 1; }
+  for _ in $(seq 1 60); do
+    docker info >/dev/null 2>&1 && { log "Docker جاهز"; return 0; }
+    sleep 2
+  done
+  log "Docker لم يجهز خلال دقيقتين"
+  return 1
+}
+
+# ── الحاوية ──────────────────────────────────────────────────
+container_running() { [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]; }
+
+container_healthy() {
+  curl -fsS --max-time 5 http://127.0.0.1:5001/api/health >/dev/null 2>&1
+}
+
+container_exists() { docker inspect "$CONTAINER" >/dev/null 2>&1; }
+
+ensure_container() {
+  if container_healthy; then return 0; fi
+  if container_running; then
+    quiet_log "الحاوية تعمل لكنها لا ترد بعد — انتظار"
+  elif container_exists; then
+    # docker start لا docker compose: ملف compose يقع داخل ~/Downloads، وماك
+    # يمنع خدمات الخلفية من قراءة ذلك المجلد (TCC) فيفشل الوكيل بـ
+    # "Operation not permitted". الحاوية موجودة أصلاً، وتشغيلها لا يحتاج الملف،
+    # وكل إعداداتها وحجومها محفوظة فيها منذ إنشائها.
+    log "الحاوية متوقفة — جارٍ تشغيلها…"
+    docker start "$CONTAINER" >>"$LOG_FILE" 2>&1
+  else
+    log "الحاوية غير موجودة — شغّل من مجلد المشروع:  hader-serverctl up"
+    return 1
+  fi
+  for _ in $(seq 1 45); do
+    container_healthy && { log "خادم واتساب يرد على /api/health"; return 0; }
+    sleep 2
+  done
+  log "خادم واتساب لم يرد خلال 90 ثانية"
+  return 1
+}
+
+# ── وضع الخدمة: منع سكون النظام مع السماح بانطفاء الشاشة ─────
+awake_pid() { [ -f "$AWAKE_PID_FILE" ] && cat "$AWAKE_PID_FILE" 2>/dev/null; }
+awake_running() { local p; p="$(awake_pid)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+
+serve_on() {
+  if awake_running; then log "وضع الخدمة يعمل أصلاً (PID $(awake_pid))"; return 0; fi
+  # -i يمنع السكون الخامل، -m يمنع سكون القرص، -s يمنع السكون على الطاقة.
+  # لا نمرّر -d عن قصد: الشاشة تنطفئ كالمعتاد، والنظام يبقى مستيقظاً.
+  caffeinate -i -m -s &
+  echo $! > "$AWAKE_PID_FILE"
+  log "وضع الخدمة مفعّل (PID $!) — النظام لن ينام، والشاشة تنطفئ كالمعتاد"
+}
+
+serve_off() {
+  if ! awake_running; then rm -f "$AWAKE_PID_FILE"; log "وضع الخدمة متوقف أصلاً"; return 0; fi
+  kill "$(awake_pid)" 2>/dev/null
+  rm -f "$AWAKE_PID_FILE"
+  log "أُنهي وضع الخدمة — النظام يعود لسلوك السكون المعتاد"
+}
+
+# ── المفتاح ──────────────────────────────────────────────────
+# يُعاد على stdout للاستهلاك المباشر في ترويسة، ولا يُطبع للمستخدم ولا يُسجَّل.
+read_api_key() {
+  if [ -r "$PROJECT_DIR/.env" ]; then
+    local from_file
+    from_file="$(grep -E '^WHATSAPP_API_KEY=' "$PROJECT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
+    [ -n "$from_file" ] && { printf '%s' "$from_file"; return 0; }
+  fi
+  docker exec "$CONTAINER" printenv WHATSAPP_API_KEY 2>/dev/null | tr -d '\r\n'
+}
+
+# ── الحالة ───────────────────────────────────────────────────
+status() {
+  printf '\n  ── خادم واتساب حاضر ─────────────────────────────\n'
+  printf '  %-22s %s\n' "Colima"        "$(colima_running && echo 'تعمل' || echo 'متوقفة')"
+  printf '  %-22s %s\n' "Docker"        "$(docker info >/dev/null 2>&1 && echo 'جاهز' || echo 'غير متاح')"
+  printf '  %-22s %s\n' "الحاوية"       "$(container_running && docker inspect -f '{{.State.Status}} ({{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}})' "$CONTAINER" 2>/dev/null || echo 'متوقفة')"
+  printf '  %-22s %s\n' "/api/health"   "$(container_healthy && echo 'يرد' || echo 'لا يرد')"
+  printf '  %-22s %s\n' "وضع الخدمة"    "$(awake_running && echo "مفعّل (PID $(awake_pid))" || echo 'متوقف')"
+  printf '  %-22s %s\n' "النفق"         "$(pgrep -f 'cloudflared.*hader-whatsapp' >/dev/null && echo 'يعمل' || echo 'متوقف')"
+
+  # الحالة التفصيلية تحتاج المفتاح. يُقرأ من .env إن كان متاحاً، وإلا من
+  # الحاوية نفسها — ولا يُطبع ولا يُكتب في أي سجل في الحالتين.
+  local key state
+  key="$(read_api_key)"
+  if [ -n "$key" ]; then
+    state="$(curl -fsS --max-time 5 -H "X-API-Key: $key" http://127.0.0.1:5001/api/status 2>/dev/null \
+      | python3 -c 'import sys,json;d=json.load(sys.stdin);print("%s | مرتبط=%s | الإرسال=%s | الطابور=%s" % (d["state"], d["logged_in"], "متوقف" if not d["sending"] else "جارٍ", d["pending"]))' 2>/dev/null)"
+    printf '  %-22s %s\n' "المحرك" "${state:-غير متاح}"
+  fi
+  printf '  ─────────────────────────────────────────────────\n\n'
+}
+
+# ── حلقة الإشراف (LaunchAgent) ───────────────────────────────
+supervise() {
+  log "بدأت حلقة إشراف خادم حاضر"
+  local backoff=10
+  while true; do
+    if ensure_colima && ensure_container; then
+      backoff=10
+    else
+      # فشل متكرر: تباعد تصاعدي حتى دقيقتين، فلا نرهق الجهاز ولا نملأ السجل
+      quiet_log "تعذّرت التهيئة — إعادة المحاولة بعد ${backoff}s"
+      sleep "$backoff"
+      backoff=$(( backoff < 120 ? backoff * 2 : 120 ))
+      continue
+    fi
+    # عشرون ثانية: قصيرة بما يكفي ليعود الخادم بسرعة بعد سقوط الحاوية أو
+    # استيقاظ الجهاز من السكون، وطويلة بما يكفي ألا تُرهق الجهاز بفحص مستمر.
+    sleep 20
+  done
+}
+
+case "${1:-status}" in
+  up)      ensure_colima && ensure_container && status ;;
+  down)    (cd "$PROJECT_DIR" && docker compose -f "$COMPOSE_FILE" down) && log "أُوقفت الحاوية (الحجوم والجلسة محفوظة)" ;;
+  status)  status ;;
+  serve)   case "${2:-}" in on) serve_on ;; off) serve_off ;; *) echo "الاستخدام: hader-serverctl serve on|off"; exit 2 ;; esac ;;
+  supervise) supervise ;;
+  logs)    docker exec "$CONTAINER" tail -n "${2:-40}" /app/whatsapp/logs/server.log ;;
+  *)       sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

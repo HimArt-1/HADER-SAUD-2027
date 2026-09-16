@@ -44,6 +44,7 @@ import useSoundEffects from '../hooks/useSoundEffects';
 import useQueuePersistence from '../hooks/useQueuePersistence';
 import { useAdminTheme } from '../hooks/useAdminTheme';
 import { UniversalGuideModal, GuideStep } from '../components/common/UniversalGuideModal';
+import { WhatsAppQrModal } from '../components/whatsapp/WhatsAppQrModal';
 import { Chrome, Smartphone, CheckCircle2 } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════
@@ -160,6 +161,7 @@ const WhatsAppControl: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [showGuide, setShowGuide] = useState(false);
+    const [showQrModal, setShowQrModal] = useState(false);
 
     const whatsappGuideSteps: GuideStep[] = [
         {
@@ -569,6 +571,8 @@ const WhatsAppControl: React.FC = () => {
     }, hasPermission);
 
     // Save AutoPilot Settings
+    // تُحفظ في مكانين عن قصد: إعدادات حاضر لتظهر في الواجهة، والجسر لأنه هو من
+    // ينفّذ الجدولة فعلاً. إن كان الجسر متوقفاً تبقى الإعدادات محفوظة ويُبلَّغ المستخدم.
     const saveAutoPilotSettings = async (enabled: boolean, time: string) => {
         setAutoPilot(enabled);
         setAutoPilotTime(time);
@@ -576,6 +580,19 @@ const WhatsAppControl: React.FC = () => {
             type: 'patch',
             changes: { whatsapp_autopilot: enabled, whatsapp_autopilot_time: time }
         });
+        if (!whatsappGateway.updateSchedule) return;
+        try {
+            const state = await whatsappGateway.updateSchedule({ enabled, time });
+            const next = state?.next_run_at;
+            showToast(
+                enabled
+                    ? `الطيار الآلي يعمل على الخادم${next ? ` — التشغيل القادم ${new Date(next).toLocaleString('ar')}` : ''}`
+                    : 'أُوقف الطيار الآلي على الخادم',
+                'success'
+            );
+        } catch {
+            showToast('حُفظت الإعدادات، لكن تعذّر إبلاغ خادم واتساب — الجدولة لن تعمل حتى يعود', 'error');
+        }
     };
 
     // Save Live Notifications (On Present) Settings
@@ -637,60 +654,26 @@ const WhatsAppControl: React.FC = () => {
     }, [attendance, students]);
 
     // Auto-Pilot Scheduler
+    // الطيار الآلي يعمل الآن على الخادم (whatsapp/scheduler.py)، لا هنا.
+    // كان هذا setInterval يفحص الساعة ويضيف رسائل التأخر إلى الطابور، فكان يعمل
+    // فقط ما دامت اللوحة مفتوحة على جهاز أحدهم، ويضيف الرسائل مرتين إن فُتحت على
+    // جهازين، ويقرأ الساعة من منطقة المتصفح لا من منطقة المدرسة. الخادم يحجز
+    // مفتاح تشغيل واحداً لليوم ويبني معرّفات ثابتة، فلا يتكرر الإشعار.
+    // هذه الصفحة تقرأ الجدولة وتكتبها فقط.
     useEffect(() => {
-        if (!autoPilot || !lateList.length) return;
-
-        const checkTime = () => {
-            const now = new Date();
-            const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-
-            if (currentTime === autoPilotTime) {
-                const today = getLocalISODate();
-                const lastRun = localStorage.getItem('hader_autopilot_last_run');
-
-                if (lastRun !== today) {
-                    logger.debug('WhatsApp', '🤖 Auto-Pilot Triggered!');
-                    const template = templates.find(t => t.category === 'late') || templates[0];
-                    const msg = template.content; // Default late message
-
-                    const newItems = lateList.filter(s => s.guardian_phone).map(s => {
-                        const timeLabel = formatAttendanceTime(s.record.timestamp);
-
-                        return {
-                            id: generateSecureId(),
-                            studentName: s.name,
-                            phone: s.guardian_phone!,
-                            message: msg.replace('{StudentName}', s.name).replace('{Date}', today).replace('{Time}', timeLabel === '-' ? '07:30' : timeLabel),
-                            status: 'pending' as const,
-                            timestamp: Date.now(),
-                            statusLabel: 'تأخر'
-                        };
-                    });
-
-                    if (newItems.length > 0) {
-                        void whatsappGateway.enqueue(newItems.map(item => ({
-                                phone: item.phone,
-                                message: item.message,
-                                student_name: item.studentName,
-                                status_label: item.statusLabel
-                            }))).then(() => {
-                            localStorage.setItem('hader_autopilot_last_run', today);
-                            fetchQueue();
-                            showToast(`🤖 تم تشغيل الطيار الآلي: تم إرسال ${newItems.length} رسالة تأخر.`, "success");
-                        }).catch((error) => {
-                            console.error('فشل الطيار الآلي:', error);
-                            showToast("فشل إرسال رسائل الطيار الآلي", "error");
-                        });
-                    }
-                }
-            }
-        };
-
-        const timer = setInterval(checkTime, 60000); // Check every minute
-        checkTime(); // Check immediately too
-
-        return () => clearInterval(timer);
-    }, [autoPilot, autoPilotTime, lateList, templates]);
+        if (!hasPermission || !whatsappGateway.getSchedule) return;
+        let cancelled = false;
+        whatsappGateway.getSchedule()
+            .then(state => {
+                if (cancelled || !state?.settings) return;
+                setAutoPilot(Boolean(state.settings.enabled));
+                if (state.settings.time) setAutoPilotTime(state.settings.time);
+            })
+            .catch(() => {
+                // الجسر قد يكون متوقفاً؛ تبقى القيم المحفوظة في الإعدادات كما هي.
+            });
+        return () => { cancelled = true; };
+    }, [hasPermission]);
 
     const handleSend = async () => {
         // handleSend delegates entirely to addToQueue which handles all tabs
@@ -1229,6 +1212,7 @@ const WhatsAppControl: React.FC = () => {
                                 onContinuousChange={updateContinuousMode}
                                 onCommand={(command) => { void runEngineCommand(command); }}
                                 onResetCounters={() => setExecutionQueue([])}
+                                onShowQr={() => setShowQrModal(true)}
                             />
 
                             {/* 🎫 إرسال الباركود لأولياء الأمور */}
@@ -1515,6 +1499,14 @@ const WhatsAppControl: React.FC = () => {
                 title="دليل أتمتة واتساب"
                 steps={whatsappGuideSteps}
                 heroImage="/images/whatsapp_guide_hero.webp"
+            />
+
+            {/* WhatsApp QR Modal */}
+            <WhatsAppQrModal
+                isOpen={showQrModal}
+                onClose={() => setShowQrModal(false)}
+                status={status}
+                onRestartEngine={() => { void runEngineCommand('start'); }}
             />
         </div >
     );

@@ -5,6 +5,14 @@
   "buildCommand": "npm run build",
   "rewrites": [
     {
+      "source": "/api/whatsapp/(.*)",
+      "destination": "/api/whatsapp?route=$1"
+    },
+    {
+      "source": "/api/whatsapp",
+      "destination": "/api/whatsapp"
+    },
+    {
       "source": "/((?!api/|assets/|downloads/|images/|desktop/|dragon-duel/).*)",
       "destination": "/index.html"
     }

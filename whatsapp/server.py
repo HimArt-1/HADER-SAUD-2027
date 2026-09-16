@@ -12,10 +12,12 @@ import html
 import re
 import json
 import queue as queue_module
+import signal
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from whatsapp_pro_tool import WhatsAppProTool
 from engine_controller import EngineController, sanitize_mission_options
+from scheduler import AttendanceScheduler, supabase_source
 from PIL import Image, ImageDraw, ImageFont
 import random
 
@@ -41,7 +43,17 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5174",
     "https://hader-saud-2027.vercel.app",
 ]
+# VPS mode: allow additional CORS origins from environment
+_extra_origins = os.environ.get('WHATSAPP_CORS_ORIGINS', '').strip()
+if _extra_origins:
+    ALLOWED_ORIGINS.extend([o.strip() for o in _extra_origins.split(',') if o.strip()])
+# VPS mode flag (inline check — _env_bool is defined below)
+VPS_MODE = os.environ.get('WHATSAPP_VPS_MODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+if VPS_MODE:
+    logging.info("🌐 VPS Mode: enabled — server accessible remotely")
+
 CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS, "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "X-API-Key", "Cache-Control"]}})
+
 
 # إنشاء Blueprint للتعامل مع بادئة /api
 api_bp = Blueprint('api', __name__)
@@ -50,6 +62,49 @@ api_bp = Blueprint('api', __name__)
 
 # مفتاح API للمصادقة (يجب تعيينه في متغيرات البيئة)
 API_SECRET_KEY = (os.environ.get('WHATSAPP_API_KEY') or '').strip() or None
+
+# ── وضع التشغيل: development (افتراضي) أو production ──────────
+# production تعني أن الخدمة تخدم مدرسة حقيقية، فالمفتاح شرط للإقلاع.
+# هذا منفصل عن WHATSAPP_VPS_MODE، لأن الأخير يصف بيئة المتصفح (Xvfb/حاوية)
+# لا مدى انكشاف الخدمة: التشغيل المحلي داخل حاوية يحتاج خيارات VPS نفسها
+# دون أن يكون إنتاجاً.
+RUN_ENV = (os.environ.get('WHATSAPP_ENV') or 'development').strip().lower()
+IS_PRODUCTION = RUN_ENV == 'production'
+MIN_API_KEY_LENGTH = 32
+
+
+def _enforce_production_secrets() -> None:
+    """في وضع الإنتاج: ارفض الإقلاع بلا مفتاح API صالح.
+
+    الرفض عند الإقلاع وليس عند أول طلب: خادم يعمل بلا مفتاح يبدو سليماً في
+    كل فحص صحة، بينما كل نقاطه — الطابور وأرقام أولياء الأمور والإرسال —
+    مفتوحة لمن يصل إلى المنفذ. الفشل الصاخب هنا هو ما يمنع نشراً صامتاً.
+    """
+    if not IS_PRODUCTION:
+        return
+    if not API_SECRET_KEY:
+        raise SystemExit(
+            "\n".join([
+                "",
+                "=" * 62,
+                "  ⛔ رُفض الإقلاع: WHATSAPP_ENV=production بلا WHATSAPP_API_KEY",
+                "=" * 62,
+                "  ولّد مفتاحاً وضعه في بيئة الخادم:",
+                "      openssl rand -hex 32",
+                "  ثم أعد التشغيل. يبقى المفتاح في الخادم والوسيط الخلفي فقط،",
+                "  ولا يُسلَّم للمتصفح إطلاقاً.",
+                "=" * 62,
+                "",
+            ])
+        )
+    if len(API_SECRET_KEY) < MIN_API_KEY_LENGTH:
+        raise SystemExit(
+            f"\n⛔ رُفض الإقلاع: طول WHATSAPP_API_KEY {len(API_SECRET_KEY)} محرفاً، "
+            f"والحد الأدنى {MIN_API_KEY_LENGTH}. ولّده بـ: openssl rand -hex 32\n"
+        )
+
+
+_enforce_production_secrets()
 
 # أنواع الملفات المسموح بها
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'}
@@ -76,6 +131,16 @@ def _env_number(name: str, default):
 # ⚙️ إعدادات المحرك (قابلة للضبط من متغيرات البيئة)
 LOGIN_TIMEOUT_SECONDS = _env_number('WHATSAPP_LOGIN_TIMEOUT', 15 * 60)
 AUTO_SEND_ON_START = _env_bool('WHATSAPP_AUTO_SEND_ON_START', False)
+
+# استعادة الاتصال تلقائياً عند إقلاع الخدمة: يفتح المتصفح ويستعيد الجلسة المحفوظة
+# دون أن يضغط أحد "تشغيل". افتراضياً مفعّل داخل الحاوية فقط — على سطح المكتب يبقى
+# القرار للمستخدم. هذا لا يبدأ الإرسال إطلاقاً؛ الإرسال يظل أمراً منفصلاً.
+AUTO_START_ENGINE = _env_bool('WHATSAPP_AUTO_START_ENGINE', VPS_MODE)
+AUTO_START_DELAY_SECONDS = _env_number('WHATSAPP_AUTO_START_DELAY', 3)
+
+# الجدولة على الخادم: تعمل سواء فُتحت لوحة حاضر أم لا.
+SCHEDULER_ENABLED = _env_bool('WHATSAPP_SCHEDULER', True)
+scheduler = AttendanceScheduler(source=supabase_source)
 MISSION_DEFAULTS = sanitize_mission_options({
     'batch_size': os.environ.get('WHATSAPP_BATCH_SIZE'),
     'min_delay': os.environ.get('WHATSAPP_MIN_DELAY'),
@@ -223,11 +288,13 @@ LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
-# فلتر لمنع تسجيل طلبات OPTIONS (CORS preflight) التي تسبب فيضان في اللوغ
+# فلتر لمنع تسجيل طلبات OPTIONS و QR و Base64 لمنع تسريب الرموز إلى السجلات
 class OptionsFilter(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
-        return 'OPTIONS' not in msg
+        if 'OPTIONS' in msg or 'data:image' in msg or '/qr' in msg or 'base64' in msg:
+            return False
+        return True
 
 
 class RingBufferLogHandler(logging.Handler):
@@ -253,12 +320,20 @@ class RingBufferLogHandler(logging.Handler):
 
 class NoiseFilter(logging.Filter):
     """يمنع سجلات HTTP الروتينية (werkzeug) من إغراق سجل لوحة التحكم — تبقى سجلات المحرك فقط."""
-    _NOISY = ('GET /api/status', 'GET /status', 'GET /api/queue', 'GET /queue', 'GET /api/events', 'GET /events', 'OPTIONS')
+    _NOISY = (
+        'GET /api/status', 'GET /status',
+        'GET /api/queue', 'GET /queue',
+        'GET /api/events', 'GET /events',
+        'GET /api/qr', 'GET /qr',
+        'OPTIONS'
+    )
 
     def filter(self, record):
         if record.name.startswith('werkzeug'):
             return False
         msg = record.getMessage()
+        if 'data:image' in msg or 'base64' in msg:
+            return False
         return not any(token in msg for token in self._NOISY)
 
 
@@ -530,12 +605,35 @@ def index():
 def favicon():
     return '', 204
 
+@api_bp.route('/health', methods=['GET'])
+def health():
+    """فحص حياة بلا مصادقة — لا يكشف شيئاً عن الجلسة أو الطابور.
+
+    فحص الحاوية كان ينادي /api/status، وهي محمية بالمفتاح. في وضع الإنتاج صار
+    يتلقى 401 فتُعلَّم الحاوية "unhealthy" وتبدأ أدوات التشغيل بإعادة تشغيلها
+    بلا سبب. الحياة شيء والحالة شيء آخر: هذه تقول إن العملية ترد، ولا تقول
+    أكثر من ذلك.
+    """
+    return jsonify({'ok': True, 'service': 'hader-whatsapp', 'version': VERSION})
+
+
 @api_bp.route('/status', methods=['GET'])
 # بدون rate limit - نقطة فحص الاتصال
 @require_api_key
 def status():
     """حالة المحرك الكاملة: running (المتصفح مفتوح) / logged_in / sending / paused / progress / logs"""
     return jsonify(_engine_payload(log_lines=80))
+
+@api_bp.route('/qr', methods=['GET'])
+# بدون rate limit - رمز QR للجلسة
+@require_api_key
+def get_qr():
+    """استرجاع رمز QR النشط لمسحه داخل واجهة حاضر - لا يتم تسجيل الرمز أبداً في السجلات"""
+    try:
+        qr_info = engine.get_qr_code()
+        return jsonify(qr_info)
+    except Exception as e:
+        return jsonify({"qr": None, "authenticated": False, "error": "failed_to_fetch_qr"}), 500
 
 @api_bp.route('/start', methods=['POST'])
 @require_api_key
@@ -749,8 +847,29 @@ def clear_queue():
 @rate_limit(send_limiter)
 @require_api_key
 def send_list():
-    """استقبال قائمة الإرسال وحفظها في الطابور"""
+    """استقبال قائمة الإرسال وحفظها في الطابور مع دعم مفتاح Idempotency"""
     try:
+        # Idempotency check: prevent duplicate batch execution from network retries or reload
+        idempotency_key = (request.headers.get('X-Idempotency-Key') or request.args.get('idempotency_key') or '').strip()
+        import hashlib
+        req_hash = hashlib.sha256(request.get_data() or b'').hexdigest()
+
+        if idempotency_key:
+            cached = sqlite_db.get_idempotency_record(idempotency_key)
+            if cached:
+                cached_hash = cached.get('request_hash') or ''
+                if cached_hash and cached_hash != req_hash:
+                    logging.warning(f"⚠️ تعارض مفتاح Idempotency ({idempotency_key[:16]}...): تم إرسال حمولة مختلفة لنفس المفتاح")
+                    return jsonify({
+                        "message": "تعارض في مفتاح عدم التكرار: تم إرسال محتوى مختلف بنفس المفتاح مسبقاً.",
+                        "error": "idempotency_mismatch"
+                    }), 409
+
+                logging.info(f"🔁 طلب إرسال مكرر تم استرجاعه من سجل idempotency: {idempotency_key[:24]}...")
+                cached_resp = dict(cached['response'])
+                cached_resp['idempotent_replay'] = True
+                return jsonify(cached_resp), 200
+
         data = request.json
         append_mode = request.args.get('append', 'false').lower() == 'true'
 
@@ -822,15 +941,77 @@ def send_list():
         elif not engine.alive:
             hint = ' شغّل المحرك ثم اضغط "إبدأ الإرسال".'
         note = f" (تم تجاهل {duplicates} رسالة مكررة)" if duplicates else ''
-        return jsonify({
+        resp_data = {
             "message": f"تم حفظ {saved} رسالة في قائمة الانتظار بنجاح.{note}{hint}",
             "saved": saved,
             "duplicates": duplicates,
-        })
+        }
+        if idempotency_key:
+            sqlite_db.save_idempotency_record(idempotency_key, resp_data, request_hash=req_hash)
+        return jsonify(resp_data)
 
     except Exception as e:
         logging.error(f"خطأ في حفظ القائمة: {e}")
         return jsonify({"message": "فشل حفظ القائمة"}), 500
+
+# ═══════════════════════════════════════════════════════════════
+# 🗓️ جدولة إشعارات الحضور (على الخادم، لا في المتصفح)
+# ═══════════════════════════════════════════════════════════════
+
+def _schedule_payload() -> dict:
+    settings = scheduler.get_settings()
+    return {
+        'settings': settings,
+        'next_run_at': scheduler.next_run_at(settings),
+        'server_time': scheduler.now_local(settings).isoformat(),
+        'recent_runs': sqlite_db.get_schedule_runs(10),
+    }
+
+
+@api_bp.route('/schedule', methods=['GET'])
+@require_api_key
+def get_schedule():
+    """إعدادات الجدولة الحالية، موعد التشغيل القادم، وسجل آخر التشغيلات."""
+    return jsonify(_schedule_payload())
+
+
+@api_bp.route('/schedule', methods=['POST'])
+@rate_limit(general_limiter)
+@require_api_key
+def update_schedule():
+    """حدّث إعدادات الجدولة. تُحفظ في قاعدة البيانات لا في المتصفح."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({'message': 'تنسيق الإعدادات غير صحيح'}), 400
+    scheduler.save_settings(body)
+    logging.info("🗓️ تم تحديث إعدادات جدولة الحضور")
+    return jsonify(_schedule_payload())
+
+
+@api_bp.route('/schedule/run', methods=['POST'])
+@rate_limit(general_limiter)
+@require_api_key
+def run_schedule():
+    """شغّل الجدولة الآن.
+
+    ``simulate`` يبني الصفوف ويعرض عددها دون كتابة شيء — لا صفوف في الطابور ولا
+    حجز لتشغيل اليوم — فيمكن تجربة الإعدادات على نظام يعمل دون إنشاء رسالة واحدة.
+    """
+    body = request.get_json(silent=True) or {}
+    simulate = bool(body.get('simulate'))
+    force = bool(body.get('force'))
+    result = scheduler.run_once(force=force, simulate=simulate)
+    if simulate:
+        # لا تُعاد نصوص الرسائل كاملة هنا؛ الملخص يكفي للتحقق ولا يسرّب أرقاماً.
+        rows = result.pop('rows', [])
+        result['preview'] = [
+            {'student_name': r['student_name'], 'status_label': r['status_label'], 'id': r['id']}
+            for r in rows[:20]
+        ]
+    if result.get('queued'):
+        _broadcast_queue_change('schedule', int(result['queued']))
+    return jsonify(result)
+
 
 # ═══════════════════════════════════════════════════════════════
 # 📡 SSE Stream Endpoint
@@ -887,30 +1068,69 @@ def events():
 app.register_blueprint(api_bp, url_prefix='/api')
 app.register_blueprint(api_bp, name='api_root')
 
+def _initialize_runtime():
+    """تهيئة بيئة العمل عند تشغيل الخادم (سواء مباشرة أو عبر Gunicorn)"""
+    for folder in ['uploads', 'certificates', 'logs']:
+        path = os.path.join(os.path.dirname(__file__), folder)
+        if not os.path.exists(path):
+            try:
+                os.makedirs(path, exist_ok=True)
+            except Exception:
+                pass
+    sqlite_db.init_db()
+    start_cleanup_scheduler()
+    cleanup_old_files()
+    _schedule_engine_autostart()
+    if SCHEDULER_ENABLED:
+        scheduler.start()
+
+
+def _schedule_engine_autostart() -> None:
+    """افتح المتصفح واستعد الجلسة بعد إقلاع الخدمة، بلا إرسال.
+
+    بعد إعادة تشغيل الخادم — تحديث، إعادة إقلاع الجهاز، `docker compose up` —
+    كانت الخدمة تعمل والمتصفح مغلقاً حتى يفتح أحدهم لوحة حاضر ويضغط "تشغيل".
+    في خادم بلا شاشة قد يمر ذلك ساعات دون أن ينتبه أحد.
+
+    الاستعادة هنا تصل إلى `ready` فقط: الجلسة عائدة والطابور محفوظ، لكن لا تُرسل
+    رسالة واحدة حتى يُطلب الإرسال صراحةً.
+    """
+    if not AUTO_START_ENGINE:
+        return
+
+    def _boot() -> None:
+        time.sleep(AUTO_START_DELAY_SECONDS)
+        if engine.alive:
+            return
+        ok, message, _ = engine.start_engine(auto_send=False)
+        if ok:
+            logging.info("🔄 استعادة تلقائية: فتح المتصفح واستعادة جلسة واتساب (الإرسال متوقف)")
+        else:
+            logging.warning(f"🔄 تعذّرت الاستعادة التلقائية: {message}")
+
+    threading.Thread(target=_boot, name='engine-autostart', daemon=True).start()
+
+
+_initialize_runtime()
+
+def _graceful_shutdown(signum, frame):
+    logging.info(f"🛑 إشارة إنهاء الخادم ({signum}) - جاري إغلاق المتصفح وحفظ الجلسة...")
+    try:
+        engine.stop_engine()
+    except Exception as e:
+        logging.warning(f"خطأ أثناء الإغلاق السليم: {e}")
+    sys.exit(0)
+
+try:
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
+    signal.signal(signal.SIGINT, _graceful_shutdown)
+except (ValueError, AttributeError):
+    pass
+
 if __name__ == '__main__':
     print("\n" + "═" * 60)
     print(f"   🚀 HADER WHATSAPP PRO SERVER - [v{VERSION} MASTER]")
     print("═" * 60)
-    
-    # التأكد من وجود المجلدات المطلوبة
-    for folder in ['uploads', 'certificates', 'logs']:
-        path = os.path.join(os.path.dirname(__file__), folder)
-        if not os.path.exists(path):
-            os.makedirs(path)
-            print(f"📁 تم إنشاء مجلد: {folder}")
-            
-    # تشغيل جدولة التنظيف التلقائي
-    start_cleanup_scheduler()
-    print("✅ جدولة التنظيف التلقائي: مفعّلة (كل 24 ساعة)")
-    
-    # تنظيف الملفات القديمة عند البدء
-    initial_cleanup = cleanup_old_files()
-    if initial_cleanup > 0:
-        print(f"🧹 تم تنظيف {initial_cleanup} ملف قديم")
-    
-    # التأكد من تهيئة قاعدة البيانات
-    sqlite_db.init_db()
-    
     print("⏸️  الخادم في وضع الاستعداد - جاهز لاستقبال الطلبات")
     print("   1) تشغيل المحرك  → يفتح واتساب ويب وينتظر مسح رمز QR")
     print("   2) إبدأ الإرسال  → يُظهر نافذة واتساب ويبدأ إرسال الطابور")

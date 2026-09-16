@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  نفق Cloudflare المخصص لخادم واتساب.
+
+  cloudflared يعيد الاتصال بنفسه عند انقطاع الشبكة، و KeepAlive هنا يغطي موت
+  العملية نفسها لا انقطاع الشبكة. النفق يخرج من الجهاز إلى Cloudflare، فلا
+  يحتاج فتح أي منفذ على الراوتر ولا عنوان IP ثابتاً.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hader.whatsapp-tunnel</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__CLOUDFLARED__</string>
+        <string>--config</string>
+        <string>__CONFIG__</string>
+        <string>--no-autoupdate</string>
+        <string>tunnel</string>
+        <string>run</string>
+        <string>hader-whatsapp</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>TUNNEL_ORIGIN_CERT</key>
+        <string>__ORIGIN_CERT__</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>15</integer>
+
+    <key>StandardOutPath</key>
+    <string>__STATE_DIR__/tunnel.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__STATE_DIR__/tunnel.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
