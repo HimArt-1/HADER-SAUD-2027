@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { EventEmitter } from 'node:events';
 import handler from '../api/whatsapp';
+import { createHttpWhatsAppGateway } from '../services/whatsappGateway';
 
 function createMockRequest(options: {
   url?: string;
@@ -216,5 +217,46 @@ describe('WhatsApp Proxy RBAC & Security Handler (api/whatsapp.ts)', () => {
     expect(getStatusCode()).toBe(200);
     expect(getJSON().version).toBe('3.0.0');
     expect(forwardedUpstreamUrl).toBe('http://127.0.0.1:5001/api/status');
+  });
+});
+
+describe('the server key never reaches the browser', () => {
+  const captureHeaders = () => {
+    const seen: Array<Record<string, string>> = [];
+    const fetcher = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({ ...((init?.headers as Record<string, string>) ?? {}) });
+      return new Response(JSON.stringify({ ok: true, state: 'idle' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    return { seen, fetcher };
+  };
+
+  it('omits X-API-Key when the app talks through the backend proxy', async () => {
+    const { seen, fetcher } = captureHeaders();
+    const gateway = createHttpWhatsAppGateway({
+      baseUrl: '/api/whatsapp',
+      apiKey: 'a-key-that-must-not-be-sent',
+      fetcher: fetcher as typeof fetch,
+    });
+
+    await gateway.getStatus();
+
+    expect(seen).toHaveLength(1);
+    expect(Object.keys(seen[0])).not.toContain('X-API-Key');
+  });
+
+  it('still sends X-API-Key when talking to a bridge directly', async () => {
+    const { seen, fetcher } = captureHeaders();
+    const gateway = createHttpWhatsAppGateway({
+      baseUrl: 'http://127.0.0.1:5001',
+      apiKey: 'direct-bridge-key',
+      fetcher: fetcher as typeof fetch,
+    });
+
+    await gateway.getStatus();
+
+    expect(seen[0]['X-API-Key']).toBe('direct-bridge-key');
   });
 });

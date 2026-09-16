@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -67,6 +68,26 @@ def init_db():
                 conn.execute('ALTER TABLE idempotency_records ADD COLUMN request_hash TEXT')
             except sqlite3.OperationalError:
                 pass
+            # Scheduler settings live here rather than in the browser: a schedule kept in
+            # localStorage only exists while someone has Hader open, which is the thing the
+            # server-side scheduler exists to fix.
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at TEXT
+                )
+            ''')
+            # One row per completed scheduled run. The primary key is what makes a run
+            # unrepeatable: a restart, a second worker or a clock that ticks over the same
+            # minute twice all try to insert the same key and only the first one wins.
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS schedule_runs (
+                    run_key TEXT PRIMARY KEY,
+                    created_at TEXT,
+                    queued INTEGER DEFAULT 0
+                )
+            ''')
         logging.info("SQLite DB initialized")
     except Exception as e:
         logging.error(f"Error initializing SQLite DB: {e}")
@@ -318,3 +339,77 @@ def save_idempotency_record(key: str, response: Dict[str, Any], request_hash: st
 
 # ─── Auto-initialize on import ────────────────────────────────────
 init_db()
+
+
+# ═══════════════════════════════════════════════════════════════
+# ⚙️ إعدادات مخزّنة + سجل التشغيل المجدول
+# ═══════════════════════════════════════════════════════════════
+
+def get_setting(key: str, default: Any = None) -> Any:
+    """Read a JSON-encoded setting, falling back to ``default``."""
+    try:
+        with get_db() as conn:
+            row = conn.execute('SELECT value FROM app_settings WHERE key = ?', (key,)).fetchone()
+        if row is None:
+            return default
+        return json.loads(row['value'])
+    except Exception as exc:
+        logging.error(f"Error reading setting {key}: {exc}")
+        return default
+
+
+def save_setting(key: str, value: Any) -> bool:
+    try:
+        with get_db() as conn:
+            conn.execute(
+                'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) '
+                'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+                (key, json.dumps(value, ensure_ascii=False), datetime.now().isoformat()),
+            )
+        return True
+    except Exception as exc:
+        logging.error(f"Error saving setting {key}: {exc}")
+        return False
+
+
+def claim_schedule_run(run_key: str) -> bool:
+    """Claim a scheduled run, returning True only for the caller that got there first.
+
+    The whole duplicate-guard rests on this one INSERT OR IGNORE: whoever inserts the
+    row owns the run, and every later attempt for the same key is told no. That covers
+    a restart during the scheduled minute, a slow tick that overlaps the next one, and
+    a second process sharing the database.
+    """
+    try:
+        with get_db() as conn:
+            cursor = conn.execute(
+                'INSERT OR IGNORE INTO schedule_runs (run_key, created_at, queued) VALUES (?, ?, 0)',
+                (run_key, datetime.now().isoformat()),
+            )
+            return cursor.rowcount == 1
+    except Exception as exc:
+        logging.error(f"Error claiming schedule run {run_key}: {exc}")
+        return False
+
+
+def record_schedule_run(run_key: str, queued: int) -> bool:
+    try:
+        with get_db() as conn:
+            conn.execute('UPDATE schedule_runs SET queued = ? WHERE run_key = ?', (int(queued), run_key))
+        return True
+    except Exception as exc:
+        logging.error(f"Error recording schedule run {run_key}: {exc}")
+        return False
+
+
+def get_schedule_runs(limit: int = 10) -> List[Dict[str, Any]]:
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                'SELECT run_key, created_at, queued FROM schedule_runs ORDER BY created_at DESC LIMIT ?',
+                (int(limit),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logging.error(f"Error reading schedule runs: {exc}")
+        return []

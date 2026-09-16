@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from whatsapp_pro_tool import WhatsAppProTool
 from engine_controller import EngineController, sanitize_mission_options
+from scheduler import AttendanceScheduler, supabase_source
 from PIL import Image, ImageDraw, ImageFont
 import random
 
@@ -62,6 +63,49 @@ api_bp = Blueprint('api', __name__)
 # مفتاح API للمصادقة (يجب تعيينه في متغيرات البيئة)
 API_SECRET_KEY = (os.environ.get('WHATSAPP_API_KEY') or '').strip() or None
 
+# ── وضع التشغيل: development (افتراضي) أو production ──────────
+# production تعني أن الخدمة تخدم مدرسة حقيقية، فالمفتاح شرط للإقلاع.
+# هذا منفصل عن WHATSAPP_VPS_MODE، لأن الأخير يصف بيئة المتصفح (Xvfb/حاوية)
+# لا مدى انكشاف الخدمة: التشغيل المحلي داخل حاوية يحتاج خيارات VPS نفسها
+# دون أن يكون إنتاجاً.
+RUN_ENV = (os.environ.get('WHATSAPP_ENV') or 'development').strip().lower()
+IS_PRODUCTION = RUN_ENV == 'production'
+MIN_API_KEY_LENGTH = 32
+
+
+def _enforce_production_secrets() -> None:
+    """في وضع الإنتاج: ارفض الإقلاع بلا مفتاح API صالح.
+
+    الرفض عند الإقلاع وليس عند أول طلب: خادم يعمل بلا مفتاح يبدو سليماً في
+    كل فحص صحة، بينما كل نقاطه — الطابور وأرقام أولياء الأمور والإرسال —
+    مفتوحة لمن يصل إلى المنفذ. الفشل الصاخب هنا هو ما يمنع نشراً صامتاً.
+    """
+    if not IS_PRODUCTION:
+        return
+    if not API_SECRET_KEY:
+        raise SystemExit(
+            "\n".join([
+                "",
+                "=" * 62,
+                "  ⛔ رُفض الإقلاع: WHATSAPP_ENV=production بلا WHATSAPP_API_KEY",
+                "=" * 62,
+                "  ولّد مفتاحاً وضعه في بيئة الخادم:",
+                "      openssl rand -hex 32",
+                "  ثم أعد التشغيل. يبقى المفتاح في الخادم والوسيط الخلفي فقط،",
+                "  ولا يُسلَّم للمتصفح إطلاقاً.",
+                "=" * 62,
+                "",
+            ])
+        )
+    if len(API_SECRET_KEY) < MIN_API_KEY_LENGTH:
+        raise SystemExit(
+            f"\n⛔ رُفض الإقلاع: طول WHATSAPP_API_KEY {len(API_SECRET_KEY)} محرفاً، "
+            f"والحد الأدنى {MIN_API_KEY_LENGTH}. ولّده بـ: openssl rand -hex 32\n"
+        )
+
+
+_enforce_production_secrets()
+
 # أنواع الملفات المسموح بها
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -87,6 +131,16 @@ def _env_number(name: str, default):
 # ⚙️ إعدادات المحرك (قابلة للضبط من متغيرات البيئة)
 LOGIN_TIMEOUT_SECONDS = _env_number('WHATSAPP_LOGIN_TIMEOUT', 15 * 60)
 AUTO_SEND_ON_START = _env_bool('WHATSAPP_AUTO_SEND_ON_START', False)
+
+# استعادة الاتصال تلقائياً عند إقلاع الخدمة: يفتح المتصفح ويستعيد الجلسة المحفوظة
+# دون أن يضغط أحد "تشغيل". افتراضياً مفعّل داخل الحاوية فقط — على سطح المكتب يبقى
+# القرار للمستخدم. هذا لا يبدأ الإرسال إطلاقاً؛ الإرسال يظل أمراً منفصلاً.
+AUTO_START_ENGINE = _env_bool('WHATSAPP_AUTO_START_ENGINE', VPS_MODE)
+AUTO_START_DELAY_SECONDS = _env_number('WHATSAPP_AUTO_START_DELAY', 3)
+
+# الجدولة على الخادم: تعمل سواء فُتحت لوحة حاضر أم لا.
+SCHEDULER_ENABLED = _env_bool('WHATSAPP_SCHEDULER', True)
+scheduler = AttendanceScheduler(source=supabase_source)
 MISSION_DEFAULTS = sanitize_mission_options({
     'batch_size': os.environ.get('WHATSAPP_BATCH_SIZE'),
     'min_delay': os.environ.get('WHATSAPP_MIN_DELAY'),
@@ -889,6 +943,65 @@ def send_list():
         return jsonify({"message": "فشل حفظ القائمة"}), 500
 
 # ═══════════════════════════════════════════════════════════════
+# 🗓️ جدولة إشعارات الحضور (على الخادم، لا في المتصفح)
+# ═══════════════════════════════════════════════════════════════
+
+def _schedule_payload() -> dict:
+    settings = scheduler.get_settings()
+    return {
+        'settings': settings,
+        'next_run_at': scheduler.next_run_at(settings),
+        'server_time': scheduler.now_local(settings).isoformat(),
+        'recent_runs': sqlite_db.get_schedule_runs(10),
+    }
+
+
+@api_bp.route('/schedule', methods=['GET'])
+@require_api_key
+def get_schedule():
+    """إعدادات الجدولة الحالية، موعد التشغيل القادم، وسجل آخر التشغيلات."""
+    return jsonify(_schedule_payload())
+
+
+@api_bp.route('/schedule', methods=['POST'])
+@rate_limit(general_limiter)
+@require_api_key
+def update_schedule():
+    """حدّث إعدادات الجدولة. تُحفظ في قاعدة البيانات لا في المتصفح."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({'message': 'تنسيق الإعدادات غير صحيح'}), 400
+    scheduler.save_settings(body)
+    logging.info("🗓️ تم تحديث إعدادات جدولة الحضور")
+    return jsonify(_schedule_payload())
+
+
+@api_bp.route('/schedule/run', methods=['POST'])
+@rate_limit(general_limiter)
+@require_api_key
+def run_schedule():
+    """شغّل الجدولة الآن.
+
+    ``simulate`` يبني الصفوف ويعرض عددها دون كتابة شيء — لا صفوف في الطابور ولا
+    حجز لتشغيل اليوم — فيمكن تجربة الإعدادات على نظام يعمل دون إنشاء رسالة واحدة.
+    """
+    body = request.get_json(silent=True) or {}
+    simulate = bool(body.get('simulate'))
+    force = bool(body.get('force'))
+    result = scheduler.run_once(force=force, simulate=simulate)
+    if simulate:
+        # لا تُعاد نصوص الرسائل كاملة هنا؛ الملخص يكفي للتحقق ولا يسرّب أرقاماً.
+        rows = result.pop('rows', [])
+        result['preview'] = [
+            {'student_name': r['student_name'], 'status_label': r['status_label'], 'id': r['id']}
+            for r in rows[:20]
+        ]
+    if result.get('queued'):
+        _broadcast_queue_change('schedule', int(result['queued']))
+    return jsonify(result)
+
+
+# ═══════════════════════════════════════════════════════════════
 # 📡 SSE Stream Endpoint
 # ═══════════════════════════════════════════════════════════════
 
@@ -955,6 +1068,36 @@ def _initialize_runtime():
     sqlite_db.init_db()
     start_cleanup_scheduler()
     cleanup_old_files()
+    _schedule_engine_autostart()
+    if SCHEDULER_ENABLED:
+        scheduler.start()
+
+
+def _schedule_engine_autostart() -> None:
+    """افتح المتصفح واستعد الجلسة بعد إقلاع الخدمة، بلا إرسال.
+
+    بعد إعادة تشغيل الخادم — تحديث، إعادة إقلاع الجهاز، `docker compose up` —
+    كانت الخدمة تعمل والمتصفح مغلقاً حتى يفتح أحدهم لوحة حاضر ويضغط "تشغيل".
+    في خادم بلا شاشة قد يمر ذلك ساعات دون أن ينتبه أحد.
+
+    الاستعادة هنا تصل إلى `ready` فقط: الجلسة عائدة والطابور محفوظ، لكن لا تُرسل
+    رسالة واحدة حتى يُطلب الإرسال صراحةً.
+    """
+    if not AUTO_START_ENGINE:
+        return
+
+    def _boot() -> None:
+        time.sleep(AUTO_START_DELAY_SECONDS)
+        if engine.alive:
+            return
+        ok, message, _ = engine.start_engine(auto_send=False)
+        if ok:
+            logging.info("🔄 استعادة تلقائية: فتح المتصفح واستعادة جلسة واتساب (الإرسال متوقف)")
+        else:
+            logging.warning(f"🔄 تعذّرت الاستعادة التلقائية: {message}")
+
+    threading.Thread(target=_boot, name='engine-autostart', daemon=True).start()
+
 
 _initialize_runtime()
 

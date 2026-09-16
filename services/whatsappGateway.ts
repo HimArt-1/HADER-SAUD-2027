@@ -268,9 +268,16 @@ export const createHttpWhatsAppGateway = (
   const retryBaseMs = options.retryBaseMs ?? 2_000;
   const retryMaxMs = options.retryMaxMs ?? 30_000;
 
+  // The server key belongs to the bridge and to the backend proxy that fronts it.
+  // When requests go through '/api/whatsapp' the proxy adds X-API-Key itself from a
+  // server-side secret, so attaching one here would only put the key in the browser
+  // bundle — readable by anyone who opens devtools — for no gain. A key is sent only
+  // when the app talks to a bridge directly, which is dev and Electron desktop.
+  const usesBackendProxy = baseUrl.endsWith('/api/whatsapp');
+
   const headers = (json = false): Record<string, string> => {
     const result: Record<string, string> = {};
-    const apiKey = resolveApiKey();
+    const apiKey = usesBackendProxy ? '' : resolveApiKey();
     if (apiKey) result['X-API-Key'] = apiKey;
 
     const token = resolveAuthToken();
@@ -391,6 +398,18 @@ export const createHttpWhatsAppGateway = (
         { method: 'GET', headers: { 'Cache-Control': 'no-cache' } },
         opts?.timeoutMs ?? 5_000
       );
+    },
+
+    async getSchedule() {
+      return request<any>('/api/schedule', { method: 'GET' });
+    },
+
+    async updateSchedule(patch) {
+      return request<any>('/api/schedule', {
+        method: 'POST',
+        headers: headers(true),
+        body: JSON.stringify(patch),
+      });
     },
     async upload(file: File) {
       const formData = new FormData();

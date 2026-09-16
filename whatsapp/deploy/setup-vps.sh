@@ -64,16 +64,23 @@ mkdir -p "$PROJECT_DIR"
 
 # Create .env file if it doesn't exist
 if [ ! -f "$PROJECT_DIR/.env" ]; then
-    cat > "$PROJECT_DIR/.env" << 'ENVFILE'
+    GENERATED_API_KEY="$(openssl rand -hex 32)"
+    GENERATED_VNC_PASSWORD="$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-12)"
+    cat > "$PROJECT_DIR/.env" << ENVFILE
 # ══════════════════════════════════════════════════════
 # Hader WhatsApp VPS — Environment Configuration
 # ══════════════════════════════════════════════════════
 
-# 🔐 مفتاح API (مطلوب للأمان! — ولّد واحد بـ: openssl rand -hex 32)
-WHATSAPP_API_KEY=CHANGE_ME_GENERATE_A_KEY
+# ⚙️ وضع التشغيل — production يرفض الإقلاع بلا مفتاح API
+WHATSAPP_ENV=production
 
-# 🔐 كلمة مرور VNC (للوصول إلى شاشة QR عن بُعد)
-VNC_PASSWORD=hader123
+# 🔐 مفتاح API — وُلّد تلقائياً أعلاه. يبقى على الخادم وفي متغيرات Vercel فقط،
+#    ولا يوضع في أي ملف يصل إلى المتصفح.
+WHATSAPP_API_KEY=${GENERATED_API_KEY}
+
+# 🔐 كلمة مرور VNC — وُلّدت تلقائياً. شاشة VNC معطّلة افتراضياً في supervisord،
+#    ولا تُشغَّل إلا يدوياً وعبر نفق SSH عند الطوارئ.
+VNC_PASSWORD=${GENERATED_VNC_PASSWORD}
 
 # ⚙️ إعدادات المحرك
 WHATSAPP_BATCH_SIZE=8

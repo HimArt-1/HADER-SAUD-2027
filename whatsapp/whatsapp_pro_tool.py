@@ -53,6 +53,9 @@ from webdriver_manager.chrome import ChromeDriverManager
 PLATFORM = platform.system()   # 'Darwin' | 'Windows' | 'Linux'
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 USER_DATA_DIR = os.path.join(BASE_DIR, "whatsapp_session")
+
+# Container/VPS mode: the browser runs on Xvfb and its driver ships inside the image.
+_VPS_MODE = os.environ.get('WHATSAPP_VPS_MODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
 WHATSAPP_URL = "https://web.whatsapp.com"
 
 # Allowed directories for attachment security
@@ -729,6 +732,16 @@ class WhatsAppProTool:
                 if system_driver:
                     logging.info(f"Using system chromedriver: {system_driver}")
                     service = Service(system_driver)
+                elif _VPS_MODE:
+                    # The container image installs a driver matched to its browser. Reaching
+                    # for webdriver-manager here would mean downloading one on every restart,
+                    # over whatever internet the server happens to have, at whatever version
+                    # is current that day. Failing loudly beats a silent mismatch that only
+                    # surfaces as a login that never completes.
+                    raise RuntimeError(
+                        "chromedriver غير موجود داخل الحاوية. الصورة تُثبّته وقت البناء؛ "
+                        "أعد بناء الصورة بدل الاعتماد على تنزيله عند التشغيل."
+                    )
                 else:
                     try:
                         service = Service(ChromeDriverManager().install())

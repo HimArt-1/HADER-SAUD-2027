@@ -28,13 +28,20 @@ services:
       - SCREEN_HEIGHT=900
       - SCREEN_DEPTH=24
 
-      # ── VNC Password (change this!) ───────────────────────
-      - VNC_PASSWORD=${VNC_PASSWORD:-hader123}
+      # ── VNC Password ──────────────────────────────────────
+      # اتركه فارغاً ليولّد الـ entrypoint كلمة عشوائية. شاشة VNC معطّلة
+      # افتراضياً ولا تُفتح إلا يدوياً عبر نفق SSH عند الطوارئ.
+      - VNC_PASSWORD=${VNC_PASSWORD:-}
 
       # ── WhatsApp Server Settings ──────────────────────────
       - WHATSAPP_SERVER_PORT=5001
       - WHATSAPP_SERVER_HOST=0.0.0.0
       - WHATSAPP_API_KEY=${WHATSAPP_API_KEY:-}
+      # development (افتراضي) يُبقي التشغيل المحلي بلا مفتاح.
+      # production يرفض الإقلاع بلا WHATSAPP_API_KEY — اضبطه في .env على الخادم.
+      - WHATSAPP_ENV=${WHATSAPP_ENV:-development}
+      # افتح المتصفح واستعد الجلسة تلقائياً عند إقلاع الخدمة (بلا إرسال)
+      - WHATSAPP_AUTO_START_ENGINE=${WHATSAPP_AUTO_START_ENGINE:-true}
 
       # ── Engine Tuning ─────────────────────────────────────
       - WHATSAPP_BATCH_SIZE=${WHATSAPP_BATCH_SIZE:-8}
@@ -68,6 +75,12 @@ services:
 
     # Shared memory size (Chrome needs this)
     shm_size: '2g'
+
+    # مهلة الإيقاف: كروم يكتب ملف التعريف — وفيه جلسة واتساب — عند إغلاقه.
+    # إن قُتل قبل أن ينتهي، تضيع الجلسة ويلزم مسح رمز QR من جديد.
+    # القياس محلياً كان ثلاث ثوانٍ، لكن ذلك على SSD فارغ وبلا حمل؛ على خادم
+    # صغير مشغول قد يطول. السلسلة مرتبة بهامش: gunicorn 60 < supervisord 75 < docker 90.
+    stop_grace_period: 90s
 
     # Resource limits (suitable for 2GB VPS)
     deploy:

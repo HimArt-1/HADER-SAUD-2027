@@ -30,6 +30,7 @@ const SHARED = [
   'whatsapp_pro_tool.py',
   'engine_controller.py',
   'sqlite_db.py',
+  'scheduler.py',
   'requirements.txt',
 ];
 

@@ -21,3 +21,7 @@ Pillow>=10.0.0
 
 # Environment
 python-dotenv>=1.0.0
+
+# Timezone database — the scheduler reads the school's timezone with zoneinfo,
+# and slim base images ship without the system tzdata it would otherwise need.
+tzdata>=2024.1

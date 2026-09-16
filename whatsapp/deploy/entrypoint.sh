@@ -21,8 +21,12 @@ mkdir -p /app/whatsapp/uploads \
 chmod 1777 /tmp/.X11-unix
 chown -R hader:hader /app/whatsapp /home/hader
 
-# ── Set VNC password (default: hader123, override with VNC_PASSWORD env) ─
-VNC_PASSWORD="${VNC_PASSWORD:-hader123}"
+# ── VNC password ─────────────────────────────────────────────
+# No baked-in default: a password published in the repository is the same as no
+# password. When VNC_PASSWORD is unset a random one is generated, which keeps the
+# emergency screen locked to whoever set it deliberately. x11vnc and noVNC are
+# autostart=false anyway and are meant to be reached over an SSH tunnel.
+VNC_PASSWORD="${VNC_PASSWORD:-$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | cut -c1-16)}"
 mkdir -p /root/.vnc /home/hader/.vnc
 x11vnc -storepasswd "$VNC_PASSWORD" /root/.vnc/passwd 2>/dev/null || true
 x11vnc -storepasswd "$VNC_PASSWORD" /home/hader/.vnc/passwd 2>/dev/null || true
@@ -35,4 +39,4 @@ echo "📡 API URL: http://<server-ip>:5001"
 echo "═══════════════════════════════════════════════════════"
 
 # ── Start all services via supervisor ────────────────────────
-exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/supervisord.conf
+exec supervisord -n -c /etc/supervisord.conf
