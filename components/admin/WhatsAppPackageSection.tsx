@@ -120,7 +120,6 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
     { name: 'requirements.txt', desc: 'حزمة المكتبات والاعتماديات البرمجية', tag: 'المكتبات', size: '1 KB' },
     { name: 'run_mac.sh', desc: 'سكربت التشغيل والإصلاح الذاتي لماك ولينكس', tag: 'مشغل الماك', size: '7 KB' },
     { name: 'bridge.py', desc: 'جسر نقل الوسائط والأوسمة والشهادات', tag: 'جسر وسائط', size: '5 KB' },
-    { name: 'contacts.csv', desc: 'ملف جهات الاتصال النموذجي', tag: 'نموذج بيانات', size: '1 KB' },
     { name: 'INSTRUCTIONS.md', desc: 'دليل التشغيل وحل المشكلات الشامل', tag: 'دليل إرشادي', size: '4 KB' }
   ];
 
@@ -131,7 +130,6 @@ export const WhatsAppPackageSection: React.FC<WhatsAppPackageSectionProps> = ({ 
     { name: 'requirements.txt', desc: 'حزمة المكتبات والاعتماديات البرمجية', tag: 'المكتبات', size: '1 KB' },
     { name: 'run_windows.bat', desc: 'مشغل ويندوز التلقائي (Double-Click)', tag: 'مشغل ويندوز', size: '6 KB' },
     { name: 'bridge.py', desc: 'جسر نقل الوسائط والأوسمة والشهادات', tag: 'جسر وسائط', size: '5 KB' },
-    { name: 'contacts.csv', desc: 'ملف جهات الاتصال النموذجي', tag: 'نموذج بيانات', size: '1 KB' },
     { name: 'INSTRUCTIONS.md', desc: 'دليل التشغيل وحل المشكلات الشامل', tag: 'دليل إرشادي', size: '4 KB' }
   ];
 
