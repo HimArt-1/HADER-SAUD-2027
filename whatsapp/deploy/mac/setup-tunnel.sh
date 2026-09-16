@@ -70,6 +70,11 @@ credentials-file: $CF_DIR/$TUNNEL_ID.json
 
 # سجل معتدل: لا نريد ملفاً ينمو بلا حدود على جهاز يعمل طوال اليوم
 loglevel: info
+# QUIC (UDP/7844) لا يمر على هذه الشبكة: كل محاولة اتصال بحواف Cloudflare عبر
+# IPv4 انتهت بـ "timeout: no recent network activity". http2 يستخدم TCP/443
+# وهو ما يمر في كل مكان تقريباً. أبطأ قليلاً من QUIC وأكثر موثوقية بكثير،
+# وهذا خادم يعمل طوال اليوم خلف شبكة لا نتحكم بها.
+protocol: http2
 
 ingress:
   - hostname: $HOSTNAME_ARG
