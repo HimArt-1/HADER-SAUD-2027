@@ -12,6 +12,7 @@ import html
 import re
 import json
 import queue as queue_module
+import signal
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from whatsapp_pro_tool import WhatsAppProTool
@@ -41,7 +42,17 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5174",
     "https://hader-saud-2027.vercel.app",
 ]
+# VPS mode: allow additional CORS origins from environment
+_extra_origins = os.environ.get('WHATSAPP_CORS_ORIGINS', '').strip()
+if _extra_origins:
+    ALLOWED_ORIGINS.extend([o.strip() for o in _extra_origins.split(',') if o.strip()])
+# VPS mode flag (inline check — _env_bool is defined below)
+VPS_MODE = os.environ.get('WHATSAPP_VPS_MODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+if VPS_MODE:
+    logging.info("🌐 VPS Mode: enabled — server accessible remotely")
+
 CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS, "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "X-API-Key", "Cache-Control"]}})
+
 
 # إنشاء Blueprint للتعامل مع بادئة /api
 api_bp = Blueprint('api', __name__)
@@ -223,11 +234,13 @@ LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
-# فلتر لمنع تسجيل طلبات OPTIONS (CORS preflight) التي تسبب فيضان في اللوغ
+# فلتر لمنع تسجيل طلبات OPTIONS و QR و Base64 لمنع تسريب الرموز إلى السجلات
 class OptionsFilter(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
-        return 'OPTIONS' not in msg
+        if 'OPTIONS' in msg or 'data:image' in msg or '/qr' in msg or 'base64' in msg:
+            return False
+        return True
 
 
 class RingBufferLogHandler(logging.Handler):
@@ -253,12 +266,20 @@ class RingBufferLogHandler(logging.Handler):
 
 class NoiseFilter(logging.Filter):
     """يمنع سجلات HTTP الروتينية (werkzeug) من إغراق سجل لوحة التحكم — تبقى سجلات المحرك فقط."""
-    _NOISY = ('GET /api/status', 'GET /status', 'GET /api/queue', 'GET /queue', 'GET /api/events', 'GET /events', 'OPTIONS')
+    _NOISY = (
+        'GET /api/status', 'GET /status',
+        'GET /api/queue', 'GET /queue',
+        'GET /api/events', 'GET /events',
+        'GET /api/qr', 'GET /qr',
+        'OPTIONS'
+    )
 
     def filter(self, record):
         if record.name.startswith('werkzeug'):
             return False
         msg = record.getMessage()
+        if 'data:image' in msg or 'base64' in msg:
+            return False
         return not any(token in msg for token in self._NOISY)
 
 
@@ -537,6 +558,17 @@ def status():
     """حالة المحرك الكاملة: running (المتصفح مفتوح) / logged_in / sending / paused / progress / logs"""
     return jsonify(_engine_payload(log_lines=80))
 
+@api_bp.route('/qr', methods=['GET'])
+# بدون rate limit - رمز QR للجلسة
+@require_api_key
+def get_qr():
+    """استرجاع رمز QR النشط لمسحه داخل واجهة حاضر - لا يتم تسجيل الرمز أبداً في السجلات"""
+    try:
+        qr_info = engine.get_qr_code()
+        return jsonify(qr_info)
+    except Exception as e:
+        return jsonify({"qr": None, "authenticated": False, "error": "failed_to_fetch_qr"}), 500
+
 @api_bp.route('/start', methods=['POST'])
 @require_api_key
 def start():
@@ -749,8 +781,29 @@ def clear_queue():
 @rate_limit(send_limiter)
 @require_api_key
 def send_list():
-    """استقبال قائمة الإرسال وحفظها في الطابور"""
+    """استقبال قائمة الإرسال وحفظها في الطابور مع دعم مفتاح Idempotency"""
     try:
+        # Idempotency check: prevent duplicate batch execution from network retries or reload
+        idempotency_key = (request.headers.get('X-Idempotency-Key') or request.args.get('idempotency_key') or '').strip()
+        import hashlib
+        req_hash = hashlib.sha256(request.get_data() or b'').hexdigest()
+
+        if idempotency_key:
+            cached = sqlite_db.get_idempotency_record(idempotency_key)
+            if cached:
+                cached_hash = cached.get('request_hash') or ''
+                if cached_hash and cached_hash != req_hash:
+                    logging.warning(f"⚠️ تعارض مفتاح Idempotency ({idempotency_key[:16]}...): تم إرسال حمولة مختلفة لنفس المفتاح")
+                    return jsonify({
+                        "message": "تعارض في مفتاح عدم التكرار: تم إرسال محتوى مختلف بنفس المفتاح مسبقاً.",
+                        "error": "idempotency_mismatch"
+                    }), 409
+
+                logging.info(f"🔁 طلب إرسال مكرر تم استرجاعه من سجل idempotency: {idempotency_key[:24]}...")
+                cached_resp = dict(cached['response'])
+                cached_resp['idempotent_replay'] = True
+                return jsonify(cached_resp), 200
+
         data = request.json
         append_mode = request.args.get('append', 'false').lower() == 'true'
 
@@ -822,11 +875,14 @@ def send_list():
         elif not engine.alive:
             hint = ' شغّل المحرك ثم اضغط "إبدأ الإرسال".'
         note = f" (تم تجاهل {duplicates} رسالة مكررة)" if duplicates else ''
-        return jsonify({
+        resp_data = {
             "message": f"تم حفظ {saved} رسالة في قائمة الانتظار بنجاح.{note}{hint}",
             "saved": saved,
             "duplicates": duplicates,
-        })
+        }
+        if idempotency_key:
+            sqlite_db.save_idempotency_record(idempotency_key, resp_data, request_hash=req_hash)
+        return jsonify(resp_data)
 
     except Exception as e:
         logging.error(f"خطأ في حفظ القائمة: {e}")
@@ -887,30 +943,39 @@ def events():
 app.register_blueprint(api_bp, url_prefix='/api')
 app.register_blueprint(api_bp, name='api_root')
 
+def _initialize_runtime():
+    """تهيئة بيئة العمل عند تشغيل الخادم (سواء مباشرة أو عبر Gunicorn)"""
+    for folder in ['uploads', 'certificates', 'logs']:
+        path = os.path.join(os.path.dirname(__file__), folder)
+        if not os.path.exists(path):
+            try:
+                os.makedirs(path, exist_ok=True)
+            except Exception:
+                pass
+    sqlite_db.init_db()
+    start_cleanup_scheduler()
+    cleanup_old_files()
+
+_initialize_runtime()
+
+def _graceful_shutdown(signum, frame):
+    logging.info(f"🛑 إشارة إنهاء الخادم ({signum}) - جاري إغلاق المتصفح وحفظ الجلسة...")
+    try:
+        engine.stop_engine()
+    except Exception as e:
+        logging.warning(f"خطأ أثناء الإغلاق السليم: {e}")
+    sys.exit(0)
+
+try:
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
+    signal.signal(signal.SIGINT, _graceful_shutdown)
+except (ValueError, AttributeError):
+    pass
+
 if __name__ == '__main__':
     print("\n" + "═" * 60)
     print(f"   🚀 HADER WHATSAPP PRO SERVER - [v{VERSION} MASTER]")
     print("═" * 60)
-    
-    # التأكد من وجود المجلدات المطلوبة
-    for folder in ['uploads', 'certificates', 'logs']:
-        path = os.path.join(os.path.dirname(__file__), folder)
-        if not os.path.exists(path):
-            os.makedirs(path)
-            print(f"📁 تم إنشاء مجلد: {folder}")
-            
-    # تشغيل جدولة التنظيف التلقائي
-    start_cleanup_scheduler()
-    print("✅ جدولة التنظيف التلقائي: مفعّلة (كل 24 ساعة)")
-    
-    # تنظيف الملفات القديمة عند البدء
-    initial_cleanup = cleanup_old_files()
-    if initial_cleanup > 0:
-        print(f"🧹 تم تنظيف {initial_cleanup} ملف قديم")
-    
-    # التأكد من تهيئة قاعدة البيانات
-    sqlite_db.init_db()
-    
     print("⏸️  الخادم في وضع الاستعداد - جاهز لاستقبال الطلبات")
     print("   1) تشغيل المحرك  → يفتح واتساب ويب وينتظر مسح رمز QR")
     print("   2) إبدأ الإرسال  → يُظهر نافذة واتساب ويبدأ إرسال الطابور")

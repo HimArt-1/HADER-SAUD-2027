@@ -1,0 +1,107 @@
+# ══════════════════════════════════════════════════════════════
+# Hader WhatsApp Pro Server — VPS Docker Image
+# Chrome + Xvfb + noVNC for remote QR scanning
+# ══════════════════════════════════════════════════════════════
+FROM python:3.12-slim
+
+LABEL maintainer="Hader Team"
+LABEL description="WhatsApp Pro Server with Chrome, Xvfb, and noVNC"
+
+# Prevent interactive prompts during install
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV DISPLAY=:99
+ENV SCREEN_WIDTH=1280
+ENV SCREEN_HEIGHT=900
+ENV SCREEN_DEPTH=24
+
+# ── System dependencies ──────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Display server
+    xvfb \
+    # VNC + noVNC for remote access (QR scanning)
+    x11vnc \
+    novnc \
+    websockify \
+    # Chrome dependencies
+    wget \
+    gnupg2 \
+    curl \
+    unzip \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+    fonts-freefont-ttf \
+    fonts-noto \
+    # Arabic font support
+    fonts-arabeyes \
+    # Misc
+    supervisor \
+    procps \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Install Google Chrome Stable (amd64) or Chromium (arm64) ─
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends google-chrome-stable && \
+        rm -rf /var/lib/apt/lists/*; \
+    else \
+        apt-get update && \
+        apt-get install -y --no-install-recommends chromium chromium-driver && \
+        ln -sf /usr/bin/chromium /usr/bin/google-chrome && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# ── Create non-root user for security ────────────────────────
+RUN groupadd -g 1000 hader && \
+    useradd -u 1000 -g hader -m -s /bin/bash hader && \
+    mkdir -p /home/hader/.vnc /app/whatsapp /tmp/.X11-unix && \
+    chmod 1777 /tmp/.X11-unix && \
+    chown -R hader:hader /home/hader
+
+# ── Working directory ────────────────────────────────────────
+WORKDIR /app/whatsapp
+
+# ── Python dependencies ──────────────────────────────────────
+COPY whatsapp/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Copy application code ────────────────────────────────────
+COPY whatsapp/server.py ./
+COPY whatsapp/whatsapp_pro_tool.py ./
+COPY whatsapp/engine_controller.py ./
+COPY whatsapp/sqlite_db.py ./
+COPY whatsapp/bridge.py ./
+COPY .env* /app/
+
+# ── Create required directories with hader ownership ─────────
+RUN mkdir -p /app/whatsapp/uploads \
+             /app/whatsapp/certificates \
+             /app/whatsapp/logs \
+             /app/whatsapp/whatsapp_session \
+             /app/whatsapp/whatsapp_data && \
+    chown -R hader:hader /app/whatsapp
+
+# ── Supervisor config (manages Xvfb + x11vnc + noVNC + server) ─
+COPY whatsapp/deploy/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# ── Startup script ───────────────────────────────────────────
+COPY whatsapp/deploy/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# ── Ports ────────────────────────────────────────────────────
+# 5001 = WhatsApp API server
+# 6080 = noVNC web interface (for QR scanning via browser)
+EXPOSE 5001 6080
+
+# ── Volumes for persistent data ──────────────────────────────
+VOLUME ["/app/whatsapp/whatsapp_session", "/app/whatsapp/logs"]
+
+# ── Health check ─────────────────────────────────────────────
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:5001/api/status || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]

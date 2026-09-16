@@ -82,6 +82,67 @@ const readConfiguredApiKey = (): string => {
   return import.meta.env.VITE_WHATSAPP_API_KEY || '';
 };
 
+/**
+ * In Production Web: Base URL is strictly locked to the relative proxy route '/api/whatsapp'.
+ * Arbitrary localStorage overrides are strictly disallowed in production to prevent
+ * unauthorized redirection of authenticated requests or student data.
+ *
+ * In Development (import.meta.env.DEV) or Electron Desktop mode:
+ * Developer may configure a custom URL via localStorage or VITE_WHATSAPP_API_URL,
+ * provided it is a valid HTTP/HTTPS URL.
+ */
+export const resolveBaseUrl = (optionsBaseUrl?: string): string => {
+  if (optionsBaseUrl) {
+    return optionsBaseUrl.replace(/\/+$/, '');
+  }
+
+  const isDev = Boolean(import.meta.env.DEV);
+  const isElectron = typeof window !== 'undefined' && Boolean((window as any).electron);
+
+  if (!isDev && !isElectron) {
+    // Production Web: ALWAYS use the secure serverless backend proxy
+    return '/api/whatsapp';
+  }
+
+  // Development / Electron Desktop mode:
+  try {
+    const stored = typeof localStorage !== 'undefined'
+      ? localStorage.getItem('hader:whatsapp_api_url')
+      : null;
+    if (stored) {
+      const parsed = new URL(stored);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return stored.replace(/\/+$/, '');
+      }
+      console.warn('⚠️ [WhatsApp] Invalid development API URL ignored:', stored);
+    }
+  } catch {
+    // Ignore invalid stored URLs
+  }
+
+  return (import.meta.env.VITE_WHATSAPP_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
+};
+
+const resolveAuthToken = (): string | null => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed?.access_token) return parsed.access_token;
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore storage access error
+  }
+  return null;
+};
+
 const asRecord = (value: unknown): UnknownRecord =>
   value && typeof value === 'object' ? value as UnknownRecord : {};
 
@@ -198,8 +259,7 @@ const getErrorMessage = (payload: unknown, status: number): string => {
 export const createHttpWhatsAppGateway = (
   options: HttpWhatsAppGatewayOptions = {}
 ): WhatsAppGateway => {
-  const baseUrl = (options.baseUrl ?? import.meta.env.VITE_WHATSAPP_API_URL ?? DEFAULT_API_URL)
-    .replace(/\/$/, '');
+  const baseUrl = resolveBaseUrl(options.baseUrl);
   const fetcher = options.fetcher ?? ((input, init) => globalThis.fetch(input, init));
   const configuredApiKey = options.apiKey;
   const resolveApiKey: () => string = typeof configuredApiKey === 'function'
@@ -212,6 +272,10 @@ export const createHttpWhatsAppGateway = (
     const result: Record<string, string> = {};
     const apiKey = resolveApiKey();
     if (apiKey) result['X-API-Key'] = apiKey;
+
+    const token = resolveAuthToken();
+    if (token) result['Authorization'] = `Bearer ${token}`;
+
     if (json) result['Content-Type'] = 'application/json';
     return result;
   };
@@ -226,8 +290,13 @@ export const createHttpWhatsAppGateway = (
       ? setTimeout(() => controller.abort(), timeoutMs)
       : null;
 
+    const normalizedPath = baseUrl.endsWith('/api/whatsapp')
+      ? (path.startsWith('/api/') ? path.slice(4) : path)
+      : path;
+    const requestUrl = `${baseUrl}${normalizedPath.startsWith('/') ? '' : '/'}${normalizedPath}`;
+
     try {
-      const response = await fetcher(`${baseUrl}${path}`, {
+      const response = await fetcher(requestUrl, {
         ...init,
         signal: controller.signal,
         headers: {
@@ -300,13 +369,28 @@ export const createHttpWhatsAppGateway = (
     async getQueue() {
       return normalizeQueue(await request<unknown>('/api/queue', { method: 'GET' }));
     },
-    async enqueue(messages: readonly WhatsAppOutboundMessage[]) {
+    async enqueue(
+      messages: readonly WhatsAppOutboundMessage[],
+      enqueueOptions?: Readonly<{ append?: boolean; idempotencyKey?: string }>
+    ) {
       if (messages.length === 0) return;
-      await request('/api/send?append=true', {
+      const append = enqueueOptions?.append ?? true;
+      const initHeaders = headers(true);
+      if (enqueueOptions?.idempotencyKey) {
+        initHeaders['X-Idempotency-Key'] = enqueueOptions.idempotencyKey;
+      }
+      await request(`/api/send?append=${append}`, {
         method: 'POST',
-        headers: headers(true),
+        headers: initHeaders,
         body: JSON.stringify(messages)
       });
+    },
+    async getQrCode(opts?: Readonly<{ timeoutMs?: number }>) {
+      return request<{ qr: string | null; authenticated: boolean; state: string }>(
+        '/api/qr',
+        { method: 'GET', headers: { 'Cache-Control': 'no-cache' } },
+        opts?.timeoutMs ?? 5_000
+      );
     },
     async upload(file: File) {
       const formData = new FormData();
@@ -365,7 +449,10 @@ export const createHttpWhatsAppGateway = (
       const connect = async (): Promise<void> => {
         controller = new AbortController();
         try {
-          const response = await fetcher(`${baseUrl}/api/events`, {
+          const eventsPath = baseUrl.endsWith('/api/whatsapp')
+            ? `${baseUrl}/events`
+            : `${baseUrl}/api/events`;
+          const response = await fetcher(eventsPath, {
             method: 'GET',
             headers: {
               ...headers(false),

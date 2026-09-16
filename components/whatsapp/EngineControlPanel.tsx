@@ -62,6 +62,7 @@ export interface EngineControlPanelProps {
   onContinuousChange: (value: boolean) => void;
   onCommand: (command: WhatsAppCommand) => void;
   onResetCounters: () => void;
+  onShowQr?: () => void;
   className?: string;
 }
 
@@ -75,6 +76,7 @@ const EngineControlPanel: React.FC<EngineControlPanelProps> = ({
   onContinuousChange,
   onCommand,
   onResetCounters,
+  onShowQr,
   className = ''
 }) => {
   const meta = describeEngineState(status);
@@ -247,6 +249,18 @@ const EngineControlPanel: React.FC<EngineControlPanelProps> = ({
           >
             <AppWindow className="w-5 h-5 text-sky-400" />
             فتح نافذة واتساب ويب
+          </button>
+        )}
+
+        {alive && !loggedIn && onShowQr && (
+          <button
+            type="button"
+            data-testid="engine-show-qr"
+            onClick={onShowQr}
+            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold shadow-lg shadow-purple-600/20 hover:shadow-purple-500/30 hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-3"
+          >
+            <QrCode className="w-5 h-5" />
+            مسح رمز QR داخل التطبيق
           </button>
         )}
 

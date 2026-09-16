@@ -4,7 +4,14 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
-DB_FILE = os.path.join(os.path.dirname(__file__), "contacts.db")
+DB_DIR = os.environ.get('WHATSAPP_DATA_DIR', os.path.dirname(__file__))
+DB_FILE = os.environ.get('WHATSAPP_DB_PATH') or os.path.join(DB_DIR, "contacts.db")
+
+# Ensure directory exists
+try:
+    os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
+except Exception:
+    pass
 
 # A failed row is attempted at most this many times in total: the first send plus one retry.
 # Only rows that never reached the send button are marked 'failed', so a retry cannot deliver twice.
@@ -38,6 +45,14 @@ def init_db():
                     retry_count INTEGER DEFAULT 0
                 )
             ''')
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS idempotency_records (
+                    key TEXT PRIMARY KEY,
+                    response TEXT,
+                    created_at TEXT,
+                    request_hash TEXT
+                )
+            ''')
             # Migrate: add new columns to existing databases (safe — ignores if exists)
             for col_def in [
                 ("created_at", "TEXT"),
@@ -48,6 +63,10 @@ def init_db():
                     conn.execute(f'ALTER TABLE queue ADD COLUMN {col_def[0]} {col_def[1]}')
                 except sqlite3.OperationalError:
                     pass  # Column already exists
+            try:
+                conn.execute('ALTER TABLE idempotency_records ADD COLUMN request_hash TEXT')
+            except sqlite3.OperationalError:
+                pass
         logging.info("SQLite DB initialized")
     except Exception as e:
         logging.error(f"Error initializing SQLite DB: {e}")
@@ -245,6 +264,56 @@ def get_stats() -> Dict[str, int]:
     except Exception as e:
         logging.error(f"Error getting stats: {e}")
         return {"total": 0, "sent": 0, "failed": 0, "pending": 0, "skipped": 0, "unconfirmed": 0}
+
+
+def get_idempotency_record(key: str) -> Optional[Dict[str, Any]]:
+    """Retrieve an idempotency record by key if within 24 hours."""
+    if not key or not str(key).strip():
+        return None
+    try:
+        clean_key = str(key).strip()
+        cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
+        with get_db() as conn:
+            row = conn.execute(
+                'SELECT response, created_at, request_hash FROM idempotency_records WHERE key = ? AND created_at >= ?',
+                (clean_key, cutoff)
+            ).fetchone()
+            if row:
+                import json
+                try:
+                    return {
+                        'response': json.loads(row['response']),
+                        'created_at': row['created_at'],
+                        'request_hash': row['request_hash'] if 'request_hash' in row.keys() else '',
+                        'replay': True
+                    }
+                except Exception:
+                    return None
+    except Exception as e:
+        logging.error(f"Error checking idempotency key {key}: {e}")
+    return None
+
+
+def save_idempotency_record(key: str, response: Dict[str, Any], request_hash: str = "") -> bool:
+    """Save response with idempotency key and prune records older than 48 hours."""
+    if not key or not str(key).strip():
+        return False
+    try:
+        import json
+        clean_key = str(key).strip()
+        payload_str = json.dumps(response, ensure_ascii=False)
+        now = datetime.now().isoformat()
+        cutoff = (datetime.now() - timedelta(hours=48)).isoformat()
+        with get_db() as conn:
+            conn.execute(
+                'INSERT OR REPLACE INTO idempotency_records (key, response, created_at, request_hash) VALUES (?, ?, ?, ?)',
+                (clean_key, payload_str, now, request_hash)
+            )
+            conn.execute('DELETE FROM idempotency_records WHERE created_at < ?', (cutoff,))
+            return True
+    except Exception as e:
+        logging.error(f"Error saving idempotency record {key}: {e}")
+        return False
 
 
 # ─── Auto-initialize on import ────────────────────────────────────

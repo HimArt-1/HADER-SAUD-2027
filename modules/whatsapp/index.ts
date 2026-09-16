@@ -149,10 +149,11 @@ export type WhatsAppSubscription = Readonly<{
 export type WhatsAppGateway = Readonly<{
   getStatus(options?: Readonly<{ timeoutMs?: number }>): Promise<WhatsAppStatus>;
   getQueue(): Promise<WhatsAppQueueItem[]>;
-  enqueue(messages: readonly WhatsAppOutboundMessage[]): Promise<void>;
+  enqueue(messages: readonly WhatsAppOutboundMessage[], options?: Readonly<{ append?: boolean; idempotencyKey?: string }>): Promise<void>;
   upload(file: File): Promise<string>;
   control(command: WhatsAppCommand): Promise<void>;
   subscribe(observer: WhatsAppSubscription): () => void;
+  getQrCode?(options?: Readonly<{ timeoutMs?: number }>): Promise<{ qr: string | null; authenticated: boolean; state: string }>;
 }>;
 
 type InMemoryWhatsAppGatewayOptions = Readonly<{
@@ -315,6 +316,15 @@ export const createInMemoryWhatsAppGateway = (
         default:
           return;
       }
+    },
+    async getQrCode() {
+      const requireQr = options.requireQrScan ?? false;
+      const waiting = state() === 'waiting_login';
+      return {
+        qr: waiting ? 'data:image/png;base64,mockqr' : null,
+        authenticated: !requireQr && alive(),
+        state: state()
+      };
     },
     subscribe(observer) {
       observers.add(observer);

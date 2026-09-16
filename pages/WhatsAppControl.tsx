@@ -44,6 +44,7 @@ import useSoundEffects from '../hooks/useSoundEffects';
 import useQueuePersistence from '../hooks/useQueuePersistence';
 import { useAdminTheme } from '../hooks/useAdminTheme';
 import { UniversalGuideModal, GuideStep } from '../components/common/UniversalGuideModal';
+import { WhatsAppQrModal } from '../components/whatsapp/WhatsAppQrModal';
 import { Chrome, Smartphone, CheckCircle2 } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════
@@ -160,6 +161,7 @@ const WhatsAppControl: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [showGuide, setShowGuide] = useState(false);
+    const [showQrModal, setShowQrModal] = useState(false);
 
     const whatsappGuideSteps: GuideStep[] = [
         {
@@ -1229,6 +1231,7 @@ const WhatsAppControl: React.FC = () => {
                                 onContinuousChange={updateContinuousMode}
                                 onCommand={(command) => { void runEngineCommand(command); }}
                                 onResetCounters={() => setExecutionQueue([])}
+                                onShowQr={() => setShowQrModal(true)}
                             />
 
                             {/* 🎫 إرسال الباركود لأولياء الأمور */}
@@ -1515,6 +1518,14 @@ const WhatsAppControl: React.FC = () => {
                 title="دليل أتمتة واتساب"
                 steps={whatsappGuideSteps}
                 heroImage="/images/whatsapp_guide_hero.webp"
+            />
+
+            {/* WhatsApp QR Modal */}
+            <WhatsAppQrModal
+                isOpen={showQrModal}
+                onClose={() => setShowQrModal(false)}
+                status={status}
+                onRestartEngine={() => { void runEngineCommand('start'); }}
             />
         </div >
     );

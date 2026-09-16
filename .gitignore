@@ -63,6 +63,12 @@ whatsapp/*.db-shm
 public/downloads/whatsapp/*.db
 public/downloads/whatsapp/*.db-wal
 public/downloads/whatsapp/*.db-shm
+# Same reason: a stray run there leaves guardian attachments (student photos,
+# certificates) on disk. They are runtime output, never part of the download.
+public/downloads/whatsapp/uploads/
+public/downloads/whatsapp/certificates/
+public/downloads/whatsapp/logs/
+public/downloads/whatsapp/whatsapp_session/
 whatsapp/contacts.csv
 
 # Temp files

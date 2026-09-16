@@ -1,0 +1,94 @@
+# ══════════════════════════════════════════════════════════════
+# Hader WhatsApp Pro Server — Docker Compose (VPS Deployment)
+# ══════════════════════════════════════════════════════════════
+# Usage:
+#   docker compose -f docker-compose.whatsapp.yml up -d
+#   docker compose -f docker-compose.whatsapp.yml logs -f
+#   docker compose -f docker-compose.whatsapp.yml down
+# ══════════════════════════════════════════════════════════════
+
+services:
+  whatsapp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.whatsapp
+    container_name: hader-whatsapp
+    restart: unless-stopped
+
+    ports:
+      # API server (bound to localhost; Nginx handles TLS & public routing)
+      - "127.0.0.1:5001:5001"
+      # noVNC — emergency fallback only (bound to localhost; use SSH tunnel if ever needed)
+      - "127.0.0.1:6080:6080"
+
+    environment:
+      # ── Display Settings ──────────────────────────────────
+      - DISPLAY=:99
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=900
+      - SCREEN_DEPTH=24
+
+      # ── VNC Password (change this!) ───────────────────────
+      - VNC_PASSWORD=${VNC_PASSWORD:-hader123}
+
+      # ── WhatsApp Server Settings ──────────────────────────
+      - WHATSAPP_SERVER_PORT=5001
+      - WHATSAPP_SERVER_HOST=0.0.0.0
+      - WHATSAPP_API_KEY=${WHATSAPP_API_KEY:-}
+
+      # ── Engine Tuning ─────────────────────────────────────
+      - WHATSAPP_BATCH_SIZE=${WHATSAPP_BATCH_SIZE:-8}
+      - WHATSAPP_MIN_DELAY=${WHATSAPP_MIN_DELAY:-10}
+      - WHATSAPP_MAX_DELAY=${WHATSAPP_MAX_DELAY:-25}
+      - WHATSAPP_LONG_BREAK=${WHATSAPP_LONG_BREAK:-90}
+      - WHATSAPP_CONTINUOUS=${WHATSAPP_CONTINUOUS:-false}
+      # مهلة انتظار مسح رمز QR: ساعة كاملة، لأن المشرف قد يفتح لوحة حاضر
+      # ثم يبحث عن جواله؛ 15 دقيقة كانت تُغلق المتصفح قبل أن يمسح الرمز.
+      - WHATSAPP_LOGIN_TIMEOUT=${WHATSAPP_LOGIN_TIMEOUT:-3600}
+
+      # ── Supabase (for bridge.py) ──────────────────────────
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-}
+
+      # ── VPS Mode Flag ─────────────────────────────────────
+      - WHATSAPP_VPS_MODE=true
+
+      # ── Data Directory (SQLite DB & Idempotency Cache) ────
+      - WHATSAPP_DATA_DIR=/app/whatsapp/whatsapp_data
+
+    volumes:
+      # Persist SQLite queue & idempotency records
+      - whatsapp_data:/app/whatsapp/whatsapp_data
+      # Persist WhatsApp session (so you don't re-scan QR every restart)
+      - whatsapp_session:/app/whatsapp/whatsapp_session
+      # Persist logs
+      - whatsapp_logs:/app/whatsapp/logs
+      # Persist certificates
+      - whatsapp_certs:/app/whatsapp/certificates
+
+    # Shared memory size (Chrome needs this)
+    shm_size: '2g'
+
+    # Resource limits (suitable for 2GB VPS)
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+        reservations:
+          memory: 512M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  whatsapp_data:
+    name: hader-whatsapp-data
+  whatsapp_session:
+    name: hader-whatsapp-session
+  whatsapp_logs:
+    name: hader-whatsapp-logs
+  whatsapp_certs:
+    name: hader-whatsapp-certs

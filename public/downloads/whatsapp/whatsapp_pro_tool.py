@@ -30,6 +30,7 @@ import random
 import logging
 import unicodedata
 from datetime import datetime
+from typing import Dict, Any, Optional, List, Tuple
 
 import sqlite_db
 from selenium import webdriver
@@ -585,12 +586,36 @@ class WhatsAppProTool:
         opts = Options()
         opts.add_argument(f"--user-data-dir={USER_DATA_DIR}")
         opts.add_argument("--profile-directory=Default")
-        opts.add_argument("--no-sandbox")
+        # Chrome sandbox policy:
+        # In Linux container environments running as root, the Chrome setuid sandbox is unavailable
+        # in unprivileged user namespaces and requires --no-sandbox.
+        # On standard host systems (macOS, Windows, non-root Linux), the sandbox remains fully active.
+        _vps_mode = os.environ.get('WHATSAPP_VPS_MODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+        _no_sandbox = (
+            PLATFORM == 'Linux' and (
+                getattr(os, 'geteuid', lambda: -1)() == 0 or
+                os.environ.get('CHROME_NO_SANDBOX', '').strip().lower() in {'1', 'true', 'yes', 'on'} or
+                _vps_mode
+            )
+        )
+        if _no_sandbox:
+            opts.add_argument("--no-sandbox")
+            logging.info("🔒 Chrome sandbox disabled (--no-sandbox: container environment)")
+        else:
+            logging.info("🛡️ Chrome sandbox active")
         opts.add_argument("--disable-dev-shm-usage")
         opts.add_argument("--disable-blink-features=AutomationControlled")
         opts.add_argument("--remote-debugging-port=0")
         opts.add_argument("--disable-infobars")
-        opts.add_argument("--disable-notifications")
+        # Notifications are blocked as a site permission, not by removing the API.
+        # "--disable-notifications" deletes window.Notification outright, and WhatsApp Web
+        # reads it during start-up: the missing global threw inside the page and the client
+        # logged itself out, which unlinked the device on the phone. A blocked content
+        # setting is what a normal browser looks like — Notification stays defined and
+        # Notification.permission reads "denied".
+        opts.add_experimental_option("prefs", {
+            "profile.default_content_setting_values.notifications": 2,
+        })
         # Prevent blank-page rendering on Chrome 130+ (macOS especially)
         opts.add_argument("--disable-features=VizDisplayCompositor")
         # Prevent Chrome initial dialogs from blocking page load
@@ -606,6 +631,14 @@ class WhatsAppProTool:
         opts.add_argument("--no-first-run")
         opts.add_argument(f"--user-agent={_get_user_agent()}")
 
+        # ── VPS/Docker mode: extra options for headless container ──
+        _vps_mode = os.environ.get('WHATSAPP_VPS_MODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+        if _vps_mode:
+            opts.add_argument("--disable-gpu")
+            opts.add_argument("--disable-software-rasterizer")
+            opts.add_argument("--start-maximized")
+            logging.info("🐳 VPS mode Chrome options applied (Xvfb display)")
+
         # Strip all automation fingerprints
         opts.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
         opts.add_experimental_option("useAutomationExtension", False)
@@ -614,14 +647,18 @@ class WhatsAppProTool:
 
         return opts
 
+
     def _get_stealth_js(self) -> str:
         """Return lightweight stealth JS — avoids breaking WhatsApp Web internals."""
         return """
         // ═══════════════════════════════════════════════════════
-        // 1. Hide navigator.webdriver
+        // 1. navigator.webdriver — false, not undefined
         // ═══════════════════════════════════════════════════════
+        // Real Chrome reports false here. Reporting undefined is the anomaly every
+        // bot check looks for, so hiding the property harder than Chrome does made
+        // the browser easier to spot, not harder.
         Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined
+            get: () => false
         });
 
         // ═══════════════════════════════════════════════════════
@@ -632,21 +669,23 @@ class WhatsAppProTool:
         });
 
         // ═══════════════════════════════════════════════════════
-        // 3. Realistic window.chrome object
+        // 3. window.chrome — leave the browser's own object alone
         // ═══════════════════════════════════════════════════════
-        window.chrome = {
-            app: { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
-            runtime: { OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' }, OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' }, PlatformArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' }, RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' } }
-        };
+        // On an ordinary page chrome.runtime is undefined; only an extension page has it.
+        // Defining it announced automation instead of hiding it. Chromium already ships
+        // window.chrome, so nothing needs to be built here.
+        if (typeof window.chrome === 'undefined') {
+            window.chrome = { app: { isInstalled: false } };
+        }
 
         // ═══════════════════════════════════════════════════════
-        // 4. Permissions API — return realistic results
+        // 4. Permissions API — left untouched on purpose
         // ═══════════════════════════════════════════════════════
-        const origPermQuery = window.navigator.permissions.query;
-        window.navigator.permissions.query = (params) =>
-            params.name === 'notifications'
-                ? Promise.resolve({ state: Notification.permission })
-                : origPermQuery.call(navigator.permissions, params);
+        // The old override answered notification queries with Notification.permission.
+        // With notifications blocked by content setting the native answer is already
+        // "denied", and it arrives as a real PermissionStatus with name/onchange —
+        // the hand-made {state} object was missing both, and threw outright whenever
+        // window.Notification was absent.
 
         // ═══════════════════════════════════════════════════════
         // 5. Hardware concurrency & device memory
@@ -679,7 +718,23 @@ class WhatsAppProTool:
             try:
                 self._cleanup_session_locks()
                 opts    = self._build_chrome_options()
-                service = Service(ChromeDriverManager().install())
+                # Check for system chromedriver first (common on Linux/Debian ARM64 & Docker)
+                system_driver = os.environ.get('CHROMEDRIVER_PATH')
+                if not system_driver and PLATFORM == 'Linux':
+                    for candidate in ['/usr/bin/chromedriver', '/usr/local/bin/chromedriver']:
+                        if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+                            system_driver = candidate
+                            break
+
+                if system_driver:
+                    logging.info(f"Using system chromedriver: {system_driver}")
+                    service = Service(system_driver)
+                else:
+                    try:
+                        service = Service(ChromeDriverManager().install())
+                    except Exception as cdm_err:
+                        logging.warning(f"ChromeDriverManager failed ({cdm_err}), falling back to default Selenium driver")
+                        service = Service()
                 self.driver = webdriver.Chrome(service=service, options=opts)
 
                 # Inject comprehensive stealth fingerprints
@@ -856,6 +911,53 @@ class WhatsAppProTool:
             return False
         return self.wait_for_login(timeout=timeout)
 
+    def get_qr_code(self) -> Dict[str, Any]:
+        """
+        Extract the current QR code from WhatsApp Web without logging sensitive info.
+        Returns:
+            dict: { 'qr': str | None, 'authenticated': bool, 'state': str }
+        """
+        if not self.driver:
+            return {'qr': None, 'authenticated': False, 'state': 'stopped'}
+        try:
+            if self.is_logged_in():
+                return {'qr': None, 'authenticated': True, 'state': 'ready'}
+
+            # Method 1: Extract canvas data URL via JS
+            js_extract = """
+            const canvas = document.querySelector('canvas[aria-label*="QR"], canvas');
+            if (canvas) {
+                try {
+                    return { type: 'data_url', data: canvas.toDataURL('image/png') };
+                } catch (e) {
+                    // Canvas tainted or context unavailable
+                }
+            }
+            const refDiv = document.querySelector('div[data-ref]');
+            if (refDiv) {
+                return { type: 'ref', data: refDiv.getAttribute('data-ref') };
+            }
+            return null;
+            """
+            result = self.driver.execute_script(js_extract)
+            if result and isinstance(result, dict):
+                if result.get('type') == 'data_url' and result.get('data'):
+                    return {'qr': result['data'], 'authenticated': False, 'state': 'waiting_login'}
+
+            # Method 2: Screenshot the canvas element directly
+            canvases = self.driver.find_elements(By.TAG_NAME, 'canvas')
+            if canvases:
+                try:
+                    b64 = canvases[0].screenshot_as_base64
+                    if b64:
+                        return {'qr': f'data:image/png;base64,{b64}', 'authenticated': False, 'state': 'waiting_login'}
+                except Exception:
+                    pass
+
+            return {'qr': None, 'authenticated': False, 'state': 'waiting_login'}
+        except Exception:
+            return {'qr': None, 'authenticated': False, 'state': 'waiting_login'}
+
     def bring_to_front(self) -> bool:
         """
         Bring the (last) WhatsApp Web window to the front of the screen —
@@ -894,6 +996,9 @@ class WhatsAppProTool:
     def _os_activate_window(self) -> bool:
         """OS-level activation so the window rises above other apps (best effort)."""
         try:
+            # Under headless VPS / Xvfb, OS window manager is virtual (:99); skip host activation
+            if os.environ.get('WHATSAPP_VPS_MODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}:
+                return True
             if PLATFORM == 'Darwin':
                 return self._activate_macos()
             if PLATFORM == 'Windows':

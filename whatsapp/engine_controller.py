@@ -353,6 +353,25 @@ class EngineController:
         if thread:
             thread.join(timeout)
 
+    def get_qr_code(self) -> Dict[str, Any]:
+        """
+        Extract the current QR code from WhatsApp Web without logging sensitive info.
+        Returns:
+            dict: { 'qr': str | None, 'authenticated': bool, 'state': str }
+        """
+        with self._lock:
+            if not self.alive:
+                return {'qr': None, 'authenticated': False, 'state': self.state}
+            if self.state == 'ready':
+                return {'qr': None, 'authenticated': True, 'state': 'ready'}
+            bot = self._bot
+        if bot and hasattr(bot, 'get_qr_code'):
+            try:
+                return bot.get_qr_code()
+            except Exception as e:
+                logging.debug(f"Error fetching QR code from bot: {e}")
+        return {'qr': None, 'authenticated': False, 'state': self.state}
+
     def watchdog_check(self, max_idle_seconds: float = 300, restart_timeout: float = 150) -> bool:
         """
         Restart the engine when a mission has frozen. Returns True when a restart was attempted.
