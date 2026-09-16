@@ -159,6 +159,6 @@ VOLUME ["/app/whatsapp/whatsapp_session", "/app/whatsapp/logs"]
 
 # ── Health check ─────────────────────────────────────────────
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:5001/api/status || exit 1
+    CMD curl -f http://localhost:5001/api/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]

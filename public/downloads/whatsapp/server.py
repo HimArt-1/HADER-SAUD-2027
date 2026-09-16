@@ -605,6 +605,18 @@ def index():
 def favicon():
     return '', 204
 
+@api_bp.route('/health', methods=['GET'])
+def health():
+    """فحص حياة بلا مصادقة — لا يكشف شيئاً عن الجلسة أو الطابور.
+
+    فحص الحاوية كان ينادي /api/status، وهي محمية بالمفتاح. في وضع الإنتاج صار
+    يتلقى 401 فتُعلَّم الحاوية "unhealthy" وتبدأ أدوات التشغيل بإعادة تشغيلها
+    بلا سبب. الحياة شيء والحالة شيء آخر: هذه تقول إن العملية ترد، ولا تقول
+    أكثر من ذلك.
+    """
+    return jsonify({'ok': True, 'service': 'hader-whatsapp', 'version': VERSION})
+
+
 @api_bp.route('/status', methods=['GET'])
 # بدون rate limit - نقطة فحص الاتصال
 @require_api_key

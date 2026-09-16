@@ -322,3 +322,27 @@ class TestDriverIsNotDownloadedAtRuntime(unittest.TestCase):
             bot.init_browser()
 
         self.assertTrue(manager.called or service.called)
+
+
+class TestHealthEndpoint(unittest.TestCase):
+    """فحص الحياة يعمل بلا مفتاح، ولا يكشف حالة الجلسة."""
+
+    def setUp(self):
+        self.app = server.app.test_client()
+        server.API_SECRET_KEY = 'h' * 64
+
+    def tearDown(self):
+        server.API_SECRET_KEY = None
+
+    def test_health_is_reachable_without_a_key(self):
+        res = self.app.get('/api/health')
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.get_json()['ok'])
+
+    def test_health_says_nothing_about_the_session_or_the_queue(self):
+        body = self.app.get('/api/health').get_json()
+        for leak in ('logged_in', 'state', 'pending', 'queue', 'logs', 'progress'):
+            self.assertNotIn(leak, body)
+
+    def test_status_is_still_protected(self):
+        self.assertEqual(self.app.get('/api/status').status_code, 401)
