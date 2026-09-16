@@ -1,7 +1,9 @@
 import AnimatedLogo from './AnimatedLogo';
 import React, { useState, useEffect, useRef, createContext, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, Shield, Users, Clock, LayoutDashboard, Settings, UserCircle, Activity, X, Bell, Calendar, ChevronLeft, ChevronRight, Headphones, Sun, Moon, MessageSquare, Download, Apple, Monitor, Loader2, CheckCircle2, AlertCircle, ScanLine, FileText, ShieldAlert, Send, DoorOpen, Megaphone, HelpCircle, Info, Cloud, RefreshCw, Sparkles, Globe, Wifi, WifiOff, ClipboardList } from 'lucide-react';
+import { LogOut, Menu, Shield, Users, Clock, LayoutDashboard, Settings, UserCircle, Activity, X, Bell, Calendar, ChevronLeft, ChevronRight, Headphones, Sun, Moon, MessageSquare, Download, Apple, Monitor, Loader2, CheckCircle2, AlertCircle, ScanLine, FileText, ShieldAlert, Send, DoorOpen, Megaphone, HelpCircle, Info, Cloud, RefreshCw, Sparkles, Globe, Wifi, WifiOff, ClipboardList, Sliders } from 'lucide-react';
+import { KioskLaunchModal } from './kiosk/KioskLaunchModal';
+import { getKioskLaunchPreferences, executeKioskLaunch } from '../utils/kioskLaunchHelper';
 import { localDb } from '../services/localDb';
 import { Role, User, STORAGE_KEYS, Notification } from '../types';
 import { db } from '../services/db';
@@ -111,6 +113,23 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     isOnline?: boolean;
   }>({ open: false, platform: null, status: 'idle', progress: 0, message: '' });
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showKioskLaunchModal, setShowKioskLaunchModal] = useState(false);
+
+  const handleNavItemClick = (itemPath: string) => {
+    if (itemPath === '/kiosk') {
+      const prefs = getKioskLaunchPreferences();
+      if (prefs.autoLaunch) {
+        void executeKioskLaunch(prefs, navigate);
+        setSidebarOpen(false);
+        return;
+      }
+      setShowKioskLaunchModal(true);
+      setSidebarOpen(false);
+      return;
+    }
+    navigate(itemPath);
+    setSidebarOpen(false);
+  };
   const [showUstadModal, setShowUstadModal] = useState(false);
   const [ustadInitialCommand, setUstadInitialCommand] = useState<string | null>(null);
   const [ustadWakeSignal, setUstadWakeSignal] = useState(0);
@@ -966,10 +985,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                 {allowedItems.map((item) => (
                   <li key={item.path}>
                     <button
-                      onClick={() => {
-                        navigate(item.path);
-                        setSidebarOpen(false);
-                      }}
+                      onClick={() => handleNavItemClick(item.path)}
                       title={sidebarCollapsed ? item.label : undefined}
                       className={`relative w-full flex items-center rounded-xl transition-all duration-300 group overflow-hidden ${sidebarCollapsed ? 'justify-center p-3' : 'gap-4 px-4 py-3.5'
                         } ${location.pathname === item.path
@@ -982,6 +998,27 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                       )}
                       <item.icon className={`flex-shrink-0 transition-transform duration-300 group-hover:scale-110 ${sidebarCollapsed ? 'w-6 h-6' : 'w-5 h-5'} ${location.pathname === item.path ? 'text-primary-400' : 'text-slate-500 group-hover:text-primary-400'}`} />
                       <span className={`font-medium tracking-wide whitespace-nowrap transition-all duration-300 ${location.pathname === item.path ? 'font-bold' : ''} ${sidebarCollapsed ? 'md:hidden' : ''}`}>{item.label}</span>
+                      {item.path === '/kiosk' && !sidebarCollapsed && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowKioskLaunchModal(true);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.stopPropagation();
+                              setShowKioskLaunchModal(true);
+                            }
+                          }}
+                          className="mr-auto p-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/20 transition-all opacity-0 group-hover:opacity-100"
+                          title="خيارات تشغيل الكشك"
+                          aria-label="خيارات تشغيل الكشك"
+                        >
+                          <Sliders className="w-3.5 h-3.5" />
+                        </span>
+                      )}
                     </button>
                   </li>
                 ))}
@@ -1186,6 +1223,12 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
             onThemeChange={(mode) => {
               if ((mode === 'dark') !== dark_mode) void toggleDarkMode();
             }}
+          />
+
+          <KioskLaunchModal
+            isOpen={showKioskLaunchModal}
+            onClose={() => setShowKioskLaunchModal(false)}
+            navigate={navigate}
           />
         </div>
       </NotificationContext.Provider>

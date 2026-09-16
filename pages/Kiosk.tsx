@@ -23,6 +23,7 @@ import {
   KioskOperatingPolicy,
   resolveKioskDayState
 } from '../components/kiosk/kioskOperationalState';
+import { clearKioskAutoLaunch } from '../utils/kioskLaunchHelper';
 
 // Keep the scan sound available offline and handle browser autoplay restrictions.
 const playScanSound = () => {
@@ -486,6 +487,23 @@ const Kiosk: React.FC = () => {
   // 🔄 Rotation Management - Load saved preference
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
+    // Check URL query parameters for rotation override (?rotate=none|right|left)
+    if (typeof window !== 'undefined') {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const paramRotation = urlParams.get('rotate') as typeof rotation | null;
+        if (paramRotation && ['none', 'right', 'left'].includes(paramRotation)) {
+          setRotation(paramRotation);
+          if (window.localStorage) {
+            localStorage.setItem('hader:kiosk:rotation', paramRotation);
+          }
+          return;
+        }
+      } catch {
+        // Ignore URL parsing errors
+      }
+    }
+
     // Load saved rotation preference (only for full-screen kiosk, not embedded)
     if (!isEmbedded && typeof window !== 'undefined' && window.localStorage) {
       const savedRotation = localStorage.getItem('hader:kiosk:rotation') as typeof rotation | null;
@@ -2574,6 +2592,29 @@ const Kiosk: React.FC = () => {
                         title="تدوير يسار (-90°)"
                       >
                         <RotateCcw className="w-4 h-4 mx-auto" />
+                      </button>
+                    </div>
+
+                    {/* خيارات الفتح التلقائي */}
+                    <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between px-1">
+                      <span className={`text-[10px] ${theme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        خيارات الفتح التلقائي
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          clearKioskAutoLaunch();
+                          toast.success('تمت إعادة ضبط خيارات فتح الكشك؛ ستظهر نافذة الإعدادات عند النقر في المرة القادمة.');
+                        }}
+                        className={`text-[9px] px-2 py-1 rounded-md transition-all ${
+                          theme.isDark
+                            ? 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-400/20'
+                            : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200'
+                        }`}
+                        title="إعادة ضبط لظهور نافذة خيارات الفتح من الواجهة الرئيسية"
+                      >
+                        إعادة ضبط
                       </button>
                     </div>
                   </div>

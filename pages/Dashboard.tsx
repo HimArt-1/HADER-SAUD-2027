@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Role, SystemSettings, Student, AttendanceRecord, ViolationRecord, ExitRecord } from '../types';
-import { Settings, Clock, Activity, Shield, Headphones, TrendingUp, Award, Users, AlertTriangle, BarChart3, PieChart, LineChart, Zap, Trophy, GraduationCap, Star, UserCheck, UserX, Timer, Calendar, TrendingDown, ArrowUp, ArrowDown, Search, LogOut, Bell, MessageSquare, AlertCircle, X, Mic } from 'lucide-react';
+import { Settings, Clock, Activity, Shield, Headphones, TrendingUp, Award, Users, AlertTriangle, BarChart3, PieChart, LineChart, Zap, Trophy, GraduationCap, Star, UserCheck, UserX, Timer, Calendar, TrendingDown, ArrowUp, ArrowDown, Search, LogOut, Bell, MessageSquare, AlertCircle, X, Mic, Sliders } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { KioskLaunchModal } from '../components/kiosk/KioskLaunchModal';
+import { getKioskLaunchPreferences, executeKioskLaunch } from '../utils/kioskLaunchHelper';
 import { calculateDisciplineIndex } from '../utils/disciplineIndex';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import { db, getLocalISODate, getLocalDateStr } from '../services/db';
@@ -959,6 +961,20 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
   const { addCleanup } = useCleanup();
   const safeAsync = useSafeAsync();
   const [showGuide, setShowGuide] = useState(false);
+  const [isKioskLaunchModalOpen, setIsKioskLaunchModalOpen] = useState(false);
+
+  const handleCardClick = (cardPath: string) => {
+    if (cardPath === '/kiosk') {
+      const prefs = getKioskLaunchPreferences();
+      if (prefs.autoLaunch) {
+        void executeKioskLaunch(prefs, navigate);
+        return;
+      }
+      setIsKioskLaunchModalOpen(true);
+      return;
+    }
+    navigate(cardPath);
+  };
 
   const dashboardGuideSteps: GuideStep[] = [
     {
@@ -1624,7 +1640,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                 <button
                   key={card.path}
                   type="button"
-                  onClick={() => navigate(card.path)}
+                  onClick={() => handleCardClick(card.path)}
                   className={`glass-card group relative min-h-[128px] overflow-hidden rounded-xl border bg-slate-950/40 p-4 text-right shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-slate-900/60 active:translate-y-0 focus:outline-none focus:ring-4 focus:ring-primary-300/10 ${tone.border}`}
                 >
                   <div className={`absolute inset-x-0 top-0 h-[3px] ${tone.line}`} />
@@ -1633,6 +1649,20 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                       <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg border ${tone.icon}`}>
                         <Icon className={`h-5 w-5 ${tone.iconText}`} />
                       </div>
+                      {card.path === '/kiosk' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsKioskLaunchModalOpen(true);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/20 border border-transparent hover:border-cyan-400/30 transition-all"
+                          title="خيارات تشغيل الكشك (مكان الفتح والتدوير)"
+                          aria-label="خيارات تشغيل الكشك"
+                        >
+                          <Sliders className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                     <div className="min-w-0">
                       <h3 className="truncate text-sm font-bold text-slate-50">{card.title}</h3>
@@ -1692,6 +1722,12 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
         title="دليل لوحة التحكم"
         steps={dashboardGuideSteps}
         heroImage="/images/dashboard_guide_hero.webp"
+      />
+
+      <KioskLaunchModal
+        isOpen={isKioskLaunchModalOpen}
+        onClose={() => setIsKioskLaunchModalOpen(false)}
+        navigate={navigate}
       />
     </motion.div>
   );

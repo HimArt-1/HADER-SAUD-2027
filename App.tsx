@@ -129,40 +129,43 @@ const SplashScreen: React.FC<{ title: string; subtitle?: string; mode?: 'boot' |
   subtitle,
   mode = 'boot'
 }) => (
-  <div className={`splash-screen splash-screen-${mode}`} role="status" aria-live="polite" dir="rtl">
-    <div className="splash-tech-grid" aria-hidden="true" />
-    <div className="splash-scan-field" aria-hidden="true" />
-    <div className="splash-corner splash-corner-top" aria-hidden="true" />
-    <div className="splash-corner splash-corner-bottom" aria-hidden="true" />
+  <div className={`modern-splash-screen mode-${mode}`} role="status" aria-live="polite" dir="rtl">
+    {/* Elegant ambient background */}
+    <div className="splash-ambient-bg" aria-hidden="true">
+      <div className="splash-orb orb-primary" />
+      <div className="splash-orb orb-secondary" />
+    </div>
 
-    <div className="splash-shell">
-      <div className="splash-status-row" aria-hidden="true">
-        <span className="splash-status-dot" />
-        <span>تهيئة نظام حاضر</span>
-      </div>
+    {/* Subtle grid pattern */}
+    <div className="splash-elegant-grid" aria-hidden="true" />
 
-      <div className="splash-logo-container">
+    <div className="modern-splash-glass">
+      {mode === 'boot' && (
+        <div className="splash-status-badge">
+          <span className="splash-pulse-dot" aria-hidden="true" />
+          <span className="splash-status-text">نظام حاضر</span>
+        </div>
+      )}
+
+      <div className="modern-splash-logo">
+        <div className="logo-glow" aria-hidden="true" />
         <AnimatedLogo motion={mode === 'boot' ? 'assemble' : 'quiet'} size="splash" />
       </div>
 
-      <div className="splash-signal-strip" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
+      <div className="modern-splash-text-area">
+        <h1 className="modern-splash-title">{title}</h1>
+        {subtitle && <p className="modern-splash-subtitle">{subtitle}</p>}
       </div>
 
-      <p className="splash-text">{title}</p>
-      {subtitle && <p className="splash-subtext">{subtitle}</p>}
-
-      <div className="splash-progress-container" aria-hidden="true">
-        <div className="splash-progress-track" />
-        <div className="splash-progress-bar" />
+      <div className="modern-splash-loader-wrapper" aria-hidden="true">
+        <div className="modern-loader-track">
+          <div className="modern-loader-bar" />
+        </div>
       </div>
     </div>
   </div>
 );
+
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
