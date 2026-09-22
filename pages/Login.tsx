@@ -1,4 +1,5 @@
 import AnimatedLogo from '../components/AnimatedLogo';
+import { AppNationalBanner } from '../components/national/NationalIdentity';
 import EntryIntro from '../components/EntryIntro';
 import React, { useCallback, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -105,6 +106,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       <div className="relative mx-auto grid min-h-[100dvh] w-full max-w-7xl grid-cols-1 items-center gap-10 px-5 py-8 md:grid-cols-[1.05fr_0.95fr] md:px-10 lg:px-12">
         <section className="hidden md:block">
           <div className="max-w-xl">
+            <AppNationalBanner variant="login" />
             <div className="mb-10 flex items-center gap-4">
               <div className="rounded-[1.6rem] border border-white/10 bg-white/[0.04] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.10)]">
                 <AnimatedLogo motion="assemble" size="login" tone="inverse" />
@@ -144,6 +146,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         </section>
 
         <section className="w-full">
+          <div className="md:hidden mx-auto max-w-[440px]"><AppNationalBanner variant="login" /></div>
           <div className="mx-auto w-full max-w-[440px] rounded-[2rem] border border-white/10 bg-[#06191e]/85 md:bg-[#06191e]/72 p-2 shadow-[0_30px_90px_-42px_rgb(var(--color-primary-500)_/_0.42),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md md:backdrop-blur-xl">
             <div className="rounded-[1.55rem] border border-white/10 bg-[#0b272d]/90 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:p-7">
               <div className="mb-7 text-center md:hidden">

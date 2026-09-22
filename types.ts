@@ -449,6 +449,11 @@ export interface ScreensaverCustomText {
 
 // Kiosk Settings
 export interface KioskSettings {
+  national_identity?: {
+    enabled?: boolean;
+    app_enabled?: boolean;
+    reduced_motion?: boolean;
+  };
   main_title?: string;
   sub_title?: string;
   early_message?: string;

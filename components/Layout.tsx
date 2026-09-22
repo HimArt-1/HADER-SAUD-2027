@@ -1,4 +1,5 @@
 import AnimatedLogo from './AnimatedLogo';
+import { AppNationalBanner } from './national/NationalIdentity';
 import React, { useState, useEffect, useRef, createContext, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, Menu, Shield, Users, Clock, LayoutDashboard, Settings, UserCircle, Activity, X, Bell, Calendar, ChevronLeft, ChevronRight, Headphones, Sun, Moon, MessageSquare, Download, Apple, Monitor, Loader2, CheckCircle2, AlertCircle, ScanLine, FileText, ShieldAlert, Send, DoorOpen, Megaphone, HelpCircle, Info, Cloud, RefreshCw, Sparkles, Globe, Wifi, WifiOff, ClipboardList, Sliders } from 'lucide-react';
@@ -1069,6 +1070,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                 {HelpButton}
               </div>
             </div>
+            <AppNationalBanner />
             <UstadBriefingBanner
               user={user}
               onOpenDetails={() => {

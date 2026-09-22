@@ -59,6 +59,30 @@ async function openCamera() {
 }
 
 describe('kiosk scan lifecycle', () => {
+  it('switches national identity without remounting or clearing the active scanner', async () => {
+    localStorage.setItem('hader:kiosk:rotation', 'right');
+    await openKiosk();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'S1' } });
+    const update = mocks.settingsListener.mock.calls[0][0];
+    await act(async () => update({ system_ready: true, school_active: true,
+      kiosk_settings: { theme: 'light-clean', national_identity: { enabled: true, reduced_motion: true } } }));
+    expect(screen.getByRole('textbox')).toBe(input);
+    expect(input).toHaveProperty('value', 'S1');
+    expect(document.getElementById('kiosk-root')?.classList.contains('kiosk-national')).toBe(true);
+    expect(document.getElementById('kiosk-root')?.classList.contains('kiosk-rotate-right')).toBe(true);
+    await act(async () => { fireEvent.submit(input.closest('form')!); });
+    expect(mocks.mark).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('سُجل S1')).toBeTruthy();
+    await act(async () => update({ system_ready: true, school_active: true,
+      kiosk_settings: { theme: 'light-clean', national_identity: { enabled: false } } }));
+    expect(document.getElementById('kiosk-root')?.classList.contains('kiosk-national')).toBe(false);
+    expect(document.getElementById('kiosk-root')?.classList.contains('kiosk-rotate-right')).toBe(true);
+    expect(screen.getByRole('textbox')).toBe(input);
+    expect(screen.getByText('سُجل S1')).toBeTruthy();
+    expect(mocks.preload).toHaveBeenCalledTimes(1);
+  });
+
   it.each([false, 0])('rejects an inactive student (%s) before attendance is written', async isActive => {
     mocks.find.mockResolvedValue({ ...student('S1'), is_active: isActive });
     await openKiosk();

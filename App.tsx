@@ -1,4 +1,5 @@
 import AnimatedLogo from './components/AnimatedLogo';
+import { NationalIdentityProvider, NationalAppTrim } from './components/national/NationalIdentity';
 import React, { useEffect, useState, Suspense, useCallback } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { auth } from './services/auth';
@@ -344,7 +345,9 @@ const App: React.FC = () => {
   );
 
   return (
+    <NationalIdentityProvider>
     <Router>
+      <NationalAppTrim />
       <ElectronMenuHandler>
         <Suspense fallback={pageFallback}>
           {!user ? (
@@ -463,6 +466,7 @@ const App: React.FC = () => {
         </Suspense>
       </ElectronMenuHandler>
     </Router>
+    </NationalIdentityProvider>
   );
 };
 

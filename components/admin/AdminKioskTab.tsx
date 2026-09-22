@@ -9,6 +9,7 @@ import { KioskSettings, ATTENDANCE_DEFAULTS } from '../../types';
 import { appSettings } from '../../services/settings';
 import { logError } from '../../types/errors';
 import { useToast } from '../Toast';
+import NationalIdentitySettings from '../national/NationalIdentitySettings';
 
 export interface AdminKioskTabProps {
   kiosk_settings: KioskSettings;
@@ -139,6 +140,7 @@ const AdminKioskTab: React.FC<AdminKioskTabProps> = ({
 
 
           {/* Theme Selection - اختيار نمط الكشك */}
+          <NationalIdentitySettings settings={kiosk_settings} onChange={setKioskSettings} />
           <div className="mb-8 p-6 bg-gradient-to-br from-secondary-500/10 to-secondary-500/10 rounded-2xl border border-secondary-500/20">
             <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
               <Palette className="w-5 h-5 text-secondary-400" />

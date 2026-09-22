@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { NationalBanner } from '../components/national/NationalIdentity';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../services/db';
 import { appSettings } from '../services/settings';
@@ -1462,10 +1463,17 @@ const Kiosk: React.FC = () => {
   const dismissResult = () => setAttendanceResult(null);
 
   // Get current theme configuration (with fallback) - MUST be before screensaver
+  const nationalIdentity = settings?.national_identity;
+  const nationalEnabled = nationalIdentity?.enabled === true;
   const theme = useMemo(() => {
+    if (nationalEnabled) return {
+      ...KIOSK_THEMES['dark-neon'],
+      bg: 'bg-[#062c28]', blob1: 'bg-emerald-700/20', blob2: 'bg-amber-600/10',
+      accent: 'text-[#d9c68c]', subText: 'text-[#c2d2c6]'
+    };
     const themeKey = settings?.theme || 'dark-neon';
     return KIOSK_THEMES[themeKey] || KIOSK_THEMES['dark-neon'];
-  }, [settings?.theme]);
+  }, [settings?.theme, nationalEnabled]);
 
   const show_school_name = settings?.show_school_name !== false;
   const show_principal_name = settings?.show_principal_name !== false;
@@ -1665,6 +1673,9 @@ const Kiosk: React.FC = () => {
 
         {/* Center Content - Moved down a bit */}
         <div className="text-center max-w-4xl mx-auto flex flex-col items-center justify-center mt-16">
+          {nationalEnabled && !settings?.screensaver_images?.length && (
+            <div className="national-screensaver-banner"><NationalBanner variant="hero" quiet={nationalIdentity?.reduced_motion} /></div>
+          )}
 
           {/* Screensaver images slider - Center */}
           {settings?.screensaver_images && settings.screensaver_images.length > 0 && (
@@ -2116,7 +2127,8 @@ const Kiosk: React.FC = () => {
     <div
       id="kiosk-root"
       ref={kioskRootRef}
-      className={`min-h-[100dvh] flex flex-col items-center justify-center p-4 overflow-hidden relative ${theme.bg} kiosk-rotate-none`}
+      className={`min-h-[100dvh] flex flex-col items-center justify-center p-4 overflow-hidden relative ${theme.bg} kiosk-rotate-${isEmbedded ? 'none' : rotation} ${nationalEnabled ? 'kiosk-national' : ''}`}
+      data-quiet={nationalEnabled && (nationalIdentity?.reduced_motion || loading || !!attendanceResult || cameraScanOpen)}
       onClick={() => inputRef.current?.focus()}
     >
       {screensaver}
@@ -2663,8 +2675,9 @@ const Kiosk: React.FC = () => {
         )
       }
 
-      <div className="w-full max-w-6xl text-center space-y-9 relative z-10">
-        <div className="space-y-4">
+      <div className="kiosk-content w-full max-w-6xl text-center space-y-9 relative z-10">
+        <div className="kiosk-overview space-y-4">
+          {nationalEnabled && <NationalBanner variant="hero" quiet={nationalIdentity?.reduced_motion || loading || !!attendanceResult || cameraScanOpen} />}
           {/* Logo with Glass Frame */}
           <div className="flex items-center justify-center mb-6">
             <div className={`relative overflow-hidden rounded-[2rem] ${theme.isDark ? KIOSK_SURFACE : KIOSK_LIGHT_SURFACE} ${settings?.display_settings?.title_size === 'sm' ? 'p-4' : 'p-5'}`}>
@@ -2715,7 +2728,7 @@ const Kiosk: React.FC = () => {
             </div>
           )}
 
-          <div className="mx-auto grid max-w-5xl grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="kiosk-status-grid mx-auto grid max-w-5xl grid-cols-2 gap-3 md:grid-cols-4">
             {kioskStatusTiles.map(({ label, value, helper, icon: StatusIcon, tone }) => (
               <div
                 key={label}
@@ -2741,7 +2754,7 @@ const Kiosk: React.FC = () => {
         {/* Large Clock Display - Dynamic Size */}
         {/* Large Clock Display - Dynamic Size (HERO STYLE) */}
         <div
-          className={`w-full mx-auto mb-10 ${settings?.display_settings?.card_size === 'sm' ? 'max-w-md' : 'max-w-3xl'
+          className={`kiosk-clock w-full mx-auto mb-10 ${settings?.display_settings?.card_size === 'sm' ? 'max-w-md' : 'max-w-3xl'
             }`}
           style={{
             width: kioskCardSize.width ? `${kioskCardSize.width}%` : undefined,
@@ -2813,6 +2826,10 @@ const Kiosk: React.FC = () => {
               </div>
             </div>
           </section>
+        )}
+
+        {nationalEnabled && kioskDayState.allowsAttendance && (
+          <div className="national-scan-prompt"><Scan aria-hidden="true" /><span>مرّر بطاقتك لتسجيل الحضور</span></div>
         )}
 
         {/* Hidden barcode gun form - captures scanner input without showing manual input UI */}
