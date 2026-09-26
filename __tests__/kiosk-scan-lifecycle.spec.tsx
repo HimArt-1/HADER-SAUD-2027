@@ -59,6 +59,25 @@ async function openCamera() {
 }
 
 describe('kiosk scan lifecycle', () => {
+  it.each([
+    ['none', 'وضع عادي'],
+    ['right', 'تدوير يمين (90°)'],
+    ['left', 'تدوير يسار (-90°)'],
+  ])('preserves the active scan when the operator selects %s rotation', async (rotation, title) => {
+    await openKiosk();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'S1' } });
+    await act(async () => { fireEvent.click(screen.getByTitle(title)); });
+    expect(document.getElementById('kiosk-root')?.classList.contains(`kiosk-rotate-${rotation}`)).toBe(true);
+    expect(screen.getByRole('textbox')).toBe(input);
+    expect(input).toHaveProperty('value', 'S1');
+    await act(async () => { fireEvent.submit(input.closest('form')!); });
+    expect(mocks.mark).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('سُجل S1')).toBeTruthy();
+    expect(document.querySelector('.kiosk-result-overlay')?.closest('.kiosk-scroll')).toBeNull();
+    expect(mocks.preload).toHaveBeenCalledTimes(1);
+  });
+
   it('switches national identity without remounting or clearing the active scanner', async () => {
     localStorage.setItem('hader:kiosk:rotation', 'right');
     await openKiosk();

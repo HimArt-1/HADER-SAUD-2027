@@ -60,45 +60,11 @@
 .light-mode .national-settings__heading > p, .light-mode .national-settings__note, .light-mode .national-setting small, .light-mode .national-settings__preview > span { color: #456052; }
 .light-mode .national-settings__heading .national-eyebrow { color: #706024; }
 .kiosk-national { background: #062c28; }
-#kiosk-root.kiosk-national.kiosk-rotate-none { height: auto; min-height: 100dvh; transform: none; }
-#kiosk-root.kiosk-national:not(.kiosk-rotate-none) { min-height: 0; overflow-y: auto; justify-content: flex-start; }
-.kiosk-national .kiosk-content { flex-shrink: 0; }
-.kiosk-national .kiosk-overview > .flex { margin-bottom: 1rem; }
-.kiosk-national .kiosk-overview > .national-banner { margin-bottom: 1.5rem; }
-.kiosk-national .kiosk-overview > h1 { font-size: clamp(1.6rem, 2.8vw, 2.6rem); }
-.kiosk-national .kiosk-overview > p { font-size: 1rem; margin-bottom: 1rem; }
-.kiosk-national .kiosk-status-grid { gap: .5rem; }
-.kiosk-national .kiosk-status-grid > div { min-height: 95px; }
-.kiosk-national .kiosk-clock { align-self: center; }
-.kiosk-national .national-scan-prompt { display: flex; justify-content: center; align-items: center; gap: .8rem; margin: 0 auto 1rem; color: #ede5c6; font-size: 1rem; }
-.kiosk-national input::placeholder { letter-spacing: normal; font-family: 'Arsenica Arabic Antiqua', sans-serif; font-size: clamp(1.15rem, 2.2vw, 2rem); color: #8ca6a0; }
-.national-scan-prompt > svg { width: 1.6rem; height: 1.6rem; }
 .national-screensaver-banner { width: min(780px, 90vw); margin-bottom: 1.5rem; }
 .national-screensaver-banner .national-banner { min-height: 19rem; }
 @keyframes national-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 [data-quiet="true"] .national-artwork__heritage, .national-artwork[data-quiet="true"] .national-artwork__heritage { animation: none; }
 .kiosk-national[data-quiet="true"] .animate-blob, .kiosk-national[data-quiet="true"] .animate-pulse-slow, .kiosk-national[data-quiet="true"] .animation-shine, .kiosk-national[data-quiet="true"] .animate-scan { animation: none; }
-@media (min-width: 1100px) {
-  .kiosk-national { padding: 3rem 2rem; }
-  .kiosk-national .kiosk-content { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1.25rem 3rem; max-width: 1440px; align-items: center; }
-  .kiosk-national .kiosk-content > * { margin-top: 0; }
-  .kiosk-national .kiosk-overview { grid-column: 2; grid-row: 1 / 6; }
-  .kiosk-national .kiosk-content > :not(.kiosk-overview) { grid-column: 1; }
-  .kiosk-national .kiosk-clock { margin-bottom: 0; }
-  .kiosk-national .kiosk-clock > div { padding-top: 4rem; padding-bottom: 2rem; }
-  .kiosk-national .kiosk-clock .text-7xl { font-size: clamp(3rem, 5.5vw, 6rem); }
-  .kiosk-national .kiosk-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (min-width: 1100px) {
-  .kiosk-national { padding-block: 3.5rem 1.5rem; }
-  .kiosk-national .national-banner--hero { min-height: 12rem; padding: 1.2rem; }
-  .kiosk-national .national-banner--hero .national-artwork { flex-basis: 34%; width: 34%; }
-  .kiosk-national .national-banner--hero h2 { font-size: 2.5rem; }
-  .kiosk-national .kiosk-overview > .flex > div { padding: .6rem 1rem; border-radius: 1rem; }
-  .kiosk-national .kiosk-overview > .flex img { height: 2.5rem; }
-  .kiosk-national .kiosk-status-grid > div { min-height: 80px; padding-block: .6rem; }
-  .kiosk-national .kiosk-status-grid p { margin-top: .3rem; }
-}
 @media (max-width: 767px) {
   .national-settings { padding: 1rem; }
   .national-settings__grid { grid-template-columns: 1fr; }
@@ -108,9 +74,6 @@
   .national-banner--login { min-height: 12rem; margin-bottom: 1.5rem; }
   .national-banner--hero h2, .national-banner--login h2 { font-size: 2rem; }
   .national-banner p { font-size: .75rem; }
-  .kiosk-national { padding-top: 5rem; }
-  .kiosk-national .kiosk-clock { max-width: 100%; }
-  .kiosk-national .kiosk-clock .font-mono.font-black { font-size: clamp(2.4rem, 10vw, 4.5rem); padding-top: 1.8rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   .national-artwork__heritage, .kiosk-national .animate-blob, .kiosk-national .animate-pulse-slow, .kiosk-national .animation-shine, .kiosk-national .animate-scan { animation: none; }

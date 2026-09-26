@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { NationalBanner } from '../components/national/NationalIdentity';
+import '../components/kiosk/kiosk-layout.css';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../services/db';
 import { appSettings } from '../services/settings';
@@ -1871,7 +1872,7 @@ const Kiosk: React.FC = () => {
         )}
         <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-white/80">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white/60">
-            <span className="font-semibold text-white">تحكم أبعاد بطاقة الكشك</span>
+            <span className="font-semibold text-white">عرض البطاقات وارتفاع الساعة</span>
             <button
               type="button"
               onClick={handleCardDimensionReset}
@@ -1912,7 +1913,7 @@ const Kiosk: React.FC = () => {
               />
             </div>
             <p className="text-[11px] text-white/50">
-              يتم تطبيق الأبعاد فوراً على بطاقة الساعة الرئيسية دون تعطيل العرض.
+              العرض موحّد لجميع البطاقات، والارتفاع يخص بطاقة الساعة.
             </p>
           </div>
         </div>
@@ -2126,8 +2127,9 @@ const Kiosk: React.FC = () => {
   return (
     <div
       id="kiosk-root"
+      dir="rtl"
       ref={kioskRootRef}
-      className={`min-h-[100dvh] flex flex-col items-center justify-center p-4 overflow-hidden relative ${theme.bg} kiosk-rotate-${isEmbedded ? 'none' : rotation} ${nationalEnabled ? 'kiosk-national' : ''}`}
+      className={`kiosk-shell overflow-hidden relative ${theme.bg} kiosk-rotate-${isEmbedded ? 'none' : rotation} ${nationalEnabled ? 'kiosk-national' : ''}`}
       data-quiet={nationalEnabled && (nationalIdentity?.reduced_motion || loading || !!attendanceResult || cameraScanOpen)}
       onClick={() => inputRef.current?.focus()}
     >
@@ -2161,7 +2163,7 @@ const Kiosk: React.FC = () => {
       {controlPanelOpen && (
         <div
           ref={controlPanelRef}
-          className={`fixed z-[90] rounded-2xl border backdrop-blur-2xl shadow-2xl transition-all duration-300 ${theme.isDark
+          className={`kiosk-control-panel fixed z-[90] rounded-2xl border backdrop-blur-2xl shadow-2xl transition-all duration-300 ${theme.isDark
             ? 'bg-slate-900/95 border-slate-700/50'
             : 'bg-white/95 border-slate-300'
             }`}
@@ -2219,7 +2221,7 @@ const Kiosk: React.FC = () => {
 
           {/* Content - Hidden when minimized */}
           {!controlPanelMinimized && (
-            <div className="p-4 space-y-4 max-h-[500px] overflow-y-auto">
+            <div className="kiosk-control-panel-body p-4 space-y-4 max-h-[500px] overflow-y-auto">
               {/* Connection/Sync Status */}
               <div className={`p-3 rounded-xl border backdrop-blur-sm ${theme.isDark
                 ? db.getMode() === 'local'
@@ -2637,24 +2639,6 @@ const Kiosk: React.FC = () => {
         </div>
       )}
 
-      {/* Header Image (if exists) - Dynamic Size */}
-      {
-        settings?.header_image && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-40">
-            <img
-              src={settings.header_image}
-              alt="Header"
-              className={`rounded-xl ${theme.isDark ? 'border-white/20' : 'border-black/10'} border shadow-lg transition-all duration-300`}
-              style={{
-                height: `${headerImageSize}px`,
-                width: 'auto',
-                maxWidth: '100vw'
-              }}
-            />
-          </div>
-        )
-      }
-
       {/* Dynamic Background Blobs */}
       <div className="absolute inset-0 w-full h-full overflow-hidden z-0 pointer-events-none">
         <div className={`absolute -top-32 left-[8%] h-[42rem] w-[42rem] ${theme.blob1} rounded-full blur-[150px] opacity-60 animate-pulse-slow`}></div>
@@ -2665,9 +2649,11 @@ const Kiosk: React.FC = () => {
       <div className={`absolute inset-0 ${theme.isDark ? KIOSK_DOT_PATTERN : KIOSK_DOT_PATTERN_LIGHT} ${theme.isDark ? 'opacity-20' : 'opacity-30'} z-[1] pointer-events-none`}></div>
       <div className={`absolute inset-0 z-[1] pointer-events-none ${theme.isDark ? 'bg-[linear-gradient(180deg,rgba(15,23,42,0.08),rgba(15,23,42,0.55))]' : 'bg-[linear-gradient(180deg,rgba(255,255,255,0.18),rgba(248,250,252,0.70))]'}`}></div>
 
+      <div className="kiosk-scroll">
+      <div className="kiosk-content text-center" style={{ width: kioskCardSize.width ? `${kioskCardSize.width}%` : undefined }}>
       {
         initStatus === 'ready' && initMessage && (
-          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-40">
+          <div className="kiosk-init-message">
             <div className="glass-card border border-amber-400/40 bg-amber-900/50 text-amber-100 px-4 py-2 rounded-2xl text-sm">
               {initMessage}
             </div>
@@ -2675,11 +2661,29 @@ const Kiosk: React.FC = () => {
         )
       }
 
-      <div className="kiosk-content w-full max-w-6xl text-center space-y-9 relative z-10">
-        <div className="kiosk-overview space-y-4">
+      {/* Header Image (if exists) - Dynamic Size */}
+      {
+        settings?.header_image && (
+          <div className="kiosk-header-image">
+            <img
+              src={settings.header_image}
+              alt="Header"
+              className={`rounded-xl ${theme.isDark ? 'border-white/20' : 'border-black/10'} border shadow-lg transition-all duration-300`}
+              style={{
+                height: `${headerImageSize}px`,
+                width: 'auto',
+                maxWidth: '100%'
+              }}
+            />
+          </div>
+        )
+      }
+
+
+        <div className="kiosk-overview">
           {nationalEnabled && <NationalBanner variant="hero" quiet={nationalIdentity?.reduced_motion || loading || !!attendanceResult || cameraScanOpen} />}
           {/* Logo with Glass Frame */}
-          <div className="flex items-center justify-center mb-6">
+          <div className="kiosk-brand flex items-center justify-center">
             <div className={`relative overflow-hidden rounded-[2rem] ${theme.isDark ? KIOSK_SURFACE : KIOSK_LIGHT_SURFACE} ${settings?.display_settings?.title_size === 'sm' ? 'p-4' : 'p-5'}`}>
               <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent"></div>
               <img
@@ -2692,8 +2696,8 @@ const Kiosk: React.FC = () => {
           </div>
 
           {/* Dynamic Title Size */}
-          <h1 className={`
-            font-semibold mb-3 tracking-tight leading-tight
+          <h1 data-size={settings?.display_settings?.title_size || 'lg'} className={`
+            kiosk-title font-semibold tracking-tight leading-tight
             ${TITLE_SIZE_CLASSES[settings?.display_settings?.title_size || 'lg']}
             ${theme.isDark
               ? 'text-white drop-shadow-[0_16px_38px_rgba(15,23,42,0.45)]'
@@ -2703,13 +2707,13 @@ const Kiosk: React.FC = () => {
           `}>
             {settings?.main_title || 'تسجيل الحضور'}
           </h1>
-          <p className={`${theme.subText} mx-auto max-w-2xl font-medium leading-7 flex items-center justify-center gap-2 mb-7 ${settings?.display_settings?.title_size === 'sm' ? 'text-sm md:text-base' : 'text-lg md:text-xl'
+          <p className={`kiosk-subtitle ${theme.subText} mx-auto max-w-2xl font-medium leading-7 flex items-center justify-center gap-2 mb-7 ${settings?.display_settings?.title_size === 'sm' ? 'text-sm md:text-base' : 'text-lg md:text-xl'
             }`}>
             {settings?.sub_title || 'يرجى تمرير البطاقة أو إدخال الرقم المعرف'}
           </p>
 
           {shouldShowSchoolInfo && (
-            <div className={`mx-auto max-w-xl rounded-3xl border backdrop-blur-xl px-6 py-4 mb-6 ${theme.isDark ? 'border-white/10 bg-white/5' : 'border-black/10 bg-white/70'
+            <div className={`kiosk-school mx-auto rounded-3xl border backdrop-blur-xl px-6 py-4 mb-6 ${theme.isDark ? 'border-white/10 bg-white/5' : 'border-black/10 bg-white/70'
               }`}>
               {show_school_name && settings?.school_name && (
                 <div className={`flex items-center justify-center gap-2 text-xl font-bold mb-2 ${theme.isDark ? 'text-white' : 'text-slate-900'
@@ -2728,27 +2732,6 @@ const Kiosk: React.FC = () => {
             </div>
           )}
 
-          <div className="kiosk-status-grid mx-auto grid max-w-5xl grid-cols-2 gap-3 md:grid-cols-4">
-            {kioskStatusTiles.map(({ label, value, helper, icon: StatusIcon, tone }) => (
-              <div
-                key={label}
-                className={`min-h-[112px] rounded-2xl px-4 py-3 text-right transition duration-300 ${theme.isDark ? KIOSK_MUTED_SURFACE : 'border border-slate-200/70 bg-white/75 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.25)] backdrop-blur-xl'}`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <StatusIcon className={`h-4 w-4 ${tone}`} />
-                  <span className={`text-[11px] font-semibold ${theme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    {label}
-                  </span>
-                </div>
-                <p className={`mt-3 text-lg font-semibold tracking-tight ${theme.isDark ? tone : 'text-slate-950'}`}>
-                  {value}
-                </p>
-                <p className={`mt-1 text-xs leading-5 ${theme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  {helper}
-                </p>
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* Large Clock Display - Dynamic Size */}
@@ -2757,12 +2740,11 @@ const Kiosk: React.FC = () => {
           className={`kiosk-clock w-full mx-auto mb-10 ${settings?.display_settings?.card_size === 'sm' ? 'max-w-md' : 'max-w-3xl'
             }`}
           style={{
-            width: kioskCardSize.width ? `${kioskCardSize.width}%` : undefined,
-            minHeight: kioskCardSize.height ? `${kioskCardSize.height}vh` : undefined
+            minHeight: kioskCardSize.height ? `calc(var(--kiosk-block-size) * ${kioskCardSize.height / 100})` : undefined
           }}
         >
           <div className={`
-            relative text-center rounded-[2.25rem] border transition-all duration-500 backdrop-blur-2xl
+            kiosk-clock-card relative text-center rounded-[2.25rem] border transition-all duration-500 backdrop-blur-2xl
             ${CARD_SIZE_CLASSES[settings?.display_settings?.card_size || 'md'].padding}
             ${theme.isDark ? kioskPhase.card : kioskPhase.lightCard}
             group overflow-hidden
@@ -2776,7 +2758,7 @@ const Kiosk: React.FC = () => {
 
             {/* Status indicator */}
             <div className={`
-              absolute top-4 right-4 md:top-6 md:right-6 flex items-center gap-2 px-4 py-1.5 rounded-full border font-semibold tracking-tight
+              kiosk-phase flex items-center gap-2 px-4 py-1.5 rounded-full border font-semibold tracking-tight
               ${CARD_SIZE_CLASSES[settings?.display_settings?.card_size || 'md'].text}
               ${theme.isDark ? kioskPhase.badge : kioskPhase.badgeLight}
               backdrop-blur-md
@@ -2786,8 +2768,8 @@ const Kiosk: React.FC = () => {
             </div>
 
             {/* Time Display - Dynamic Size */}
-            <div className={`
-              font-mono font-black tracking-[0.08em] my-6 tabular-nums
+            <div data-size={settings?.display_settings?.clock_size || 'lg'} className={`
+              kiosk-time font-mono font-black tracking-[0.08em] my-6 tabular-nums
               ${CLOCK_SIZE_CLASSES[settings?.display_settings?.clock_size || 'lg']}
               ${theme.isDark ? kioskPhase.time : kioskPhase.timeLight}
               ${kioskPhase.timeGlow}
@@ -2797,13 +2779,13 @@ const Kiosk: React.FC = () => {
             </div>
 
             {/* Date Display */}
-            <div className={`mt-2 font-medium ${CARD_SIZE_CLASSES[settings?.display_settings?.card_size || 'md'].text} ${theme.isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+            <div className={`kiosk-date mt-2 font-medium ${CARD_SIZE_CLASSES[settings?.display_settings?.card_size || 'md'].text} ${theme.isDark ? 'text-slate-300' : 'text-slate-600'}`}>
               {currentTime.toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </div>
 
             {/* Assembly Time Info */}
             {settings?.assembly_time && (
-              <div className={`mt-6 inline-block rounded-xl border px-4 py-2 text-sm backdrop-blur-md ${theme.isDark ? kioskPhase.badge : kioskPhase.badgeLight}`}>
+              <div className={`kiosk-schedule mt-6 inline-block rounded-xl border px-4 py-2 text-sm backdrop-blur-md ${theme.isDark ? kioskPhase.badge : kioskPhase.badgeLight}`}>
                 الطابور: <span className="font-bold font-mono">{settings.assembly_time}</span>
                 {settings.grace_period ? <span className="opacity-80"> • سماح: {settings.grace_period} د</span> : ''}
                 {settings.absence_time ? <span className="mx-2 opacity-40">|</span> : ''}
@@ -2814,7 +2796,7 @@ const Kiosk: React.FC = () => {
         </div>
 
         {!kioskDayState.allowsAttendance && (
-          <section className={`mx-auto max-w-3xl rounded-[1.75rem] border px-6 py-5 text-right backdrop-blur-xl ${theme.isDark ? 'border-sky-300/25 bg-sky-950/35 text-sky-50' : 'border-sky-200 bg-sky-50/90 text-sky-950'}`}>
+          <section className={`kiosk-closed mx-auto max-w-3xl rounded-[1.75rem] border px-6 py-5 text-right backdrop-blur-xl ${theme.isDark ? 'border-sky-300/25 bg-sky-950/35 text-sky-50' : 'border-sky-200 bg-sky-50/90 text-sky-950'}`}>
             <div className="flex items-start gap-4">
               <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border ${theme.isDark ? 'border-sky-300/25 bg-sky-400/10' : 'border-sky-200 bg-white'}`}>
                 <Calendar className="h-6 w-6" />
@@ -2828,13 +2810,13 @@ const Kiosk: React.FC = () => {
           </section>
         )}
 
-        {nationalEnabled && kioskDayState.allowsAttendance && (
-          <div className="national-scan-prompt"><Scan aria-hidden="true" /><span>مرّر بطاقتك لتسجيل الحضور</span></div>
+        {kioskDayState.allowsAttendance && (
+          <div className={`kiosk-scan-prompt ${theme.text}`}><Scan aria-hidden="true" /><span>مرّر بطاقتك لتسجيل الحضور</span></div>
         )}
 
         {/* Hidden barcode gun form - captures scanner input without showing manual input UI */}
         {kioskDayState.allowsAttendance && !inputVisible && (
-          <form onSubmit={handleSubmit} className="absolute h-px w-px overflow-hidden opacity-0 pointer-events-none">
+          <form onSubmit={handleSubmit} className="kiosk-hidden-scanner absolute h-px w-px overflow-hidden opacity-0 pointer-events-none">
             <input
               ref={inputRef}
               type="text"
@@ -2853,7 +2835,7 @@ const Kiosk: React.FC = () => {
 
         {/* Input Form - Only rendered when inputVisible is true */}
         {kioskDayState.allowsAttendance && inputVisible && (
-          <form onSubmit={handleSubmit} className={`w-full mx-auto relative group ${settings?.display_settings?.input_size === 'sm' ? 'max-w-md' : 'max-w-3xl'}`}>
+          <form onSubmit={handleSubmit} className={`kiosk-input w-full mx-auto relative group ${settings?.display_settings?.input_size === 'sm' ? 'max-w-md' : 'max-w-3xl'}`}>
             <div className={`absolute -inset-px rounded-[1.8rem] blur-md opacity-40 transition duration-300 group-focus-within:opacity-70 ${theme.isDark ? 'bg-cyan-200/20' : 'bg-slate-300/60'}`}></div>
 
             <div className={`relative rounded-[1.8rem] p-1.5 overflow-hidden transition duration-300 ${theme.isDark ? `${KIOSK_SURFACE} border-cyan-200/20` : KIOSK_LIGHT_SURFACE}`}>
@@ -2873,7 +2855,7 @@ const Kiosk: React.FC = () => {
                 onBlur={handleBlur}
                 onFocus={(e) => e.target.select()}
                 disabled={loading || initStatus !== 'ready'}
-                className={`w-full bg-transparent ${theme.isDark ? 'text-white' : 'text-slate-950'} text-center font-mono ${INPUT_SIZE_CLASSES[settings?.display_settings?.input_size || 'lg'].text} ${INPUT_SIZE_CLASSES[settings?.display_settings?.input_size || 'lg'].padding} outline-none ${theme.isDark ? 'placeholder-slate-500/50 focus:text-cyan-100' : 'placeholder-slate-300 focus:text-slate-950'} tracking-[0.35em] disabled:opacity-50 transition-all duration-300`}
+                className={`w-full bg-transparent ${theme.isDark ? 'text-white' : 'text-slate-950'} text-center font-mono ${INPUT_SIZE_CLASSES[settings?.display_settings?.input_size || 'lg'].text} ${INPUT_SIZE_CLASSES[settings?.display_settings?.input_size || 'lg'].padding} outline-none ${theme.isDark ? 'placeholder-slate-300/70 focus:text-cyan-100' : 'placeholder-slate-500 focus:text-slate-950'} tracking-[0.35em] disabled:opacity-50 transition-all duration-300`}
                 placeholder="أدخل رقم الطالب"
                 autoComplete="off"
                 autoFocus
@@ -2884,7 +2866,7 @@ const Kiosk: React.FC = () => {
         )}
 
         {kioskDayState.allowsAttendance && settings?.camera_scan_enabled && (
-          <div className="flex justify-center mt-4">
+          <div className="kiosk-camera-button flex justify-center">
             <button
               type="button"
               onClick={() => setCameraScanOpen(true)}
@@ -2897,9 +2879,143 @@ const Kiosk: React.FC = () => {
           </div>
         )}
 
+          <div className="kiosk-status-grid" aria-label="حالة الكشك">
+            {kioskStatusTiles.map(({ label, value, helper, icon: StatusIcon, tone }) => (
+              <div
+                key={label}
+                className={`kiosk-status-card rounded-2xl text-right transition duration-300 ${theme.isDark ? KIOSK_MUTED_SURFACE : 'border border-slate-200/70 bg-white/75 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.25)] backdrop-blur-xl'}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <StatusIcon className={`h-4 w-4 ${tone}`} />
+                  <span className={`text-[11px] font-semibold ${theme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    {label}
+                  </span>
+                </div>
+                <p className={`mt-3 text-lg font-semibold tracking-tight ${theme.isDark ? tone : 'text-slate-950'}`}>
+                  {value}
+                </p>
+                <p className={`mt-1 text-xs leading-5 ${theme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  {helper}
+                </p>
+              </div>
+            ))}
+          </div>
+        {/* Announcements Carousel */}
+        {settings?.announcements_enabled && settings?.announcements_images && settings?.announcements_images.length > 0 && (
+          <div className={`kiosk-announcements kiosk-announcements--${settings.announcements_position || 'bottom'}`}>
+            <div className="relative max-w-4xl w-full">
+              {/* Announcement Content with Transition */}
+              <div className={`
+                relative w-full bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl border border-white/20 shadow-2xl overflow-hidden
+                transition-all duration-500 ease-in-out
+                ${settings?.announcements_transition === 'fade' ? 'animate-fade-in' : ''}
+                ${settings?.announcements_transition === 'zoom' ? 'animate-scale-in' : ''}
+              `}>
+                {/* Announcement Image */}
+                <div className="relative w-full aspect-video md:aspect-[21/9]">
+                  <img
+                    src={settings?.announcements_images[currentAnnouncementIndex]}
+                    alt={`Announcement ${currentAnnouncementIndex + 1}`}
+                    className="w-full h-full object-cover"
+                    key={currentAnnouncementIndex}
+                  />
+
+                  {/* Gradient Overlay for Text Readability */}
+                  {(settings?.announcements_titles?.[currentAnnouncementIndex] || settings?.announcements_descriptions?.[currentAnnouncementIndex]) && (
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+                  )}
+
+                  {/* Text Overlay */}
+                  {(settings?.announcements_titles?.[currentAnnouncementIndex] || settings?.announcements_descriptions?.[currentAnnouncementIndex]) && (
+                    <div className="absolute bottom-0 left-0 right-0 p-6 md:p-8">
+                      {settings?.announcements_titles?.[currentAnnouncementIndex] && (
+                        <h3 className="text-2xl md:text-3xl font-bold text-white mb-2 drop-shadow-lg">
+                          {settings?.announcements_titles[currentAnnouncementIndex]}
+                        </h3>
+                      )}
+                      {settings?.announcements_descriptions?.[currentAnnouncementIndex] && (
+                        <p className="text-base md:text-lg text-white/90 drop-shadow-lg">
+                          {settings?.announcements_descriptions[currentAnnouncementIndex]}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Counter Badge */}
+                  <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm text-white text-sm px-3 py-1 rounded-full font-medium">
+                    {currentAnnouncementIndex + 1} / {settings?.announcements_images.length}
+                  </div>
+                </div>
+
+                {/* Navigation Dots */}
+                {settings?.announcements_images.length > 1 && (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/40 backdrop-blur-sm px-4 py-2 rounded-full">
+                    {settings?.announcements_images.map((_, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setCurrentAnnouncementIndex(idx)}
+                        className={`transition-all duration-300 rounded-full ${idx === currentAnnouncementIndex
+                          ? 'w-8 h-2 bg-white'
+                          : 'w-2 h-2 bg-white/40 hover:bg-white/60'
+                          }`}
+                        aria-label={`Go to announcement ${idx + 1}`}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Play/Pause Button */}
+                {settings?.announcements_autoplay && settings?.announcements_images.length > 1 && (
+                  <button
+                    onClick={() => setAnnouncementsPaused(!announcementsPaused)}
+                    className="absolute top-4 left-4 p-2 bg-black/60 backdrop-blur-sm hover:bg-black/80 rounded-full text-white transition-colors"
+                    aria-label={announcementsPaused ? 'Play announcements' : 'Pause announcements'}
+                  >
+                    {announcementsPaused ? (
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+
+                {/* Navigation Arrows (for manual control) */}
+                {settings?.announcements_images.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => setCurrentAnnouncementIndex((prev) => (prev - 1 + settings?.announcements_images!.length) % settings?.announcements_images!.length)}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 p-3 bg-black/60 backdrop-blur-sm hover:bg-black/80 rounded-full text-white transition-colors"
+                      aria-label="Previous announcement"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setCurrentAnnouncementIndex((prev) => (prev + 1) % settings?.announcements_images!.length)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-3 bg-black/60 backdrop-blur-sm hover:bg-black/80 rounded-full text-white transition-colors"
+                      aria-label="Next announcement"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      </div>
+
         {/* Enhanced Attendance Result Card - only show as overlay when camera is NOT open */}
         {attendanceResult && !cameraScanOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={dismissResult}>
+          <div className="kiosk-result-overlay fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={dismissResult}>
             <div
               className={`relative w-full max-w-lg overflow-hidden rounded-[2rem] transform transition-all duration-500 ease-out animate-fade-in-up ${KIOSK_RESULT_SURFACE} ${resultStyles?.card || ''}`}
               onClick={e => e.stopPropagation()}
@@ -3065,123 +3181,6 @@ const Kiosk: React.FC = () => {
           </div>
         )}
 
-        {/* Announcements Carousel */}
-        {settings?.announcements_enabled && settings?.announcements_images && settings?.announcements_images.length > 0 && (
-          <div className={`
-            fixed z-40 left-0 right-0
-            ${settings?.announcements_position === 'top' ? 'top-0 pt-4' : ''}
-            ${settings?.announcements_position === 'center' ? 'top-1/2 -translate-y-1/2' : ''}
-            ${settings?.announcements_position === 'bottom' ? 'bottom-0 pb-4' : 'bottom-0 pb-4'}
-            flex items-center justify-center px-4
-          `}>
-            <div className="relative max-w-4xl w-full">
-              {/* Announcement Content with Transition */}
-              <div className={`
-                relative w-full bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl border border-white/20 shadow-2xl overflow-hidden
-                transition-all duration-500 ease-in-out
-                ${settings?.announcements_transition === 'fade' ? 'animate-fade-in' : ''}
-                ${settings?.announcements_transition === 'zoom' ? 'animate-scale-in' : ''}
-              `}>
-                {/* Announcement Image */}
-                <div className="relative w-full aspect-video md:aspect-[21/9]">
-                  <img
-                    src={settings?.announcements_images[currentAnnouncementIndex]}
-                    alt={`Announcement ${currentAnnouncementIndex + 1}`}
-                    className="w-full h-full object-cover"
-                    key={currentAnnouncementIndex}
-                  />
-
-                  {/* Gradient Overlay for Text Readability */}
-                  {(settings?.announcements_titles?.[currentAnnouncementIndex] || settings?.announcements_descriptions?.[currentAnnouncementIndex]) && (
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
-                  )}
-
-                  {/* Text Overlay */}
-                  {(settings?.announcements_titles?.[currentAnnouncementIndex] || settings?.announcements_descriptions?.[currentAnnouncementIndex]) && (
-                    <div className="absolute bottom-0 left-0 right-0 p-6 md:p-8">
-                      {settings?.announcements_titles?.[currentAnnouncementIndex] && (
-                        <h3 className="text-2xl md:text-3xl font-bold text-white mb-2 drop-shadow-lg">
-                          {settings?.announcements_titles[currentAnnouncementIndex]}
-                        </h3>
-                      )}
-                      {settings?.announcements_descriptions?.[currentAnnouncementIndex] && (
-                        <p className="text-base md:text-lg text-white/90 drop-shadow-lg">
-                          {settings?.announcements_descriptions[currentAnnouncementIndex]}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Counter Badge */}
-                  <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm text-white text-sm px-3 py-1 rounded-full font-medium">
-                    {currentAnnouncementIndex + 1} / {settings?.announcements_images.length}
-                  </div>
-                </div>
-
-                {/* Navigation Dots */}
-                {settings?.announcements_images.length > 1 && (
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/40 backdrop-blur-sm px-4 py-2 rounded-full">
-                    {settings?.announcements_images.map((_, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setCurrentAnnouncementIndex(idx)}
-                        className={`transition-all duration-300 rounded-full ${idx === currentAnnouncementIndex
-                          ? 'w-8 h-2 bg-white'
-                          : 'w-2 h-2 bg-white/40 hover:bg-white/60'
-                          }`}
-                        aria-label={`Go to announcement ${idx + 1}`}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Play/Pause Button */}
-                {settings?.announcements_autoplay && settings?.announcements_images.length > 1 && (
-                  <button
-                    onClick={() => setAnnouncementsPaused(!announcementsPaused)}
-                    className="absolute top-4 left-4 p-2 bg-black/60 backdrop-blur-sm hover:bg-black/80 rounded-full text-white transition-colors"
-                    aria-label={announcementsPaused ? 'Play announcements' : 'Pause announcements'}
-                  >
-                    {announcementsPaused ? (
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
-                      </svg>
-                    )}
-                  </button>
-                )}
-
-                {/* Navigation Arrows (for manual control) */}
-                {settings?.announcements_images.length > 1 && (
-                  <>
-                    <button
-                      onClick={() => setCurrentAnnouncementIndex((prev) => (prev - 1 + settings?.announcements_images!.length) % settings?.announcements_images!.length)}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 p-3 bg-black/60 backdrop-blur-sm hover:bg-black/80 rounded-full text-white transition-colors"
-                      aria-label="Previous announcement"
-                    >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => setCurrentAnnouncementIndex((prev) => (prev + 1) % settings?.announcements_images!.length)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-3 bg-black/60 backdrop-blur-sm hover:bg-black/80 rounded-full text-white transition-colors"
-                      aria-label="Next announcement"
-                    >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* Badge Showcase Overlay */}
       {

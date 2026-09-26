@@ -1,0 +1,122 @@
+/* Use the kiosk's logical dimensions, not viewport breakpoints: rotation swaps them. */
+#kiosk-root.kiosk-shell {
+  --kiosk-inline-size: 100dvw;
+  --kiosk-block-size: 100dvh;
+  --kiosk-gap: clamp(.75rem, calc(var(--kiosk-inline-size) * .015), 1rem);
+  min-height: 0;
+  padding: 0;
+  isolation: isolate;
+  container: kiosk / size;
+}
+#kiosk-root.kiosk-shell:is(.kiosk-rotate-right, .kiosk-rotate-left) {
+  --kiosk-inline-size: 100dvh;
+  --kiosk-block-size: 100dvw;
+}
+.kiosk-scroll {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4.75rem clamp(1rem, calc(var(--kiosk-inline-size) * .03), 2rem) 1.5rem;
+  scrollbar-width: thin;
+}
+.kiosk-shell .kiosk-content {
+  container-type: inline-size;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--kiosk-gap);
+  width: 100%;
+  max-width: 52rem;
+  min-width: min(100%, 22rem);
+  margin: 0 auto;
+}
+.kiosk-content > * { min-width: 0; flex-shrink: 0; }
+.kiosk-shell .kiosk-init-message { order: -2; }
+.kiosk-shell .kiosk-result-overlay > div { max-height: calc(var(--kiosk-block-size) - 2rem); overflow-y: auto; }
+.kiosk-shell .kiosk-overview { display: flex; flex-direction: column; align-items: stretch; gap: .65rem; }
+.kiosk-shell .kiosk-brand { margin: 0; }
+.kiosk-shell .kiosk-brand > div { padding: .65rem 1.2rem; border-radius: 1rem; }
+.kiosk-shell .kiosk-brand img { height: 2.75rem; max-width: 100%; }
+.kiosk-shell .kiosk-title { margin: 0; font-size: clamp(1.6rem, calc(var(--kiosk-inline-size) * .04), 2.5rem); line-height: 1.4; overflow-wrap: anywhere; }
+.kiosk-shell .kiosk-title[data-size="sm"] { font-size: clamp(1.25rem, calc(var(--kiosk-inline-size) * .03), 1.8rem); }
+.kiosk-shell .kiosk-title[data-size="md"] { font-size: clamp(1.4rem, calc(var(--kiosk-inline-size) * .035), 2.1rem); }
+.kiosk-shell .kiosk-subtitle { margin: 0 auto; font-size: 1rem; line-height: 1.7; }
+.kiosk-shell .kiosk-school { width: 100%; max-width: none; margin: .25rem 0 0; padding: .8rem 1rem; border-radius: 1.25rem; }
+.kiosk-shell .kiosk-school > div { flex-wrap: wrap; overflow-wrap: anywhere; }
+.kiosk-shell .kiosk-header-image { display: flex; justify-content: center; }
+.kiosk-shell .kiosk-header-image img { object-fit: contain; }
+.kiosk-shell .kiosk-clock { order: 10; width: 100%; max-width: none; margin: 0; display: flex; }
+.kiosk-shell .kiosk-clock-card { width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem; padding: 1.25rem; border-radius: 1.5rem; }
+.kiosk-shell .kiosk-phase { position: relative; inset: auto; max-width: 100%; justify-content: center; flex-wrap: wrap; font-size: .9rem; padding: .4rem 1rem; }
+.kiosk-shell .kiosk-time { position: relative; margin: .25rem 0; font-size: clamp(2.25rem, calc(var(--kiosk-inline-size) * .095), 6.5rem); line-height: 1.2; letter-spacing: 0; white-space: nowrap; }
+.kiosk-shell .kiosk-time[data-size="sm"] { font-size: clamp(2rem, calc(var(--kiosk-inline-size) * .08), 3.75rem); }
+.kiosk-shell .kiosk-time[data-size="md"] { font-size: clamp(2.15rem, calc(var(--kiosk-inline-size) * .09), 5rem); }
+@supports (font-size: 1cqi) {
+  .kiosk-shell .kiosk-time { font-size: clamp(2.25rem, 10cqi, 6.5rem); }
+  .kiosk-shell .kiosk-time[data-size="sm"] { font-size: clamp(2rem, 8cqi, 3.75rem); }
+  .kiosk-shell .kiosk-time[data-size="md"] { font-size: clamp(2.15rem, 9cqi, 5rem); }
+}
+.kiosk-shell .kiosk-schedule { position: relative; margin-top: .5rem; max-width: 100%; line-height: 1.9; }
+.kiosk-shell .kiosk-closed { order: 15; width: 100%; max-width: none; }
+.kiosk-shell .kiosk-scan-prompt { order: 20; display: flex; align-items: center; justify-content: center; gap: .75rem; padding-block: .4rem; font-size: 1.1rem; }
+.kiosk-scan-prompt svg { width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
+.kiosk-shell .kiosk-hidden-scanner { top: 0; inset-inline-start: 0; }
+.kiosk-shell .kiosk-input { order: 21; max-width: none; margin: 0; }
+.kiosk-shell .kiosk-input input { font-size: clamp(1.75rem, calc(var(--kiosk-inline-size) * .055), 3.5rem); padding: 1rem 3.5rem; letter-spacing: .08em; }
+.kiosk-shell .kiosk-input input::placeholder { font-family: 'Arsenica Arabic Antiqua', sans-serif; font-size: clamp(1.2rem, calc(var(--kiosk-inline-size) * .045), 2rem); letter-spacing: normal; opacity: .85; }
+.kiosk-shell .kiosk-camera-button { order: 22; }
+.kiosk-shell .kiosk-status-grid { order: 30; display: flex; flex-direction: column; gap: var(--kiosk-gap); width: 100%; max-width: none; margin: 0; }
+.kiosk-shell .kiosk-status-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); align-items: center; column-gap: 1rem; row-gap: .2rem; min-height: 5rem; width: 100%; padding: .85rem 1.1rem; border-radius: 1.25rem; overflow-wrap: anywhere; }
+.kiosk-shell .kiosk-status-card > div { grid-row: 1 / 3; justify-content: flex-start; gap: .6rem; }
+.kiosk-shell .kiosk-status-card > div span { font-size: .85rem; line-height: 1.7; }
+.kiosk-shell .kiosk-status-card > div svg { flex-shrink: 0; width: 1.2rem; height: 1.2rem; }
+.kiosk-shell .kiosk-status-card > p { margin: 0; }
+.kiosk-shell .kiosk-status-card > p:first-of-type { font-size: 1.05rem; line-height: 1.65; }
+.kiosk-shell .kiosk-status-card > p:last-of-type { font-size: .8rem; line-height: 1.7; }
+.kiosk-shell .kiosk-announcements { order: 40; width: 100%; }
+.kiosk-shell .kiosk-announcements--top { order: -1; }
+.kiosk-shell .kiosk-announcements--center { order: 15; }
+.kiosk-shell .kiosk-overview .national-banner { width: 100%; min-height: 0; padding: 1rem 1.25rem; gap: 1rem; margin: 0 0 .25rem; border-radius: 1.5rem; }
+.kiosk-shell .kiosk-overview .national-banner h2 { font-size: clamp(1.6rem, calc(var(--kiosk-inline-size) * .045), 2.5rem); line-height: 1.3; margin-block: .4rem; }
+.kiosk-shell .kiosk-overview .national-banner h2 > span { display: inline; margin-inline-start: .4em; }
+.kiosk-shell .kiosk-overview .national-banner p { margin-block: .5rem; font-size: .85rem; }
+.kiosk-shell .kiosk-overview .national-artwork { flex: 0 0 24%; width: 24%; max-width: 8rem; height: auto; aspect-ratio: 1; }
+.kiosk-shell .kiosk-overview .national-values { font-size: .75rem; }
+.kiosk-shell .kiosk-control-panel { max-width: calc(var(--kiosk-inline-size) - 2rem); max-height: calc(var(--kiosk-block-size) - 2rem); }
+.kiosk-shell .kiosk-control-panel-body { max-height: calc(var(--kiosk-block-size) - 7rem); }
+
+/* A short logical screen gets a compact stack; a tall rotated screen keeps generous sizing. */
+@container kiosk (max-height: 900px) {
+  .kiosk-scroll { padding-block: 4rem 1rem; }
+  .kiosk-shell .kiosk-content { gap: .5rem; }
+  .kiosk-shell .kiosk-overview { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .4rem .8rem; }
+  .kiosk-shell .kiosk-overview > .national-banner { grid-column: 1 / -1; padding: .6rem 1rem; }
+  .kiosk-shell .kiosk-overview .national-banner h2 { font-size: 1.7rem; }
+  .kiosk-shell .kiosk-overview .national-banner p,
+  .kiosk-shell .kiosk-overview .national-values { display: none; }
+  .kiosk-shell .kiosk-overview .national-artwork { flex-basis: 3.5rem; width: 3.5rem; }
+  .kiosk-shell .kiosk-brand { grid-column: 1; grid-row: span 2; }
+  .kiosk-shell .kiosk-brand > div { padding: .5rem .8rem; }
+  .kiosk-shell .kiosk-brand img { height: 2rem; }
+  .kiosk-shell .kiosk-title { grid-column: 2; font-size: 1.65rem; }
+  .kiosk-shell .kiosk-subtitle { grid-column: 2; font-size: .85rem; }
+  .kiosk-shell .kiosk-school { grid-column: 1 / -1; padding: .4rem .8rem; margin: 0; }
+  .kiosk-shell .kiosk-school > div { font-size: 1rem; margin: 0; }
+  .kiosk-shell .kiosk-clock-card { padding: .7rem; gap: .2rem; }
+  .kiosk-shell .kiosk-phase { font-size: .8rem; padding: .25rem .8rem; }
+  .kiosk-shell .kiosk-time { font-size: clamp(2.25rem, calc(var(--kiosk-inline-size) * .08), 3.25rem); margin: .15rem 0; }
+  .kiosk-shell .kiosk-time[data-size="sm"] { font-size: 2.25rem; }
+  .kiosk-shell .kiosk-time[data-size="md"] { font-size: 2.75rem; }
+  .kiosk-shell .kiosk-date { font-size: .85rem; margin-top: 0; }
+  .kiosk-shell .kiosk-schedule { font-size: .8rem; padding: .2rem .6rem; margin-top: .2rem; }
+  .kiosk-shell .kiosk-scan-prompt { font-size: 1rem; padding: .1rem 0; }
+  .kiosk-shell .kiosk-input input { padding-block: .6rem; font-size: 2rem; }
+  .kiosk-shell .kiosk-input input::placeholder { font-size: 1.4rem; }
+  .kiosk-shell .kiosk-status-grid { gap: .5rem; }
+  .kiosk-shell .kiosk-status-card { min-height: 3.25rem; padding: .4rem .85rem; row-gap: 0; }
+  .kiosk-shell .kiosk-status-card > p:first-of-type { font-size: .95rem; }
+  .kiosk-shell .kiosk-status-card > p:last-of-type { font-size: .75rem; }
+}
