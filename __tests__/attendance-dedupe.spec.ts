@@ -43,7 +43,8 @@ describe('attendance dedupe utilities', () => {
 
     expect(counts.late).toBe(2);
     expect(counts.attended).toBe(2);
-    expect(counts.absent).toBe(8);
+    expect(counts.absent).toBe(0);
+    expect(counts.unrecorded).toBe(8);
   });
 
   it('uses sync update metadata when a manual status edit is newer', () => {

@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { motion, useSpring, useTransform, useInView } from 'framer-motion';
-import { useRef } from 'react';
+import React, { useEffect } from 'react';
+import { motion, useSpring, useTransform } from 'framer-motion';
 
 interface NumberTickerProps {
   value: number;
@@ -19,16 +18,7 @@ export const NumberTicker: React.FC<NumberTickerProps> = ({
   suffix = '',
   decimals = 0
 }) => {
-  const ref = useRef<HTMLSpanElement>(null);
-  // ❌ Old: once: true + margin: "-50px" — broke on mobile portrait because
-  //    the element wasn't in view during initial render (data arrived late)
-  //    and the negative margin shrunk the detection zone.
-  // ✅ New: no once constraint, no negative margin. Re-triggers on every
-  //    visibility change so late-arriving data still animates correctly.
-  const isInView = useInView(ref, { once: false, margin: "0px" });
-  const hasAnimated = useRef(false);
-  
-  const springValue = useSpring(0, {
+  const springValue = useSpring(value, {
     duration: duration * 1000,
     bounce: 0.1,
   });
@@ -38,29 +28,11 @@ export const NumberTicker: React.FC<NumberTickerProps> = ({
   });
 
   useEffect(() => {
-    if (isInView && value !== 0) {
-      springValue.set(value);
-      hasAnimated.current = true;
-    } else if (value !== 0 && !hasAnimated.current) {
-      // Fallback: if the element is mounted but IntersectionObserver
-      // hasn't fired yet (common on mobile), set value directly after
-      // a microtask to ensure the DOM has settled.
-      const id = requestAnimationFrame(() => {
-        springValue.set(value);
-        hasAnimated.current = true;
-      });
-      return () => cancelAnimationFrame(id);
-    }
-  }, [isInView, value, springValue]);
-
-  // When value changes (e.g. data loaded after mount), always update
-  useEffect(() => {
-    if (hasAnimated.current && value !== 0) {
-      springValue.set(value);
-    }
+    // Zero is a real measurement too (for example after changing the period).
+    springValue.set(value);
   }, [value, springValue]);
 
-  return <motion.span ref={ref} className={className}>{display}</motion.span>;
+  return <motion.span className={className}>{display}</motion.span>;
 };
 
 export default NumberTicker;

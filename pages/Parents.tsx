@@ -1,3 +1,5 @@
+import { isWithinTrackingPeriod, isDateHoliday, formatDateKey } from '../services/academicCalendarService';
+import { uniqueAttendanceByStudentDate } from '../modules/attendance';
 import React, { Suspense, useEffect, useState, useRef } from 'react';
 import { User, AttendanceRecord, ViolationRecord, Student, ExitRecord, Notification, Role, GuardianExcuseRecord } from '../types';
 import { db, getLocalISODate } from '../services/db';
@@ -161,7 +163,7 @@ const Parents: React.FC<{ user: User }> = ({ user }) => {
         const fetchChildData = async () => {
             setLoading(true);
             try {
-                const [att, affairs, notif] = await Promise.all([
+                const [att, affairs, notif, settings] = await Promise.all([
                     db.getStudentAttendance(selectedChild.id),
                     studentAffairs.load({
                         type: 'student',
@@ -172,12 +174,14 @@ const Parents: React.FC<{ user: User }> = ({ user }) => {
                         type: 'student',
                         studentId: selectedChild.id,
                         className: selectedChild.class_name
-                    })
+                    }),
+                    db.getSettings()
                 ]);
-
-                setAttendance(att);
-                setExits(affairs.exits);
-                setViolations(affairs.violations);
+                const eligible = (date: string) => isWithinTrackingPeriod(date, settings?.attendance_settings)
+                    && !isDateHoliday(date, settings?.attendance_settings?.work_days ?? settings?.work_days, settings?.attendance_settings?.academic_holidays);
+                setAttendance(uniqueAttendanceByStudentDate(att.filter(record => eligible(record.date))));
+                setExits(affairs.exits.filter(record => eligible(formatDateKey(new Date(record.exit_time)))));
+                setViolations(affairs.violations.filter(record => eligible(formatDateKey(new Date(record.created_at)))));
                 setNotifications(notif);
                 setExcuses(affairs.excuses);
             } catch (error) {

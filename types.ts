@@ -166,6 +166,7 @@ export interface ClassStatsSummary {
   violations: number;
   totalStudents: number;
   days: number;
+  unrecorded?: number;
 }
 
 // Attendance Record
@@ -287,6 +288,9 @@ export interface DashboardStats {
   late_count: number;
   absent_count: number;
   attendance_rate: number;
+  unrecorded_count?: number;
+  recorded_count?: number;
+  has_data?: boolean;
 }
 
 // Report Filter

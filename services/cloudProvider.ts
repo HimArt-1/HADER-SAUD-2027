@@ -1,3 +1,6 @@
+import { readAllPages } from './paginatedRead';
+import { loadWeeklyAttendanceStats, loadClassAttendanceStats, loadAttendanceReport, loadClassProfileStats } from '../modules/attendance/statisticsPort';
+import { buildDashboardSnapshot } from '../modules/attendance/analytics';
 import { supportTelemetry } from './supportTelemetry';
 // =============================================================================
 // نظام حاضر (Hader) - Cloud Provider
@@ -44,7 +47,6 @@ import { accessPolicy } from '../modules/access';
 import { deleteManagedCloudUser, saveManagedCloudUser } from './surveys';
 import {
   decideAttendanceTiming,
-  getAttendanceStatusCounts,
   uniqueAttendanceByStudentDate
 } from '../modules/attendance';
 
@@ -895,11 +897,11 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
       // Cloud mode should be cloud-first to keep all devices aligned.
       if (navigator.onLine) {
         try {
-          const { data, error } = await supabase
+          const data = await readAllPages((from, to) => supabase
             .from('students')
-            .select('id, name, class_name, section, guardian_phone, guardian_name, is_active, created_at, updated_at');
+            .select('id, name, class_name, section, guardian_phone, guardian_name, is_active, created_at, updated_at').order('id').range(from, to));
 
-          if (!error && data) {
+          if (data) {
             const mapped = data.map(mapStudent);
             await localDb.students.bulkPut(mapped);
             const elapsedMs = Math.round(performance.now() - startedAt);
@@ -1277,11 +1279,11 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   }
 
   async getAttendance(date?: string): Promise<AttendanceRecord[]> {
-    // Get data from Supabase
-    let query = supabase.from('attendance_logs').select('*');
-    if (date) query = query.eq('date', date);
-    const { data, error } = await query;
-    const cloudRecords = error ? [] : data.map(mapAttendance);
+    const cloudRecords = (await readAllPages((from, to) => {
+      let query = supabase.from('attendance_logs').select('*').order('date', { ascending: false }).order('id');
+      if (date) query = query.eq('date', date);
+      return query.range(from, to);
+    })).map(mapAttendance);
 
     // Get local queue records that haven't been synced yet
     const queue = await this.getQueue();
@@ -1299,22 +1301,14 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
         device_id: event.device_id
       }));
 
-    // Merge: use cloud records as base, add local records that don't exist in cloud
-    const cloudStudentIds = new Set(cloudRecords.filter(r => r.date === (date || r.date)).map(r => `${r.student_id}_${r.date}`));
-    const uniqueLocalRecords = localRecords.filter(r => !cloudStudentIds.has(`${r.student_id}_${r.date}`));
+    // Resolve each student/day using its latest record across cloud and the pending queue.
 
-    return uniqueAttendanceByStudentDate([...cloudRecords, ...uniqueLocalRecords], date);
+    return uniqueAttendanceByStudentDate([...cloudRecords, ...localRecords], date);
   }
 
   async getAttendanceRange(startDate: string, endDate: string): Promise<AttendanceRecord[]> {
-    // Get data from Supabase
-    const { data, error } = await supabase
-      .from('attendance_logs')
-      .select('*')
-      .gte('date', startDate)
-      .lte('date', endDate)
-      .order('date', { ascending: false });
-    const cloudRecords = error ? [] : data.map(mapAttendance);
+    const cloudRecords = (await readAllPages((from, to) => supabase.from('attendance_logs').select('*')
+      .gte('date', startDate).lte('date', endDate).order('date', { ascending: false }).order('id').range(from, to))).map(mapAttendance);
 
     // Get local queue records that haven't been synced yet
     const queue = await this.getQueue();
@@ -1332,39 +1326,14 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
         device_id: event.device_id
       }));
 
-    // Merge: use cloud records as base, add local records that don't exist in cloud
-    const cloudStudentDateKeys = new Set(cloudRecords.map(r => `${r.student_id}_${r.date}`));
-    const uniqueLocalRecords = localRecords.filter(r => !cloudStudentDateKeys.has(`${r.student_id}_${r.date}`));
+    // Resolve each student/day using its latest record across cloud and the pending queue.
 
-    return uniqueAttendanceByStudentDate([...cloudRecords, ...uniqueLocalRecords]);
+    return uniqueAttendanceByStudentDate([...cloudRecords, ...localRecords]);
   }
 
   async getAllAttendance(): Promise<AttendanceRecord[]> {
-    let allData: any[] = [];
-    let page = 0;
-    const pageSize = 1000;
-
-    while (true) {
-      const { data, error } = await supabase
-        .from('attendance_logs')
-        .select('*')
-        .order('date', { ascending: false })
-        .order('id', { ascending: true })
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-
-      if (error) {
-        console.error('BackUp Error:', error);
-        break;
-      }
-
-      if (!data || data.length === 0) break;
-
-      allData = [...allData, ...data];
-      if (data.length < pageSize) break; // Last page
-      page++;
-    }
-
-    return uniqueAttendanceByStudentDate(allData.map(mapAttendance));
+    return uniqueAttendanceByStudentDate((await readAllPages((from, to) => supabase.from('attendance_logs').select('*')
+      .order('date', { ascending: false }).order('id').range(from, to))).map(mapAttendance));
   }
 
   async saveAttendanceBatch(records: AttendanceRecord[]): Promise<void> {
@@ -1424,8 +1393,8 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   }
 
   async getStudentAttendance(student_id: string): Promise<AttendanceRecord[]> {
-    const { data, error } = await supabase.from('attendance_logs').select('*').eq('student_id', student_id).order('date', { ascending: false });
-    return error ? [] : uniqueAttendanceByStudentDate(data.map(mapAttendance));
+    return uniqueAttendanceByStudentDate((await readAllPages((from, to) => supabase.from('attendance_logs').select('*')
+      .eq('student_id', student_id).order('date', { ascending: false }).order('id').range(from, to))).map(mapAttendance));
   }
 
   async markAttendance(id: string): Promise<{ success: boolean, message: string, record?: AttendanceRecord, student?: Student, stats?: { late_count: number, todayMinutes: number, totalMinutes: number } }> {
@@ -2127,92 +2096,16 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   }
 
   async getDashboardStats(): Promise<DashboardStats> {
-    const students = await this.getStudents();
     const today = getLocalISODate();
-    const attendance = await this.getAttendance(today);
-    const settings = await this.getSettings();
-    const workDays = (settings?.attendance_settings as any)?.work_days ?? settings?.work_days ?? [...ATTENDANCE_DEFAULTS.WORK_DAYS];
-    const isHoliday = !workDays.includes(new Date(today).getDay());
-
-    const total_students = students.length;
-    const counts = getAttendanceStatusCounts(attendance, total_students, { date: today, isHoliday });
-    const present_count = counts.present;
-    const late_count = counts.late;
-    const absent_count = counts.absent;
-    const attendance_rate = (total_students > 0 && !isHoliday) ? (counts.attended / total_students) * 100 : 0;
-    return { total_students, present_count, late_count, absent_count, attendance_rate: Math.round(attendance_rate) };
+    const [students, attendance, settings] = await Promise.all([this.getStudents(), this.getAttendance(today), this.getSettings()]);
+    return buildDashboardSnapshot(students, attendance, settings, today);
   }
 
-  async getWeeklyStats(): Promise<any[]> {
-    // Calculate real weekly stats from attendance data
-    const days = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
-    const { data: students } = await supabase.from('students').select('id');
-    const total_students = students?.length || 0;
-    if (total_students === 0) return days.map(day => ({ day, presence: 0 }));
+  async getWeeklyStats() { return loadWeeklyAttendanceStats(this); }
 
-    const result: any[] = [];
-    const today = getSyncedDate();
+  async getClassStats() { return loadClassAttendanceStats(this); }
 
-    for (let i = 4; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = getLocalDateStr(date);
-      const dayIndex = date.getDay(); // 0 = Sunday
-
-      const { data: logs } = await supabase.from('attendance_logs').select('*').eq('date', dateStr);
-      const dayLogs = uniqueAttendanceByStudentDate((logs || []).map(mapAttendance), dateStr);
-      const attendedCount = dayLogs.filter((l: any) => l.status === 'present' || l.status === 'late').length;
-      const presence = total_students > 0 ? Math.round((attendedCount / total_students) * 100) : 0;
-
-      result.push({ day: days[dayIndex] || days[0], presence });
-    }
-    return result;
-  }
-
-  async getClassStats(): Promise<any[]> {
-    // Calculate real class stats
-    const { data: classes } = await supabase.from('classes').select('*');
-    const { data: students } = await supabase.from('students').select('*');
-    const today = getLocalISODate();
-    const { data: attendance } = await supabase.from('attendance_logs').select('*').eq('date', today);
-
-    if (!classes || classes.length === 0) return [];
-
-    const attendedIds = new Set((attendance || []).map(a => a.student_id));
-
-    return (classes || []).map(cls => {
-      const classStudents = (students || []).filter(s => s.class_name === cls.name);
-      const absent_count = classStudents.filter(s => !attendedIds.has(s.id)).length;
-      return { name: cls.name, absent: absent_count };
-    });
-  }
-
-  async getAttendanceReport(filters: ReportFilter): Promise<{ summary: any, details: any[] }> {
-    const attendanceQuery = supabase.from('attendance_logs').select('*').gte('date', filters.date_from).lte('date', filters.date_to);
-    let studentQuery = supabase.from('students').select('*');
-    if (filters.class_name) studentQuery = studentQuery.eq('class_name', filters.class_name);
-    if (filters.section) studentQuery = studentQuery.eq('section', filters.section);
-
-    const [attendanceResponse, studentResponse] = await Promise.all([attendanceQuery, studentQuery]);
-    if (attendanceResponse.error) throw attendanceResponse.error;
-    if (studentResponse.error) throw studentResponse.error;
-    const logs = attendanceResponse.data;
-    const studentData = studentResponse.data;
-    const allLogs = uniqueAttendanceByStudentDate((logs || []).map(mapAttendance));
-    const students: Student[] = (studentData || []).map(row => mapStudent(row));
-    const studentsById = new Map<string, Student>(students.map(student => [student.id, student]));
-
-    const details = allLogs.map(log => {
-      const student = studentsById.get(log.student_id);
-      if (!student) return null;
-      return { student_id: log.student_id, studentName: student.name, className: student.class_name, section: student.section, date: log.date, time: log.timestamp, status: log.status };
-    }).filter(Boolean);
-
-    return {
-      summary: { totalRecords: details.length, late: details.filter(d => d!.status === 'late').length, present: details.filter(d => d!.status === 'present').length },
-      details: details as any[]
-    };
-  }
+  async getAttendanceReport(filters: ReportFilter) { return loadAttendanceReport(this, filters); }
 
   async addExit(record: ExitRecord): Promise<void> {
     const payload = {
@@ -2280,10 +2173,11 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   }
 
   async getExits(date?: string): Promise<ExitRecord[]> {
-    let query = supabase.from('exits').select('*').order('exit_time', { ascending: false });
-    if (date) query = query.eq('date', date);
-    const { data, error } = await query;
-    if (error) throw error;
+    const data = await readAllPages((from, to) => {
+      let query = supabase.from('exits').select('*').order('exit_time', { ascending: false }).order('id');
+      if (date) query = query.eq('date', date);
+      return query.range(from, to);
+    });
     return (data || []).map((d: any) => ({
       id: d.id,
       student_id: d.student_id,
@@ -2300,8 +2194,11 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   }
 
   async getStudentExits(student_id: string): Promise<ExitRecord[]> {
-    const { data, error } = await supabase.from('exits').select('*').eq('student_id', student_id).order('exit_time', { ascending: false });
-    if (error) throw error;
+    const data = await readAllPages((from, to) => {
+      let query = supabase.from('exits').select('*').order('exit_time', { ascending: false }).order('id');
+      query = query.eq('student_id', student_id);
+      return query.range(from, to);
+    });
     return (data || []).map((d: any) => ({
       id: d.id,
       student_id: d.student_id,
@@ -2342,10 +2239,11 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   }
 
   async getViolations(student_id?: string): Promise<ViolationRecord[]> {
-    let query = supabase.from('violations').select('*');
-    if (student_id) query = query.eq('student_id', student_id);
-    const { data, error } = await query;
-    if (error) throw error;
+    const data = await readAllPages((from, to) => {
+      let query = supabase.from('violations').select('*').order('created_at', { ascending: false }).order('id');
+      if (student_id) query = query.eq('student_id', student_id);
+      return query.range(from, to);
+    });
     return (data || []).map((d: any) => ({
       id: d.id,
       student_id: d.student_id,
@@ -2368,8 +2266,11 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
   }
 
   async getViolationsForDate(date: string): Promise<ViolationRecord[]> {
-    const { data, error } = await supabase.from('violations').select('*').eq('date', date).order('created_at', { ascending: false });
-    if (error) throw error;
+    const data = await readAllPages((from, to) => {
+      let query = supabase.from('violations').select('*').order('created_at', { ascending: false }).order('id');
+      query = query.eq('date', date);
+      return query.range(from, to);
+    });
     return (data || []).map((d: any) => ({
       id: d.id,
       student_id: d.student_id,
@@ -2540,53 +2441,7 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
     return data.map(mapStudent);
   }
 
-  async getClassProfileStats(className: string, section: string, fromDate: string, toDate: string): Promise<ClassStatsSummary> {
-    const students = await this.getStudentsByClass(className, section);
-    const studentIds = students.map(s => s.id);
-    const days = Math.max(1, Math.floor((new Date(toDate).getTime() - new Date(fromDate).getTime()) / 86400000) + 1);
-
-    if (studentIds.length === 0) {
-      return { present: 0, late: 0, absent: 0, exits: 0, violations: 0, totalStudents: 0, days };
-    }
-
-    const attendanceQuery = supabase
-      .from('attendance_logs')
-      .select('*')
-      .in('student_id', studentIds)
-      .gte('date', fromDate)
-      .lte('date', toDate);
-
-    const { data: attendance } = await attendanceQuery;
-    const attendanceRows = uniqueAttendanceByStudentDate((attendance || []).map(mapAttendance));
-    const counts = getAttendanceStatusCounts(attendanceRows, studentIds.length * days);
-    const present = counts.present;
-    const late = counts.late;
-    const absent = counts.absent;
-
-    const { data: exitsData } = await supabase
-      .from('exits')
-      .select('id,student_id')
-      .in('student_id', studentIds)
-      .gte('exit_time', `${fromDate}T00:00:00`)
-      .lte('exit_time', `${toDate}T23:59:59`);
-
-    const { data: violationsData } = await supabase
-      .from('violations')
-      .select('id,student_id')
-      .in('student_id', studentIds)
-      .gte('created_at', `${fromDate}T00:00:00`)
-      .lte('created_at', `${toDate}T23:59:59`);
-
-    return {
-      present,
-      late,
-      absent,
-      exits: exitsData?.length || 0,
-      violations: violationsData?.length || 0,
-      totalStudents: studentIds.length,
-      days,
-    };
-  }
+  async getClassProfileStats(className: string, section: string, fromDate: string, toDate: string) { return loadClassProfileStats(this, className, section, fromDate, toDate); }
 
   async saveClass(schoolClass: SchoolClass): Promise<void> {
     // Only include 'id' for updates (valid UUIDs). For new classes, exclude it so Supabase can generate it.

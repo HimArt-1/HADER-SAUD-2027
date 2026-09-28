@@ -53,7 +53,7 @@ const pastRecords = [
   record('s1', 'absent', '2026-09-14')
 ];
 
-const settings = { assembly_time: '06:45', grace_period: 15, work_days: [0, 1, 2, 3, 4], attendance_settings: { academic_holidays: [] } };
+const settings = { assembly_time: '06:45', grace_period: 15, work_days: [0, 1, 2, 3, 4], attendance_settings: { tracking_start_date: '2026-09-01', academic_holidays: [] } };
 const admin: User = { id: 'u-admin', username: 'admin', name: 'مدير النظام', role: Role.SITE_ADMIN };
 const watcher: User = { id: 'u-watcher', username: 'watcher', name: 'المراقب', role: Role.WATCHER };
 const navigate = vi.fn();
@@ -64,7 +64,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T10:00:00`));
   db.getStudents.mockResolvedValue(students.map(student => ({ ...student })));
-  db.getAttendance.mockResolvedValue([record('s1', 'present'), record('s3', 'late')]);
+  db.getAttendance.mockResolvedValue([record('s1', 'present'), record('s3', 'late'), record('s2', 'absent'), record('s4', 'absent')]);
   db.getAttendanceRange.mockResolvedValue(pastRecords);
   db.getSettings.mockResolvedValue(settings);
   db.logActivity.mockResolvedValue(undefined);

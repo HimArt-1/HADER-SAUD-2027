@@ -112,8 +112,8 @@ const AttendanceIntelligenceReport: React.FC<AttendanceIntelligenceReportProps> 
             { label: 'طلاب محللون', value: analysis.overview.evaluatedStudentsCount, tone: 'text-white' },
             { label: 'خطر مرتفع', value: analysis.overview.highRiskCount, tone: 'text-red-300' },
             { label: 'خطر متوسط', value: analysis.overview.mediumRiskCount, tone: 'text-amber-300' },
-            { label: 'متوسط الحضور', value: analysis.overview.averageSchoolAttendanceRate === null ? '—' : `${analysis.overview.averageSchoolAttendanceRate}%`, tone: 'text-emerald-300' },
-            { label: 'ساعات تعليمية مفقودة', value: analysis.overview.totalLostEducationalHours, tone: 'text-sky-300' }
+            { label: 'الحضور من السجلات المتاحة', value: analysis.overview.averageSchoolAttendanceRate === null ? '—' : `${analysis.overview.averageSchoolAttendanceRate}%`, tone: 'text-emerald-300' },
+            { label: 'ساعات فقد تقديرية', value: analysis.overview.totalLostEducationalHours, tone: 'text-sky-300' }
           ].map(metric => (
             <div key={metric.label} className="px-4 py-5 text-right">
               <div className={`font-mono text-2xl font-bold ${metric.tone}`}>{metric.value}</div>
@@ -128,7 +128,7 @@ const AttendanceIntelligenceReport: React.FC<AttendanceIntelligenceReportProps> 
           <div className="mb-3 flex items-center justify-between">
             <div>
               <h3 className="font-bold text-white">أولوية المتابعة</h3>
-              <p className="mt-1 text-xs text-slate-500">مرتبة حسب درجة المخاطر المحسوبة</p>
+              <p className="mt-1 text-xs text-slate-500">تقدير للمتابعة وفق قواعد الحضور، وليس تنبؤًا. يُحجب التصنيف عند نقص التسجيل.</p>
             </div>
             <AlertTriangle className="h-5 w-5 text-amber-300" />
           </div>

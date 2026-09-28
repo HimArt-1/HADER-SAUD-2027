@@ -15,6 +15,7 @@ describe('attendance intelligence report', () => {
   it('shows an unrecorded weekly scorecard when attendance data is empty', () => {
     render(
       <AttendanceIntelligenceReport
+        trackingDates={{ tracking_start_date: '2026-01-01' }}
         students={[student]}
         attendanceRecords={[]}
         period={{ startDate: '2026-03-29', endDate: '2026-05-23' }}

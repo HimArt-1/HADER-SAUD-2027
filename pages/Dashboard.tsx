@@ -1,3 +1,5 @@
+import { percentage } from '../modules/attendance/analytics';
+import { hasTrackingStartDate } from '../services/academicCalendarService';
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Role, SystemSettings, Student, AttendanceRecord, ViolationRecord, ExitRecord } from '../types';
@@ -35,7 +37,7 @@ import {
 const { isSupervisorScopedRole } = accessPolicy;
 
 // ═══════════════════════════════════════════════════════════════
-// 📊 Widget: مؤشر الانضباط الشامل
+// 📊 Widget: ملخص الحضور المسجل
 // ═══════════════════════════════════════════════════════════════
 interface DisciplineIndexWidgetProps {
   students: Student[];
@@ -104,8 +106,8 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
 
   if (!stats.hasData) {
     return <section className="glass-card rounded-xl border border-white/10 p-6">
-      <h3 className="text-lg font-bold text-slate-50">مؤشر الانضباط الشامل</h3>
-      <p className="mt-3 text-sm text-slate-400">لا توجد سجلات كافية ضمن فترة الاحتساب لإظهار مؤشر واقعي.</p>
+      <h3 className="text-lg font-bold text-slate-50">ملخص الحضور المسجل</h3>
+      <p className="mt-3 text-sm text-slate-400">لا توجد سجلات حضور ضمن فترة الاحتساب.</p>
       <p className="mt-2 text-xs text-slate-500">{stats.period.isEmpty ? 'لم تبدأ فترة الاحتساب بعد.' : `الفترة: ${stats.period.startDate} إلى ${stats.period.endDate} · ${stats.totalDays} يوم دوام`}</p>
     </section>;
   }
@@ -114,17 +116,17 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
   const detailItems = [
     {
       label: 'نسبة الحضور',
-      value: <NumberTicker value={stats.attendanceRate} suffix="%" />,
+      value: <NumberTicker value={stats.attendanceRate} decimals={1} suffix="%" />,
       tone: 'text-emerald-300'
     },
     {
       label: 'نسبة التأخر',
-      value: <NumberTicker value={stats.lateRate} suffix="%" />,
+      value: <NumberTicker value={stats.lateRate} decimals={1} suffix="%" />,
       tone: 'text-amber-300'
     },
     {
       label: 'نسبة الغياب',
-      value: <NumberTicker value={stats.absenceRate} suffix="%" />,
+      value: <NumberTicker value={stats.absenceRate} decimals={1} suffix="%" />,
       tone: 'text-red-300'
     },
     {
@@ -133,13 +135,13 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
       tone: 'text-slate-200'
     },
     {
-      label: 'نسبة الاستئذان',
-      value: <NumberTicker value={stats.exitRate} suffix="%" />,
+      label: 'حالات الاستئذان',
+      value: <NumberTicker value={stats.exitsCount} />,
       tone: 'text-sky-300'
     },
     {
-      label: 'نسبة المخالفات',
-      value: <NumberTicker value={stats.violationRate} suffix="%" />,
+      label: 'حالات المخالفات',
+      value: <NumberTicker value={stats.violationsCount} />,
       tone: 'text-orange-300'
     }
   ];
@@ -154,14 +156,14 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
                 <TrendingUp className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-slate-50">مؤشر الانضباط الشامل</h3>
+                <h3 className="text-lg font-bold text-slate-50">ملخص الحضور المسجل</h3>
                 <p className="text-xs text-slate-400">{stats.period.startDate} إلى {stats.period.endDate}</p>
               </div>
             </div>
           </div>
 
           <span className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-bold ${indexTone.badge}`}>
-            {getIndexLabel(stats.disciplineIndex)}
+            {stats.complete ? 'تسجيل مكتمل' : 'تسجيل غير مكتمل'}
           </span>
         </div>
 
@@ -169,9 +171,9 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
           <div className="mb-3 flex items-end justify-between gap-4">
             <div className="flex items-end gap-2">
               <span className={`font-mono text-5xl font-semibold leading-none tabular-nums ${indexTone.value}`}>
-                <NumberTicker value={stats.disciplineIndex} />
+                <NumberTicker value={stats.disciplineIndex} decimals={1} />
               </span>
-              <span className="mb-1 text-xl font-medium text-slate-500">/ 100</span>
+              <span className="mb-1 text-xl font-medium text-slate-500">%</span>
             </div>
             <span className="text-xs font-medium text-slate-500">
               <NumberTicker value={stats.totalDays} /> يوم عمل
@@ -186,7 +188,7 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
           </div>
         </div>
 
-        <p className="text-xs text-slate-400">السجلات المتاحة: {stats.recordedRecords} من {stats.expectedRecords} سجل متوقع خلال أيام الدوام.</p>
+        <p className="text-xs text-slate-400">السجلات المتاحة: {stats.recordedRecords} من {stats.expectedRecords} سجل متوقع خلال أيام الدوام وفق قائمة الطلاب النشطين الحالية. الحالات غير المسجلة لا تُحتسب غيابًا.</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {detailItems.map((item) => (
             <div key={item.label} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
@@ -364,16 +366,18 @@ const DailyStatsWidget: React.FC<DailyStatsWidgetProps> = ({
       return !beforeTracking && violationDate === today;
     });
 
-    const attendanceRate = totalStudents > 0 ? Math.round((totalPresent / totalStudents) * 100) : 0;
-    const earlyRate = totalPresent > 0 ? Math.round((present / totalPresent) * 100) : 0;
-    const lateRate = totalPresent > 0 ? Math.round((late / totalPresent) * 100) : 0;
-    const absenceRate = totalStudents > 0 ? Math.round((absent / totalStudents) * 100) : 0;
+    const attendanceRate = totalStudents > 0 ? (percentage(totalPresent, totalStudents) ?? 0) : 0;
+    const earlyRate = totalPresent > 0 ? (percentage(present, totalPresent) ?? 0) : 0;
+    const lateRate = totalPresent > 0 ? (percentage(late, totalPresent) ?? 0) : 0;
+    const absenceRate = totalStudents > 0 ? (percentage(absent, totalStudents) ?? 0) : 0;
 
     return {
       totalStudents,
       present,
       late,
       absent,
+      unrecorded: counts.unrecorded,
+      hasData: counts.recorded > 0,
       totalPresent,
       attendanceRate,
       earlyRate,
@@ -387,7 +391,7 @@ const DailyStatsWidget: React.FC<DailyStatsWidgetProps> = ({
   }, [filteredData, settings]);
 
   return (
-    <div className="grid grid-cols-2 gap-3 max-[360px]:grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+    <div className="grid grid-cols-2 gap-3 max-[360px]:grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4">
       <DailyMetricCard
         label="إجمالي الطلاب"
         value={<NumberTicker value={dailyStats.totalStudents} />}
@@ -398,15 +402,15 @@ const DailyStatsWidget: React.FC<DailyStatsWidgetProps> = ({
       <DailyMetricCard
         label="الحضور اليوم"
         value={dailyStats.isHoliday ? <span className="font-sans text-xl font-semibold leading-none text-slate-100 sm:text-2xl">{dailyStats.beforeTracking ? 'لم يبدأ' : 'عطلة'}</span> : <NumberTicker value={dailyStats.totalPresent} />}
-        detail={dailyStats.isHoliday ? undefined : <NumberTicker value={dailyStats.attendanceRate} suffix="%" />}
+        detail={dailyStats.isHoliday ? undefined : dailyStats.hasData ? <NumberTicker value={dailyStats.attendanceRate} decimals={1} suffix="% من الطلاب" /> : "لا توجد بيانات"}
         icon={UserCheck}
         tone="emerald"
       />
 
       <DailyMetricCard
-        label="المبكرين"
+        label="الحاضرون دون تأخر"
         value={<NumberTicker value={dailyStats.present} />}
-        detail={<NumberTicker value={dailyStats.earlyRate} suffix="% من الحضور" />}
+        detail={<NumberTicker value={dailyStats.earlyRate} decimals={1} suffix="% من الحضور" />}
         icon={Clock}
         tone="green"
       />
@@ -414,7 +418,7 @@ const DailyStatsWidget: React.FC<DailyStatsWidgetProps> = ({
       <DailyMetricCard
         label="المتأخرين"
         value={<NumberTicker value={dailyStats.late} />}
-        detail={<NumberTicker value={dailyStats.lateRate} suffix="% من الحضور" />}
+        detail={<NumberTicker value={dailyStats.lateRate} decimals={1} suffix="% من الحضور" />}
         icon={Timer}
         tone="amber"
       />
@@ -422,13 +426,14 @@ const DailyStatsWidget: React.FC<DailyStatsWidgetProps> = ({
       <DailyMetricCard
         label="الغائبين"
         value={<NumberTicker value={dailyStats.absent} />}
-        detail={<NumberTicker value={dailyStats.absenceRate} suffix="%" />}
+        detail={<NumberTicker value={dailyStats.absenceRate} decimals={1} suffix="%" />}
         icon={UserX}
         tone="red"
       />
 
+      <DailyMetricCard label="لم تُسجّل حالتهم" value={<NumberTicker value={dailyStats.unrecorded} />} detail="لا يُحسبون غائبين" icon={HelpCircle} tone="cyan" />
       <DailyMetricCard
-        label="المستئذنين"
+        label="حالات الاستئذان"
         value={<NumberTicker value={dailyStats.exitsCount} />}
         detail="اليوم"
         icon={LogOut}
@@ -932,7 +937,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
       ]
     },
     {
-      title: "مؤشر الانضباط الشامل",
+      title: "ملخص الحضور المسجل",
       description: "خوارزمية ذكية تحسب درجة انضباط المدرسة من 100.",
       icon: TrendingUp,
       color: "amber",
@@ -977,6 +982,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
   const [violations, setViolations] = useState<ViolationRecord[]>([]);
   const [exits, setExits] = useState<ExitRecord[]>([]);
   const [showBackupReminder, setShowBackupReminder] = useState(false);
+  const [statisticsError, setStatisticsError] = useState(false);
   const fetchStatsInFlightRef = useRef<Promise<void> | null>(null);
 
   // 🔄 Smart Sync Logic — Progressive Loading
@@ -1014,7 +1020,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
       const [attendanceData, violationsData, allExits] = await Promise.all([
         db.getAttendanceRange(startDate, endDate),
         studentAffairs.load({ type: 'violations' }).then(result => result.violations),
-        studentAffairs.load({ type: 'exits' }).then(result => result.exits).catch(() => [] as ExitRecord[]),
+        studentAffairs.load({ type: 'exits' }).then(result => result.exits),
       ]);
 
       // تصفية الاستئذانات لآخر 30 يوماً
@@ -1025,10 +1031,13 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
         return exitDate >= thirtyDaysAgoEx;
       });
 
+      setStatisticsError(false);
       setAttendanceRecords(uniqueAttendanceByStudentDate(attendanceData));
       setViolations(violationsData);
       setExits(exitsData);
       } catch (e) {
+        setStatisticsError(true);
+        setAttendanceRecords([]); setViolations([]); setExits([]);
         logError(e, 'Dashboard - Fetch Stats Data');
       } finally {
         // Ensure loading is always cleared even if Phase 1 fails
@@ -1038,13 +1047,14 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
       }
     })();
 
-    fetchStatsInFlightRef.current = run.finally(() => {
-      if (fetchStatsInFlightRef.current === run) {
+    const trackedRun = run.finally(() => {
+      if (fetchStatsInFlightRef.current === trackedRun) {
         fetchStatsInFlightRef.current = null;
       }
     });
 
-    return fetchStatsInFlightRef.current;
+    fetchStatsInFlightRef.current = trackedRun;
+    return trackedRun;
   }, []);
 
   const refreshStatsSilently = useCallback(() => {
@@ -1495,8 +1505,10 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
         </div>
       )}
 
+      {statisticsError && <p role="alert" className="mb-5 rounded-xl border border-red-400/30 p-4 text-red-200">تعذر تحديث الإحصاءات. القيم غير متاحة حتى يكتمل تحميل السجلات.</p>}
+      {settings && !hasTrackingStartDate(settings.attendance_settings) && <p role="status" className="mb-5 rounded-xl border border-amber-400/30 p-4 text-amber-200">حدد بداية تشغيل حاضر في التقويم الدراسي لتفعيل الإحصاءات والتحليلات.</p>}
       {/* 📊 لوحة الإحصائيات - Grid Layout مع بطاقات تحليلية ذكية */}
-      <div className="space-y-6 mb-8">
+      <div className="space-y-6 mb-8" hidden={statisticsError}>
         <motion.div variants={itemVariants}>
           <DailyStatsWidget
             students={students}

@@ -1,3 +1,4 @@
+import { buildAttendanceAnalytics } from '../../modules/attendance/analytics';
 // =============================================================================
 // نظام حاضر (Hader) - محرك الأوامر الذكية لـ «أستاذ حاضر»
 // =============================================================================
@@ -451,7 +452,7 @@ class UstadIntentEngine {
     const [attendance, settings] = await Promise.all([db.getAttendance(today), db.getSettings()]);
     const record = todayRecordFor(attendance, today, student.id);
 
-    const status = record?.status ?? (isWithinArrivalWindow(settings) ? 'pending' : 'absent');
+    const status = record?.status ?? 'pending';
     const statusArabic = status === 'present'
       ? 'حاضر'
       : status === 'late'
@@ -482,15 +483,9 @@ class UstadIntentEngine {
    */
   private async loadTodayCounts(user: User) {
     const today = getLocalISODate();
-    const [students, attendance] = await Promise.all([loadScopedStudents(user), db.getAttendance(today)]);
-    const scopedIds = new Set(students.map(student => normalizeStudentId(student.id)));
-    const counts = getAttendanceStatusCounts(
-      attendance.filter(record => scopedIds.has(normalizeStudentId(record.student_id))),
-      students.length,
-      { date: today }
-    );
-    const rate = counts.total > 0 ? Math.round((counts.attended / counts.total) * 100) : 0;
-    return { ...counts, rate, date: today };
+    const [students, attendance, settings] = await Promise.all([loadScopedStudents(user), db.getAttendance(today), db.getSettings()]);
+    const result = buildAttendanceAnalytics({ students, attendance, settings, startDate: today, endDate: today, today });
+    return { ...result, total: result.roster.length, rate: result.attendanceRate, date: today };
   }
 
   private async handleTodayStats(intent: 'stats.absence' | 'stats.attendance' | 'stats.late', user: User | null): Promise<UstadActionPayload> {
@@ -500,6 +495,7 @@ class UstadIntentEngine {
 
     try {
       const counts = await this.loadTodayCounts(user);
+      if (!counts.hasData) return { type: 'info', title: 'لا توجد بيانات', spokenText: 'لا توجد سجلات حضور ضمن فترة تشغيل حاضر لهذا اليوم.' };
       if (intent === 'stats.attendance') {
         return {
           type: 'stats_attendance',
@@ -540,11 +536,12 @@ class UstadIntentEngine {
 
     try {
       const today = getLocalISODate();
-      const [students, attendance] = await Promise.all([loadScopedStudents(user), db.getAttendance(today)]);
-      const attended = attendedStudentIds(attendance, today);
+      const [students, attendance, settings] = await Promise.all([loadScopedStudents(user), db.getAttendance(today), db.getSettings()]);
+      const result = buildAttendanceAnalytics({ students, attendance, settings, startDate: today, endDate: today, today });
+      const absentIds = new Set(result.records.filter(record => record.status === 'absent').map(record => normalizeStudentId(record.student_id)));
       const classStudents = students.filter(student => matchesClassReference(student, classRef));
       const absentStudents = classStudents
-        .filter(student => !attended.has(normalizeStudentId(student.id)))
+        .filter(student => absentIds.has(normalizeStudentId(student.id)))
         .map(student => summarizeStudent(student, null));
 
       const label = `الصف ${classRef.gradeLabel}${classRef.sectionLabel ? ` شعبة (${classRef.sectionLabel})` : ''}`;
@@ -580,35 +577,13 @@ class UstadIntentEngine {
     try {
       const today = getLocalISODate();
       const [students, settings] = await Promise.all([loadScopedStudents(user), db.getSettings()]);
-      const configuredDays = settings?.work_days?.length ? settings.work_days : ATTENDANCE_DEFAULTS.WORK_DAYS;
-      const workDays = [...configuredDays].sort((a, b) => a - b);
-
-      // أيام الأسبوع الدراسي الحالي بدءاً من الأحد
       const weekStart = new Date(`${today}T12:00:00`);
       weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-      const weekDates = workDays.map(dayIndex => {
-        const date = new Date(weekStart);
-        date.setDate(weekStart.getDate() + dayIndex);
-        return { dayIndex, date: getLocalDateStr(date) };
-      });
-
-      const scopedIds = new Set(students.map(student => normalizeStudentId(student.id)));
-      const records = (await db.getAttendanceRange(weekDates[0].date, weekDates[weekDates.length - 1].date))
-        .filter(record => scopedIds.has(normalizeStudentId(record.student_id)));
-
-      const days = weekDates.map(({ dayIndex, date }) => {
-        const dayRecords = records.filter(record => record.date === date);
-        // يوم بلا أي سجل (عطلة أو لم يُحضَّر بعد) لا يُحسب حضوره صفراً
-        const hasData = date <= today && dayRecords.length > 0 && students.length > 0;
-        const { attended } = getAttendanceStatusCounts(dayRecords, students.length, { date });
-        return {
-          day: WEEKDAY_NAMES[dayIndex] ?? '',
-          date,
-          presence: hasData ? Math.round((attended / students.length) * 100) : 0,
-          isCompleted: date <= today,
-          hasData
-        };
-      });
+      const startDate = getLocalDateStr(weekStart);
+      const records = await db.getAttendanceRange(startDate, today);
+      const result = buildAttendanceAnalytics({ students, attendance: records, settings, startDate, endDate: today, today });
+      const days = result.days.map(day => ({ day: WEEKDAY_NAMES[new Date(`${day.date}T12:00:00`).getDay()] ?? '',
+        date: day.date, presence: day.rate ?? 0, isCompleted: day.complete, hasData: day.recorded > 0, unrecorded: day.unrecorded }));
 
       const measuredDays = days.filter(day => day.hasData);
       const avgPresence = measuredDays.length > 0

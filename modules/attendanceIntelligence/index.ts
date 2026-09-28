@@ -1,3 +1,4 @@
+import { activeAnalyticsStudents } from '../attendance/analytics';
 import type { AcademicHoliday, AttendanceRecord, Student } from '../../types';
 import { ATTENDANCE_DEFAULTS } from '../../types';
 import { AcademicTrackingDates, formatDateKey, getDateRange, isDateHoliday, resolveReportingPeriod } from '../../services/academicCalendarService';
@@ -58,6 +59,7 @@ export type SchoolAttendanceRiskOverview = Readonly<{
 export type AttendanceIntelligencePeriod = Readonly<{
   startDate: string;
   endDate: string;
+  isEmpty?: boolean;
 }>;
 
 export type AnalyzeAttendanceRiskInput = Readonly<{
@@ -126,7 +128,7 @@ const getSchoolDates = (
   period: AttendanceIntelligencePeriod,
   workDays: readonly number[],
   holidays: readonly AcademicHoliday[]
-): string[] => getDateRange(period.startDate, period.endDate)
+): string[] => (period.isEmpty ? [] : getDateRange(period.startDate, period.endDate))
   .filter(date => !isDateHoliday(date, [...workDays], [...holidays]));
 
 const getStudentRecordsByDate = (
@@ -250,7 +252,7 @@ const evaluateStudent = (
     + Math.min(lateRatio * 30, 30)
     + (consecutiveAbsentDays >= 3 ? 20 : consecutiveAbsentDays === 2 ? 10 : 0)
   ));
-  const riskLevel = attendanceRate === null
+  const riskLevel = attendanceRate === null || totalDaysEvaluated < schoolDates.length
     ? 'unknown'
     : riskLevelFor(
       riskScore,
@@ -335,8 +337,7 @@ export const analyzeAttendanceRisk = ({
     holidays,
     minutesPerSchoolDay: Math.max(0, minutesPerSchoolDay)
   };
-  const profiles = students
-    .filter(student => student.is_active !== false)
+  const profiles = activeAnalyticsStudents([...students])
     .map(student => evaluateStudent(student, attendanceRecords, context))
     .sort((left, right) => right.riskScore - left.riskScore || left.studentName.localeCompare(right.studentName, 'ar'));
 
@@ -349,7 +350,10 @@ export const analyzeAttendanceRisk = ({
 
   const countLevel = (level: AttendanceRiskLevel): number =>
     profiles.filter(profile => profile.riskLevel === level).length;
-  const evaluatedProfiles = profiles.filter(profile => profile.attendanceRate !== null);
+  const evaluatedProfiles = profiles.filter(profile => profile.riskLevel !== 'unknown');
+  const measuredProfiles = profiles.filter(profile => profile.attendanceRate !== null);
+  const measuredDays = measuredProfiles.reduce((sum, profile) => sum + profile.totalDaysEvaluated, 0);
+  const attendedDays = measuredProfiles.reduce((sum, profile) => sum + profile.totalDaysEvaluated - profile.absentDaysCount, 0);
 
   return {
     profiles,
@@ -360,8 +364,8 @@ export const analyzeAttendanceRisk = ({
       lowRiskCount: countLevel('low'),
       normalCount: countLevel('normal'),
       unknownCount: countLevel('unknown'),
-      averageSchoolAttendanceRate: evaluatedProfiles.length > 0
-        ? roundOneDecimal(evaluatedProfiles.reduce((sum, profile) => sum + (profile.attendanceRate ?? 0), 0) / evaluatedProfiles.length)
+      averageSchoolAttendanceRate: measuredDays > 0
+        ? roundOneDecimal(attendedDays / measuredDays * 100)
         : null,
       topRiskPatterns: Array.from(patternCounts.entries())
         .map(([pattern, affectedCount]) => ({ pattern, affectedCount }))

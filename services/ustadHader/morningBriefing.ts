@@ -1,3 +1,4 @@
+import { isWithinTrackingPeriod } from '../academicCalendarService';
 // =============================================================================
 // نظام حاضر (Hader) - الملخص الصباحي لـ «أستاذ حاضر»
 // =============================================================================
@@ -107,8 +108,10 @@ export async function loadMorningBriefing(user: User | null, now: Date = new Dat
 
   const today = getLocalISODate();
   const settings = await db.getSettings();
-  const workDays = settings?.work_days?.length ? [...settings.work_days] : [...ATTENDANCE_DEFAULTS.WORK_DAYS];
+  const workDays = settings?.attendance_settings?.work_days ?? settings?.work_days ?? [...ATTENDANCE_DEFAULTS.WORK_DAYS];
   const holidays = settings?.attendance_settings?.academic_holidays ?? getCachedHolidays();
+
+  if (!isWithinTrackingPeriod(today, settings?.attendance_settings, today)) return { status: 'holiday', date: today, spokenText: 'لا توجد بيانات ضمن فترة تشغيل حاضر لهذا اليوم. تحقق من تاريخ التشغيل في التقويم الدراسي.' };
 
   if (isDateHoliday(today, workDays, holidays)) {
     return { status: 'holiday', date: today, spokenText: 'اليوم عطلة دراسية، فلا يوجد ملخص حضور.' };
@@ -144,10 +147,11 @@ export async function loadMorningBriefing(user: User | null, now: Date = new Dat
     { date: today }
   );
   const rate = counts.total > 0 ? Math.round((counts.attended / counts.total) * 100) : 0;
-  const attended = attendedStudentIds(todayRecords, today);
-  const absentStudents = students.filter(student => !attended.has(normalizeStudentId(student.id)));
-  const repeated = findRepeatedAbsentees({ absentStudents, records: pastRecords, today, workDays, holidays });
+  const absentIds = new Set(uniqueAttendanceByStudentDate(todayRecords, today).filter(record => record.status === 'absent').map(record => normalizeStudentId(record.student_id)));
+  const absentStudents = students.filter(student => absentIds.has(normalizeStudentId(student.id)));
+  const repeated = findRepeatedAbsentees({ absentStudents, records: pastRecords.filter(record => isWithinTrackingPeriod(record.date, settings?.attendance_settings, today)), today, workDays, holidays });
 
+  const unrecordedText = counts.unrecorded > 0 ? ` ولم تُسجّل حالة ${counts.unrecorded} طالباً بعد.` : '';
   const greeting = now.getHours() < 12 ? 'صباح الخير.' : 'مرحباً.';
   const lateText = counts.late > 0 ? `، والمتأخرون ${counts.late}` : '';
   const repeatedText = repeated.length > 0
@@ -165,6 +169,6 @@ export async function loadMorningBriefing(user: User | null, now: Date = new Dat
     rate,
     repeatedAbsentees: repeated.slice(0, LISTED_REPEATED_ABSENTEES),
     repeatedCount: repeated.length,
-    spokenText: `${greeting} حضر اليوم ${counts.attended} من ${counts.total} بنسبة ${rate} بالمئة. الغياب ${counts.absent}${lateText}.${repeatedText}`
+    spokenText: `${greeting} حضر اليوم ${counts.attended} من ${counts.total} بنسبة ${rate} بالمئة. الغياب ${counts.absent}${lateText}.${repeatedText}${unrecordedText}`
   };
 }

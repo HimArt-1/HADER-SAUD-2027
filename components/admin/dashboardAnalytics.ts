@@ -1,7 +1,7 @@
 export interface RateSeriesSummary<T> {
   workingPoints: T[];
-  average: number;
-  change: number;
+  average: number | null;
+  change: number | null;
   best: T | null;
   worst: T | null;
 }
@@ -42,8 +42,8 @@ export function summarizeRateSeries<T>(
 
   return {
     workingPoints,
-    average: workingPoints.length > 0 ? Math.round(total / workingPoints.length) : 0,
-    change: firstRate != null && lastRate != null ? lastRate - firstRate : 0,
+    average: workingPoints.length > 0 ? Math.round(total / workingPoints.length * 10) / 10 : null,
+    change: workingPoints.length >= 2 && firstRate != null && lastRate != null ? Math.round((lastRate - firstRate) * 10) / 10 : null,
     best,
     worst
   };

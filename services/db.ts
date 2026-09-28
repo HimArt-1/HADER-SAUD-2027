@@ -1,3 +1,5 @@
+import { loadWeeklyAttendanceStats, loadClassAttendanceStats, loadAttendanceReport, loadClassProfileStats } from '../modules/attendance/statisticsPort';
+import { buildDashboardSnapshot } from '../modules/attendance/analytics';
 // =============================================================================
 // نظام حاضر (Hader) - Database Service (Slim Entry Point)
 // =============================================================================
@@ -38,7 +40,6 @@ import { subscribeToSettingsUpdates } from './settingsBroadcast';
 import { staticCache, CACHE_KEYS } from './cache';
 import {
   decideAttendanceTiming,
-  getAttendanceStatusCounts,
   uniqueAttendanceByStudentDate
 } from '../modules/attendance';
 import { createRosterModule, type RosterModule } from '../modules/roster';
@@ -553,81 +554,10 @@ class Database implements IDatabaseProvider, IStudentAffairsProvider {
 
       // Dashboard & Reports — Real implementations from IndexedDB
       getDashboardStats: () => hp.getDashboardStats(),
-      getWeeklyStats: async () => {
-        const days = ['\u0627\u0644\u0623\u062d\u062f', '\u0627\u0644\u0625\u062b\u0646\u064a\u0646', '\u0627\u0644\u062b\u0644\u0627\u062b\u0627\u0621', '\u0627\u0644\u0623\u0631\u0628\u0639\u0627\u0621', '\u0627\u0644\u062e\u0645\u064a\u0633'];
-        const allStudents = await hp.getStudents();
-        const students = allStudents.filter(s => s.is_active !== false && (s.is_active as any) !== 0);
-        const total = students.length;
-        if (total === 0) return days.map(day => ({ day, presence: 0 }));
-
-        const result: any[] = [];
-        const today = new Date();
-        for (let i = 4; i >= 0; i--) {
-          const date = new Date(today);
-          date.setDate(date.getDate() - i);
-          const dateStr = date.toISOString().split('T')[0];
-          const dayIndex = date.getDay();
-          const dayAttendance = uniqueAttendanceByStudentDate(await hp.getAttendance(dateStr), dateStr);
-          const attended = dayAttendance.filter(a => a.status === 'present' || a.status === 'late').length;
-          result.push({ day: days[dayIndex] || days[0], presence: Math.round((attended / total) * 100) });
-        }
-        return result;
-      },
-      getClassStats: async () => {
-        const allStudents = await hp.getStudents();
-        const students = allStudents.filter(s => s.is_active !== false && (s.is_active as any) !== 0);
-        const today = getLocalISODate();
-        const todayAttendance = uniqueAttendanceByStudentDate(await hp.getAttendance(today), today);
-        const attendedIds = new Set(todayAttendance.filter(a => a.status === 'present' || a.status === 'late').map(a => a.student_id));
-
-        const classMap = new Map<string, number>();
-        for (const s of students) {
-          const cls = s.class_name || '\u063a\u064a\u0631 \u0645\u062d\u062f\u062f';
-          if (!classMap.has(cls)) classMap.set(cls, 0);
-          if (!attendedIds.has(s.id)) {
-            classMap.set(cls, (classMap.get(cls) || 0) + 1);
-          }
-        }
-        return Array.from(classMap.entries()).map(([name, absent]) => ({ name, absent }));
-      },
-      getAttendanceReport: async (filters: ReportFilter) => {
-        const allAttendance = await hp.getAllAttendance();
-        const filteredLogs = uniqueAttendanceByStudentDate(
-          allAttendance.filter(a => a.date >= filters.date_from && a.date <= filters.date_to)
-        );
-        let students = await hp.getStudents();
-        if (filters.class_name) students = students.filter(s => s.class_name === filters.class_name);
-        if (filters.section) students = students.filter(s => s.section === filters.section);
-        const studentsById = new Map(students.map(student => [student.id, student]));
-
-        const details = filteredLogs.map(log => {
-          const student = studentsById.get(log.student_id);
-          if (!student) return null;
-          return { student_id: log.student_id, studentName: student.name, className: student.class_name, section: student.section, date: log.date, time: log.timestamp, status: log.status };
-        }).filter(Boolean);
-
-        return {
-          summary: { totalRecords: details.length, late: details.filter(d => d!.status === 'late').length, present: details.filter(d => d!.status === 'present').length },
-          details: details as any[]
-        };
-      },
-      getClassProfileStats: async (className: string, section: string, fromDate: string, toDate: string) => {
-        const students = (await hp.getStudents()).filter(s => s.class_name === className && (!section || s.section === section));
-        const studentIds = students.map(s => s.id);
-        const days = Math.max(1, Math.floor((new Date(toDate).getTime() - new Date(fromDate).getTime()) / 86400000) + 1);
-        if (studentIds.length === 0) return { present: 0, late: 0, absent: 0, exits: 0, violations: 0, totalStudents: 0, days };
-
-        const allAttendance = await hp.getAllAttendance();
-        const filtered = uniqueAttendanceByStudentDate(
-          allAttendance.filter(a => studentIds.includes(a.student_id) && a.date >= fromDate && a.date <= toDate)
-        );
-        const counts = getAttendanceStatusCounts(filtered, studentIds.length * days);
-        const present = counts.present;
-        const late = counts.late;
-        const absent = counts.absent;
-
-        return { present, late, absent, exits: 0, violations: 0, totalStudents: studentIds.length, days };
-      },
+      getWeeklyStats: async () => loadWeeklyAttendanceStats(this),
+      getClassStats: async () => loadClassAttendanceStats(this),
+      getAttendanceReport: async (filters: ReportFilter) => loadAttendanceReport(this, filters),
+      getClassProfileStats: async (className: string, section: string, fromDate: string, toDate: string) => loadClassProfileStats(this, className, section, fromDate, toDate),
 
       // Exits
       addExit: record => this.addExit(record),
@@ -1060,10 +990,14 @@ class Database implements IDatabaseProvider, IStudentAffairsProvider {
   subscribeToAttendance(cb: (r: AttendanceRecord) => void) { return this.provider.subscribeToAttendance(cb); }
   getDailySummary(d: string) { return this.provider.getDailySummary(d); }
   saveDailySummary(s: DailySummary) { return this.provider.saveDailySummary(s); }
-  getDashboardStats() { return this.provider.getDashboardStats(); }
-  getWeeklyStats() { return this.provider.getWeeklyStats(); }
-  getClassStats() { return this.provider.getClassStats(); }
-  getAttendanceReport(f: ReportFilter) { return this.provider.getAttendanceReport(f); }
+  async getDashboardStats() {
+    const date = getLocalISODate();
+    const [students, attendance, settings] = await Promise.all([this.getStudents(), this.getAttendance(date), this.getSettings()]);
+    return buildDashboardSnapshot(students, attendance, settings, date);
+  }
+  async getWeeklyStats() { return loadWeeklyAttendanceStats(this); }
+  async getClassStats() { return loadClassAttendanceStats(this); }
+  async getAttendanceReport(filters: ReportFilter) { return loadAttendanceReport(this, filters); }
   async addExit(record: ExitRecord) {
     await this.studentAffairsModule.execute({
       type: 'save-exit',
@@ -1217,7 +1151,7 @@ class Database implements IDatabaseProvider, IStudentAffairsProvider {
   getClasses() { return this.provider.getClasses(); }
   getClassesGroupedByGrade() { return this.provider.getClassesGroupedByGrade(); }
   getStudentsByClass(className: string, section?: string) { return this.provider.getStudentsByClass(className, section); }
-  getClassProfileStats(className: string, section: string, fromDate: string, toDate: string) { return this.provider.getClassProfileStats(className, section, fromDate, toDate); }
+  async getClassProfileStats(className: string, section: string, fromDate: string, toDate: string) { return loadClassProfileStats(this, className, section, fromDate, toDate); }
   async saveClass(c: SchoolClass) {
     await this.rosterModule.execute({ type: 'save-class', schoolClass: c });
   }

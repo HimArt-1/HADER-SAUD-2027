@@ -23,6 +23,7 @@ const details: AttendanceReportDetail[] = [
 describe('admin attendance report analytics', () => {
   it('excludes weekly and academic holidays and never counts absence as attendance', () => {
     const report = buildAttendanceReportData({
+      trackingDates: { tracking_start_date: '2026-08-01' },
       students,
       details,
       filter: {
@@ -47,6 +48,7 @@ describe('admin attendance report analytics', () => {
 
   it('uses student search for the roster scope while status filters only the visible rows', () => {
     const report = buildAttendanceReportData({
+      trackingDates: { tracking_start_date: '2026-08-01' },
       students,
       details,
       filter: {

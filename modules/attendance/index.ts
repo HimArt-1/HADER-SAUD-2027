@@ -38,6 +38,8 @@ type AttendanceCounts = {
   absent: number;
   attended: number;
   total: number;
+  recorded: number;
+  unrecorded: number;
 };
 
 const STATUS_RANK: Record<AttendanceRecord['status'], number> = {
@@ -190,18 +192,21 @@ export const getAttendanceStatusCounts = (
   totalStudents: number,
   options: { date?: string; isHoliday?: boolean } = {}
 ): AttendanceCounts => {
-  const uniqueRecords = uniqueAttendanceByStudentDate(records, options.date);
+  const uniqueRecords = options.isHoliday ? [] : uniqueAttendanceByStudentDate(records, options.date);
   const present = uniqueRecords.filter(record => record.status === 'present').length;
   const late = uniqueRecords.filter(record => record.status === 'late').length;
   const attended = present + late;
-  const absent = options.isHoliday ? 0 : Math.max(0, totalStudents - attended);
+  const absent = uniqueRecords.filter(record => record.status === 'absent').length;
+  const recorded = attended + absent;
 
   return {
     present,
     late,
     absent,
     attended,
-    total: totalStudents
+    total: totalStudents,
+    recorded,
+    unrecorded: options.isHoliday ? 0 : Math.max(0, totalStudents - recorded)
   };
 };
 

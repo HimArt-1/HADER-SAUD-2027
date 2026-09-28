@@ -15,17 +15,19 @@ import { summarizeRateSeries } from './dashboardAnalytics';
 interface AdminDashboardProps {
   stats: DashboardStats;
   detailedStats: {
-    rateChange: number;
-    comparisonRate: number;
+    rateChange: number | null;
+    comparisonRate: number | null;
     comparisonLabel: string;
-    averageWeeklyRate: number;
+    averageWeeklyRate: number | null;
     isTodayHoliday: boolean;
     holidayName?: string;
     trackingStart?: string | null;
+    error?: string;
   };
   weeklyStats: Array<{
     day: string;
     presence: number | null;
+    complete?: boolean;
     present: number;
     late: number;
     absent: number;
@@ -156,21 +158,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     () => summarizeRateSeries(weeklyStats, point => point.presence, point => point.isHoliday === true),
     [weeklyStats]
   );
+  const comparableWeek = summarizeRateSeries(weeklyStats, point => point.presence, point => point.complete !== true);
   const monthlySummary = React.useMemo(
     () => summarizeRateSeries(monthlyTrends, point => point.rate, point => point.isHoliday === true),
     [monthlyTrends]
   );
+  const formatRate = (value: number | null | undefined) => value == null ? 'لا توجد بيانات' : `${value}%`;
+  const completeToday = stats.has_data !== false && (stats.unrecorded_count ?? 0) === 0;
   const currentOperationalRate = detailedStats.isTodayHoliday
     ? detailedStats.averageWeeklyRate
-    : stats.attendance_rate;
+    : stats.has_data === false ? null : stats.attendance_rate;
   const attendanceChangeLabel = detailedStats.isTodayHoliday
     ? 'لا يُحتسب'
-    : `${detailedStats.rateChange >= 0 ? '+' : ''}${detailedStats.rateChange}%`;
+    : detailedStats.rateChange == null ? 'المقارنة غير متاحة' : `${(detailedStats.rateChange ?? 0) >= 0 ? '+' : ''}${detailedStats.rateChange} نقطة مئوية`;
   const absentRate = stats.total_students > 0 ? Math.round((stats.absent_count / stats.total_students) * 100) : 0;
   const lateRate = stats.total_students > 0 ? Math.round((stats.late_count / stats.total_students) * 100) : 0;
   const chartPrimary = 'rgb(var(--color-primary-500))';
   const chartPrimarySoft = 'rgb(var(--color-primary-400))';
   const chartSecondary = 'rgb(var(--color-secondary-500))';
+
+  if (detailedStats.error) return <p role="alert" className="rounded-xl border border-red-400/30 p-5 text-red-200">{detailedStats.error}</p>;
 
   if (stats.total_students === 0) {
     return (
@@ -222,6 +229,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       animate="visible"
     >
 
+      {!detailedStats.trackingStart && <p role="status" className="rounded-xl border border-amber-400/30 p-4 text-amber-200">حدد بداية تشغيل حاضر في التقويم الدراسي لتفعيل التحليلات.</p>}
       {detailedStats.trackingStart && <p className="rounded-xl border border-primary-400/20 bg-primary-500/10 px-4 py-3 text-sm text-primary-100">
         بداية احتساب مؤشرات العام الدراسي: <bdi>{detailedStats.trackingStart}</bdi>. تُستبعد الأيام السابقة والعطل من الاتجاهات والمقارنات.
       </p>}
@@ -240,7 +248,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="mt-0.5 text-xs text-slate-400">لا تُحتسب حالات الغياب أو نسبة الحضور لهذا اليوم.</div>
             </div>
           </div>
-          <div className="text-xs font-semibold text-sky-200/80">آخر متوسط أسبوعي: {detailedStats.averageWeeklyRate}%</div>
+          <div className="text-xs font-semibold text-sky-200/80">آخر متوسط أسبوعي: {formatRate(detailedStats.averageWeeklyRate)}</div>
         </motion.div>
       )}
 
@@ -258,10 +266,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           label="نسبة الحضور اليوم"
           value={detailedStats.isTodayHoliday
             ? <span className="font-sans text-2xl">عطلة</span>
-            : <><NumberTicker value={stats.attendance_rate} />%</>}
+            : <>{stats.has_data === false ? 'لا توجد بيانات' : `${stats.attendance_rate}%`}</>}
           detail={detailedStats.isTodayHoliday
             ? 'لا توجد نسبة مطلوبة لهذا اليوم'
-            : `مقارنة بـ${detailedStats.comparisonLabel}: ${detailedStats.comparisonRate}%`}
+            : `غير مسجل: ${stats.unrecorded_count ?? 0} · ${attendanceChangeLabel}`}
           icon={UserCheck}
           tone="emerald"
           badge={attendanceChangeLabel}
@@ -306,7 +314,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div key={i} className="pb-4 border-b border-white/5 last:border-0">
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-gray-300 font-medium">{cls.name}</span>
-                    <span className="text-emerald-400 font-mono font-bold">{rate}%</span>
+                    <span className="text-emerald-400 font-mono font-bold">{cls.rate == null ? 'لا توجد بيانات' : `${rate}%`}</span>
                   </div>
                   <div className="h-2 w-full bg-[#0f172a] rounded-full overflow-hidden">
                     <div className="h-full bg-gradient-to-r from-primary-500 to-secondary-500 rounded-full transition-all" style={{ width: `${rate}%` }}></div>
@@ -314,14 +322,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="flex justify-between text-xs text-gray-500 mt-1">
                     <span>حاضر: {cls.present || 0}</span>
                     <span>متأخر: {cls.late || 0}</span>
-                    <span className="text-red-400">غائب: {cls.absent || 0}</span>
+                    <span className="text-red-400">غائب: {cls.absent || 0}</span><span>غير مسجل: {cls.unrecorded ?? 0}</span>
                   </div>
                 </div>
               );
             })}
             <div className="mt-auto pt-4 border-t border-white/5">
               <div className="text-xs text-gray-500 mb-2">متوسط الحضور الأسبوعي</div>
-              <div className="text-2xl font-bold text-white font-mono"><NumberTicker value={detailedStats.averageWeeklyRate} />%</div>
+              <div className="text-2xl font-bold text-white font-mono">{formatRate(detailedStats.averageWeeklyRate)}</div>
             </div>
           </div>
         </div>
@@ -365,67 +373,43 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   itemStyle={{ color: '#fff' }}
                   formatter={(value: any) => [`${value}%`, 'نسبة الحضور']}
                 />
-                <Area type="monotone" dataKey="presence" stroke={chartPrimary} strokeWidth={3} fillOpacity={1} fill="url(#colorPresence)" />
+                <Area type="linear" dataKey="presence" stroke={chartPrimary} strokeWidth={3} fillOpacity={1} fill="url(#colorPresence)" />
               </AreaChart>
             </ResponsiveContainer>
 
             {/* Real change indicator */}
-            {weeklySummary.workingPoints.length >= 2 && (
+            {comparableWeek.change != null && (
               <div className="absolute top-10 right-4 sm:right-20 glass-card border border-white/10 px-3 sm:px-4 py-2 rounded-full text-xs text-white shadow-lg backdrop-blur-md">
-                {weeklySummary.change >= 0 ? '↑' : '↓'}
-                {Math.abs(weeklySummary.change)}%
-                {weeklySummary.change >= 0 ? ' تحسن' : ' انخفاض'}
+                {comparableWeek.change >= 0 ? '↑' : '↓'}
+                {Math.abs(comparableWeek.change)} نقطة مئوية
+                {comparableWeek.change >= 0 ? ' تحسن' : ' انخفاض'}
               </div>
             )}
           </div>
           <div className="mt-4 grid grid-cols-3 gap-4 text-center">
             <div>
               <div className="text-xs text-gray-400 mb-1">متوسط الأسبوع</div>
-              <div className="text-lg font-bold text-emerald-400"><NumberTicker value={detailedStats.averageWeeklyRate}/>%</div>
+              <div className="text-lg font-bold text-emerald-400">{formatRate(detailedStats.averageWeeklyRate)}</div>
             </div>
             <div>
               <div className="text-xs text-gray-400 mb-1">أعلى يوم</div>
-              <div className="text-lg font-bold text-primary-400">{weeklySummary.best?.presence ?? 0}%</div>
+              <div className="text-lg font-bold text-primary-400">{formatRate(comparableWeek.best?.presence)}</div>
             </div>
             <div>
               <div className="text-xs text-gray-400 mb-1">أقل يوم</div>
-              <div className="text-lg font-bold text-red-400">{weeklySummary.worst?.presence ?? 0}%</div>
+              <div className="text-lg font-bold text-red-400">{formatRate(comparableWeek.worst?.presence)}</div>
             </div>
           </div>
         </div>
 
         {/* Widget: Radar Chart (Right) - Real Performance Data */}
         <div className="lg:col-span-3 glass-card min-w-0 rounded-[2rem] p-4 sm:p-6 border border-white/5 bg-[#1e293b]/60 flex flex-col relative overflow-hidden md:rounded-[2.5rem]">
-          <h3 className="text-white font-bold w-full mb-4 text-center">مؤشر الأداء الشامل</h3>
-          <div className="h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart cx="50%" cy="50%" outerRadius="70%" data={[
-                { subject: 'الحضور', A: currentOperationalRate, fullMark: 100 },
-                { subject: 'الانضباط', A: stats.total_students > 0 ? Math.round((1 - (violationsData.reduce((sum, v) => sum + v.value, 0) / stats.total_students)) * 100) : 95, fullMark: 100 },
-                { subject: 'الالتزام', A: stats.total_students > 0 ? Math.round((stats.present_count / stats.total_students) * 100) : 85, fullMark: 100 },
-                { subject: 'الاستئذان', A: exitsData.length > 0 ? Math.min(100, Math.round((exitsData.length / stats.total_students) * 50)) : 90, fullMark: 100 },
-                { subject: 'المتابعة', A: detailedStats.averageWeeklyRate, fullMark: 100 },
-              ]}>
-                <PolarGrid stroke="#334155" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9 }} />
-                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                <Radar name="الأداء" dataKey="A" stroke={chartPrimary} strokeWidth={2} fill={chartPrimary} fillOpacity={0.4} />
-                <Tooltip contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }} />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="text-xs text-gray-400 mt-2 text-center w-full px-4">
-            تحليل شامل بناءً على البيانات الفعلية
-          </div>
-          <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-2 gap-2 text-xs">
-            <div className="text-center">
-              <div className="text-emerald-400 font-bold">{currentOperationalRate}%</div>
-              <div className="text-gray-500">الحضور</div>
-            </div>
-            <div className="text-center">
-              <div className="text-primary-400 font-bold">{detailedStats.averageWeeklyRate}%</div>
-              <div className="text-gray-500">المتوسط</div>
-            </div>
+          <h3 className="text-white font-bold mb-4">اكتمال التسجيل اليوم</h3>
+          <div className="space-y-4 text-sm text-slate-300">
+            <p>سجلات مكتملة: <b>{stats.recorded_count ?? stats.present_count + stats.late_count + stats.absent_count}</b> من {stats.total_students}</p>
+            <p>لم تُسجّل حالتهم: <b className="text-amber-300">{stats.unrecorded_count ?? 0}</b></p>
+            <p className="text-xs leading-6 text-slate-400">نسبة الحضور هي الحضور المسجل (بما فيه التأخر) ÷ الطلاب النشطين. الحالة غير المسجلة لا تُحتسب غيابًا. المقارنات والتقييمات تتطلب اكتمال التسجيل.</p>
+            <p className="text-xs leading-6 text-slate-400">تستخدم الإحصاءات قائمة الطلاب النشطين الحالية؛ لا تتوافر لقطات تاريخية لأعداد الطلاب. متوسط الرسوم يشمل أيام الدوام ذات البيانات فقط، والفجوات تعني عدم توفر تسجيل.</p>
           </div>
         </div>
       </motion.div>
@@ -437,7 +421,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="glass-card rounded-3xl p-6 border border-primary-500/20 bg-gradient-to-br from-slate-900/80 to-slate-800/80 backdrop-blur-2xl text-center relative overflow-hidden">
           <h3 className="text-white font-bold mb-3 flex items-center justify-center gap-2 text-sm">
             <div className="w-2 h-2 rounded-full bg-primary-400 animate-pulse" />
-            مؤشر الانضباط العام
+            الحضور المسجل
           </h3>
           {/* SVG Ring Gauge */}
           <div className="relative w-40 h-40 mx-auto my-3">
@@ -447,7 +431,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 cx="60" cy="60" r="52" fill="none"
                 stroke="url(#gaugeGrad)"
                 strokeWidth="10" strokeLinecap="round"
-                strokeDasharray={`${(currentOperationalRate / 100) * 327} 327`}
+                strokeDasharray={`${((currentOperationalRate ?? 0) / 100) * 327} 327`}
                 className="transition-all duration-1000"
               />
               <defs>
@@ -459,22 +443,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </defs>
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-4xl font-black text-white font-mono"><NumberTicker value={currentOperationalRate} />%</span>
-              <span className="text-[10px] text-slate-400 mt-1">{detailedStats.isTodayHoliday ? 'متوسط أسبوعي' : 'نسبة الانضباط'}</span>
+              <span className="text-4xl font-black text-white font-mono">{formatRate(currentOperationalRate)}</span>
+              <span className="text-[10px] text-slate-400 mt-1">{detailedStats.isTodayHoliday ? 'متوسط أسبوعي' : 'من الطلاب النشطين'}</span>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
             <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-2">
-              <div className="text-emerald-400 font-bold">{currentOperationalRate >= 90 ? 'ممتاز' : currentOperationalRate >= 75 ? 'جيد' : 'يحتاج تحسين'}</div>
+              <div className="text-emerald-400 font-bold">{!completeToday || currentOperationalRate == null ? 'غير مكتمل' : currentOperationalRate >= 90 ? 'ممتاز' : currentOperationalRate >= 75 ? 'جيد' : 'يحتاج تحسين'}</div>
               <div className="text-slate-500">التقييم</div>
             </div>
             <div className="rounded-xl bg-primary-500/10 border border-primary-500/20 p-2">
-              <div className="text-primary-400 font-bold font-mono">{detailedStats.averageWeeklyRate}%</div>
+              <div className="text-primary-400 font-bold font-mono">{formatRate(detailedStats.averageWeeklyRate)}</div>
               <div className="text-slate-500">المتوسط</div>
             </div>
-            <div className={`rounded-xl p-2 ${detailedStats.rateChange >= 0 ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
-              <div className={`font-bold font-mono ${detailedStats.rateChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {detailedStats.rateChange >= 0 ? '↑' : '↓'}{Math.abs(detailedStats.rateChange)}%
+            <div className={`rounded-xl p-2 ${(detailedStats.rateChange ?? 0) >= 0 ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+              <div className={`font-bold font-mono ${(detailedStats.rateChange ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {attendanceChangeLabel}
               </div>
               <div className="text-slate-500">التغيير</div>
             </div>
@@ -489,14 +473,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </h3>
           <div className="space-y-3">
             {/* Alert: Low attendance rate */}
-            {!detailedStats.isTodayHoliday && stats.attendance_rate < 85 && (
+            {!detailedStats.isTodayHoliday && completeToday && stats.attendance_rate < 85 && (
               <div className="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
                 <div className="w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0">
                   <AlertCircle className="w-4 h-4 text-red-400" />
                 </div>
                 <div>
                   <div className="text-sm text-red-300 font-bold">نسبة حضور منخفضة</div>
-                  <div className="text-xs text-slate-400 mt-0.5">نسبة الحضور اليوم {stats.attendance_rate}% — أقل من 85%</div>
+                  <div className="text-xs text-slate-400 mt-0.5">نسبة الحضور اليوم {stats.has_data === false ? '—' : `${stats.attendance_rate}%`} — أقل من 85%</div>
                 </div>
               </div>
             )}
@@ -515,21 +499,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
 
             {/* Alert: Rate declining */}
-            {!detailedStats.isTodayHoliday && detailedStats.rateChange < -5 && (
+            {!detailedStats.isTodayHoliday && (detailedStats.rateChange != null && detailedStats.rateChange < -5) && (
               <div className="flex items-start gap-3 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20">
                 <div className="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center flex-shrink-0">
                   <TrendingUp className="w-4 h-4 text-orange-400 rotate-180" />
                 </div>
                 <div>
                   <div className="text-sm text-orange-300 font-bold">انخفاض ملحوظ</div>
-                  <div className="text-xs text-slate-400 mt-0.5">تراجع {Math.abs(detailedStats.rateChange)}% مقارنة بآخر يوم دراسي</div>
+                  <div className="text-xs text-slate-400 mt-0.5">تراجع {Math.abs(detailedStats.rateChange ?? 0)} نقطة مئوية مقارنة بآخر يوم مكتمل</div>
                 </div>
               </div>
             )}
 
             {/* Alert: Worst performing class */}
             {!detailedStats.isTodayHoliday && classStats.length > 0 && (() => {
-              const worst = [...classStats].sort((a, b) => (a.rate || 0) - (b.rate || 0))[0];
+              const worst = [...classStats].filter(cls => cls.rate != null && (cls.unrecorded ?? 0) === 0).sort((a, b) => (a.rate || 0) - (b.rate || 0))[0];
               return worst && (worst.rate || 0) < 70 ? (
                 <div className="flex items-start gap-3 p-3 rounded-xl bg-secondary-500/10 border border-secondary-500/20">
                   <div className="w-8 h-8 rounded-lg bg-secondary-500/20 flex items-center justify-center flex-shrink-0">
@@ -544,7 +528,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             })()}
 
             {/* All good message */}
-            {!detailedStats.isTodayHoliday && stats.attendance_rate >= 85 && detailedStats.rateChange >= 0 && (
+            {!detailedStats.isTodayHoliday && completeToday && stats.attendance_rate >= 85 && (detailedStats.rateChange ?? 0) >= 0 && (
               <div className="flex items-start gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
                 <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
                   <CheckCircle2 className="h-4 w-4 text-emerald-300" />
@@ -581,23 +565,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* This week average vs overall */}
               <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
                 <span className="text-sm text-slate-300">متوسط هذا الأسبوع</span>
-                <span className="text-xl font-black text-secondary-400 font-mono"><NumberTicker value={detailedStats.averageWeeklyRate}/>%</span>
+                <span className="text-xl font-black text-secondary-400 font-mono">{formatRate(detailedStats.averageWeeklyRate)}</span>
               </div>
               <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
                 <span className="text-sm text-slate-300">آخر يوم دراسي</span>
-                <span className="text-lg font-bold text-primary-400 font-mono">{detailedStats.comparisonRate}%</span>
+                <span className="text-lg font-bold text-primary-400 font-mono">{formatRate(detailedStats.comparisonRate)}</span>
               </div>
               {/* Best and worst days */}
               <div className="grid grid-cols-2 gap-2">
                 <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center">
                   <div className="text-xs text-slate-400 mb-1">أفضل يوم</div>
-                  <div className="text-lg font-bold text-emerald-400 font-mono">{weeklySummary.best?.presence ?? 0}%</div>
-                  <div className="text-[10px] text-slate-500">{weeklySummary.best?.day || '—'}</div>
+                  <div className="text-lg font-bold text-emerald-400 font-mono">{formatRate(comparableWeek.best?.presence)}</div>
+                  <div className="text-[10px] text-slate-500">{comparableWeek.best?.day || '—'}</div>
                 </div>
                 <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-center">
                   <div className="text-xs text-slate-400 mb-1">أضعف يوم</div>
-                  <div className="text-lg font-bold text-red-400 font-mono">{weeklySummary.worst?.presence ?? 0}%</div>
-                  <div className="text-[10px] text-slate-500">{weeklySummary.worst?.day || '—'}</div>
+                  <div className="text-lg font-bold text-red-400 font-mono">{formatRate(comparableWeek.worst?.presence)}</div>
+                  <div className="text-[10px] text-slate-500">{comparableWeek.worst?.day || '—'}</div>
                 </div>
               </div>
               {/* Weekly heatmap mini */}
@@ -606,9 +590,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex gap-1">
                   {weeklyStats.map((day, i) => {
                     const intensity = (day.presence ?? 0) / 100;
-                    const bg = day.isHoliday ? 'bg-sky-500/25' : intensity >= 0.9 ? 'bg-emerald-500' : intensity >= 0.75 ? 'bg-emerald-600' : intensity >= 0.6 ? 'bg-amber-500' : intensity >= 0.4 ? 'bg-orange-500' : 'bg-red-500';
+                    const bg = day.presence == null ? 'bg-slate-600' : day.isHoliday ? 'bg-sky-500/25' : intensity >= 0.9 ? 'bg-emerald-500' : intensity >= 0.75 ? 'bg-emerald-600' : intensity >= 0.6 ? 'bg-amber-500' : intensity >= 0.4 ? 'bg-orange-500' : 'bg-red-500';
                     return (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-1" title={day.isHoliday ? `${day.day}: عطلة` : `${day.day}: ${day.presence}%`}>
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1" title={day.presence == null ? `${day.day}: لا توجد بيانات` : `${day.day}: ${day.presence}%`}>
                         <div className={`w-full h-8 rounded-lg ${bg} transition-all`} style={{ opacity: day.isHoliday ? 1 : Math.max(0.3, intensity) }} />
                         <span className="text-[9px] text-slate-500">{day.day}</span>
                       </div>
@@ -641,6 +625,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       { name: 'حضور', value: stats.present_count, color: '#10b981' },
                       { name: 'غياب', value: stats.absent_count, color: '#ef4444' },
                       { name: 'تأخر', value: stats.late_count, color: '#f59e0b' },
+                      { name: 'غير مسجل', value: stats.unrecorded_count ?? 0, color: '#94a3b8' },
                     ]}
                     innerRadius={50}
                     outerRadius={70}
@@ -650,7 +635,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   >
                     <Cell fill="#10b981" />
                     <Cell fill="#ef4444" />
-                    <Cell fill="#f59e0b" />
+                    <Cell fill="#f59e0b" /><Cell fill="#94a3b8" />
                   </Pie>
                   <Tooltip
                     contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }}
@@ -659,7 +644,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex items-center justify-center flex-col pointer-events-none">
-                <span className="text-3xl font-bold text-white font-mono">{stats.attendance_rate}%</span>
+                <span className="text-3xl font-bold text-white font-mono">{stats.has_data === false ? '—' : `${stats.attendance_rate}%`}</span>
                 <span className="text-xs text-gray-400">نسبة الحضور</span>
               </div>
             </div>
@@ -705,7 +690,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
           <div className="h-[200px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyTrends.slice(-14)} barSize={8}>
+              <BarChart data={monthlyTrends} barSize={8}>
                 <defs>
                   <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={chartPrimary} stopOpacity={0.8} />
@@ -725,8 +710,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </ResponsiveContainer>
           </div>
           <div className="mt-4 flex justify-between items-center text-xs">
-            <div className="text-gray-400">متوسط أيام الدراسة: <span className="text-emerald-400 font-bold">{monthlySummary.average}%</span></div>
-            <div className="text-gray-400">أعلى نسبة: <span className="text-primary-400 font-bold">{monthlySummary.best?.rate ?? 0}%</span></div>
+            <div className="text-gray-400">متوسط أيام الدراسة: <span className="text-emerald-400 font-bold">{formatRate(monthlySummary.average)}</span></div>
+            <div className="text-gray-400">أعلى نسبة: <span className="text-primary-400 font-bold">{formatRate(monthlySummary.best?.rate)}</span></div>
           </div>
         </div>
 
@@ -779,7 +764,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           ) : (
           <div className="space-y-3">
-            {[...classStats].sort((a, b) => (b.rate || 0) - (a.rate || 0)).slice(0, 3).map((cls, i) => (
+            {[...classStats].filter(cls => cls.rate != null && (cls.unrecorded ?? 0) === 0).sort((a, b) => (b.rate || 0) - (a.rate || 0)).slice(0, 3).map((cls, i) => (
               <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
                 <div className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${i === 0 ? 'bg-yellow-500/20 text-yellow-400' :
@@ -824,7 +809,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="pt-4 border-t border-white/5">
               <div className="flex justify-between items-center">
                 <span className="text-gray-300 font-medium">المتوسط الأسبوعي</span>
-                <span className="text-2xl font-bold text-emerald-400 font-mono">{detailedStats.averageWeeklyRate}%</span>
+                <span className="text-2xl font-bold text-emerald-400 font-mono">{formatRate(detailedStats.averageWeeklyRate)}</span>
               </div>
             </div>
           </div>

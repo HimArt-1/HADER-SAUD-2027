@@ -1,3 +1,4 @@
+import { buildDashboardSnapshot } from '../modules/attendance/analytics';
 // =============================================================================
 // نظام حاضر (Hader) - Hybrid Provider
 // =============================================================================
@@ -63,8 +64,7 @@ import { ensurePasswordForCloud } from './security';
 import { rememberRemoteSettingsPk, resolveSettingsUpsertId } from './settingsRemoteId';
 import {
     decideAttendanceTiming,
-    getAttendanceStatusCounts,
-    uniqueAttendanceByStudentDate
+      uniqueAttendanceByStudentDate
 } from '../modules/attendance';
 import { syncCatalog } from '../modules/sync/catalog';
 
@@ -486,6 +486,7 @@ export class HybridProvider {
                     .gte('date', startDate)
                     .lte('date', endDate)
                     .order('date', { ascending: false })
+                    .order('id', { ascending: true })
                     .range(from, from + PAGE_SIZE - 1);
 
                 if (error) {
@@ -1331,22 +1332,7 @@ export class HybridProvider {
             .equals(targetDate)
             .toArray();
 
-        const total_students = students.length;
-        const counts = getAttendanceStatusCounts(attendance.map(mapAttendance), total_students, { date: targetDate });
-        const present_count = counts.present;
-        const late_count = counts.late;
-        const absent_count = counts.absent;
-        const attendance_rate = total_students > 0
-            ? Math.round((counts.attended / total_students) * 100)
-            : 0;
-
-        return {
-            total_students,
-            present_count,
-            late_count,
-            absent_count,
-            attendance_rate
-        };
+        return buildDashboardSnapshot(students, attendance.map(mapAttendance), await this.getSettings(), targetDate);
     }
 
     // ==========================================

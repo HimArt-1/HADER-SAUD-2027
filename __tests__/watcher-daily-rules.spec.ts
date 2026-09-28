@@ -51,7 +51,9 @@ describe('watcher daily rules', () => {
         expect(state.activeStudents.map(item => item.id)).toEqual(['1', '2']);
         expect(state.present).toEqual([]);
         expect(state.late.map(item => item.id)).toEqual(['1']);
-        expect(state.absent.map(item => item.id)).toEqual(['2']);
+        expect(state.absent).toEqual([]);
+        expect(state.unrecorded.map(item => item.id)).toEqual(['2']);
+        expect(getWatcherStudentsForTab(state, 'unrecorded')).toEqual(state.unrecorded);
         expect(getWatcherStudentsForTab(state, 'late')).toEqual(state.late);
     });
 

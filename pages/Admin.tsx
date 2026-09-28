@@ -1,3 +1,4 @@
+import { buildAttendanceAnalytics, buildDashboardSnapshot, percentage } from '../modules/attendance/analytics';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { db, getLocalISODate, getLocalDateStr } from '../services/db';
@@ -18,7 +19,7 @@ import { FileSpreadsheet, Upload, UserPlus, Database, Loader2, LayoutDashboard, 
 import { getErrorMessage, logError } from '../types/errors';
 import { useLiveUpdates } from '../hooks/useLiveUpdates';
 import { AdminDashboard, AdminReportsTab, AdminKioskTab, AdminStructureTab, AdminStudentsTab, AdminUsersTab, AdminSettingsTab, AdminFollowUpTab, AdminIncidentsTab, AdminExcusesTab, AdminBackupTab, AdminNotificationsTab, AdminCalendarTab, AdminActivityLogTab, AdminGuardianPhonesTab, AdminIntegrationsTab, AdminStaffOperationsTab, THEME_CONFIG, HIDDEN_ADMIN_USERNAMES, PRIVACY_ADD_KEY, PRIVACY_IMPORT_KEY } from '../components/admin';
-import { cacheHolidays, getCachedHolidays, getHolidayInfo, isDateHoliday, normalizeAcademicHolidays, AcademicTrackingDates, isValidDateKey, isWithinTrackingPeriod, getEffectiveTrackingStart } from '../services/academicCalendarService';
+import { cacheHolidays, getCachedHolidays, getHolidayInfo, isDateHoliday, normalizeAcademicHolidays, AcademicTrackingDates, isValidDateKey, hasTrackingStartDate, isWithinTrackingPeriod, getEffectiveTrackingStart } from '../services/academicCalendarService';
 import { useToast } from '../components/Toast';
 import { useSyncRefresh } from '../hooks/useSyncRefresh';
 import { UniversalGuideModal, GuideStep } from '../components/common/UniversalGuideModal';
@@ -26,8 +27,6 @@ import { ShieldCheck, GraduationCap, Users as UsersIcon, HelpCircle } from 'luci
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import { useAdminTheme } from '../hooks/useAdminTheme';
 import {
-  getAttendanceForDate,
-  getAttendanceStatusCounts,
   uniqueAttendanceByStudentDate
 } from '../modules/attendance';
 import {
@@ -1084,201 +1083,53 @@ const Admin: React.FC = () => {
         studentAffairs.load({ type: 'exits', date: today }),
         appSettings.load()
       ]);
-      const withinTracking = (date: string) => isWithinTrackingPeriod(date, settings?.attendance_settings, today);
-      const allAttendance = attendanceSnapshot.filter(record => withinTracking(record.date));
-      const allViolations = violationSnapshot.violations.filter(record => withinTracking(getLocalDateStr(new Date(record.created_at))));
-      const allExits = exitSnapshot.exits.filter(record => withinTracking(getLocalDateStr(new Date(record.exit_time))));
-
-      // Ignore stale responses when a newer dashboard fetch already started.
       if (seq !== dashboardFetchSeqRef.current) return;
-
-      const workDays = (settings?.attendance_settings as any)?.work_days ?? settings?.work_days ?? [0, 1, 2, 3, 4];
-      const configuredHolidays = (settings?.attendance_settings as any)?.academic_holidays ?? [];
-
       setStudents(allStudents);
       setClasses(dedupeAdminClasses(allClasses));
       setUsers(dedupeAdminUsers(allUsers.filter(user => !isHiddenAdminUser(user))));
-
-      // Calculate real weekly stats (last 7 days)
-      const weekDays = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-      const weeklyData: any[] = [];
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        const dateStr = getLocalDateStr(date);
-        const dayIndex = date.getDay();
-        const isHoliday = isDateHoliday(dateStr, workDays, configuredHolidays);
-        const holidayInfo = getHolidayInfo(dateStr, configuredHolidays);
-        const dayAttendance = getAttendanceForDate(allAttendance, dateStr);
-        const dayStudents = allStudents.length;
-        const counts = getAttendanceStatusCounts(dayAttendance, dayStudents, { isHoliday: isHoliday || !withinTracking(dateStr) });
-        const present = counts.present;
-        const late = counts.late;
-
-        const rate = (dayStudents > 0 && !isHoliday && withinTracking(dateStr) && dayAttendance.length > 0) ? Math.round(((present + late) / dayStudents) * 100) : null;
-
-        weeklyData.push({
-          day: weekDays[dayIndex],
-          presence: rate,
-          present,
-          late,
-          absent: counts.absent,
-          total: dayStudents,
-          isHoliday,
-          holidayName: holidayInfo?.label
-        });
-      }
+      const analytics = buildAttendanceAnalytics({ students: allStudents, attendance: attendanceSnapshot, settings, startDate, endDate: today, today });
+      const studentIds = new Set(analytics.roster.map(student => student.id));
+      const todayEligible = analytics.dates.includes(today);
+      const todayStats = buildDashboardSnapshot(allStudents, attendanceSnapshot, settings, today, today);
+      setStats(todayStats);
+      const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString('ar-SA', { weekday: 'long', day: 'numeric', month: 'short' });
+      const weekStart = new Date(`${today}T12:00:00`); weekStart.setDate(weekStart.getDate() - 6);
+      const weeklyData = analytics.days.filter(day => day.date >= getLocalDateStr(weekStart)).map(day => ({ ...day, day: dateLabel(day.date), presence: day.rate }));
       setWeeklyStats(weeklyData);
-
-      // Build O(1) lookup maps
-      const studentById = new Map(allStudents.map(s => [s.id, s]));
-      const studentsByClass = new Map<string, Student[]>();
-      for (const s of allStudents) {
-        const list = studentsByClass.get(s.class_name) || [];
-        list.push(s);
-        studentsByClass.set(s.class_name, list);
-      }
-
-      // Calculate real class stats
-      const classData: any[] = [];
-      const beforeTracking = !withinTracking(today);
-      const isTodayHoliday = beforeTracking || isDateHoliday(today, workDays, configuredHolidays);
-      const todayHolidayInfo = getHolidayInfo(today, configuredHolidays);
-      const todayAttendanceAll = getAttendanceForDate(allAttendance, today);
-
-      // Group today's attendance by class using the map
-      const todayAttByClass = new Map<string, AttendanceRecord[]>();
-      for (const a of todayAttendanceAll) {
-        const student = studentById.get(a.student_id);
-        if (student) {
-          const list = todayAttByClass.get(student.class_name) || [];
-          list.push(a);
-          todayAttByClass.set(student.class_name, list);
-        }
-      }
-
-      for (const cls of allClasses) {
-        const classStudents = studentsByClass.get(cls.name) || [];
-        const todayAtt = todayAttByClass.get(cls.name) || [];
-        const counts = getAttendanceStatusCounts(todayAtt, classStudents.length, { isHoliday: isTodayHoliday });
-        classData.push({
-          name: cls.name,
-          total: classStudents.length,
-          present: counts.present,
-          late: counts.late,
-          absent: counts.absent,
-          rate: (classStudents.length > 0 && !isTodayHoliday) ? Math.round((counts.attended / classStudents.length) * 100) : 0
-        });
-      }
+      const monthStart = new Date(`${today}T12:00:00`); monthStart.setDate(monthStart.getDate() - 29);
+      setMonthlyTrends(analytics.days.filter(day => day.date >= getLocalDateStr(monthStart)).map(day => ({ ...day, day: dateLabel(day.date) })));
+      const classData = [...new Set(analytics.roster.map(s => s.class_name))].map(name => {
+        const result = buildAttendanceAnalytics({ students: analytics.roster.filter(s => s.class_name === name), attendance: attendanceSnapshot, settings, startDate: today, endDate: today, today });
+        return { name, total: result.roster.length, totalStudents: result.roster.length, days: result.dates.length,
+          present: result.present, late: result.late, absent: result.absent, unrecorded: result.unrecorded,
+          exits: 0, violations: 0, rate: result.attendanceRate ?? undefined };
+      });
       setClassStats(classData);
-
-      // Calculate detailed stats
-      const todayAttendance = getAttendanceForDate(allAttendance, today);
-      const todayCounts = getAttendanceStatusCounts(todayAttendance, allStudents.length, { isHoliday: isTodayHoliday });
-      const present_count = todayCounts.present;
-      const late_count = todayCounts.late;
-      const absent_count = todayCounts.absent;
-      const attendance_rate = (allStudents.length > 0 && !isTodayHoliday) ? Math.round((todayCounts.attended / allStudents.length) * 100) : 0;
-
-      // Compare with the latest actual school day instead of a weekend or holiday.
-      let comparisonDate = new Date(`${today}T12:00:00`);
-      let comparisonDateStr = today;
-      for (let offset = 1; offset <= 30; offset += 1) {
-        const candidate = new Date(`${today}T12:00:00`);
-        candidate.setDate(candidate.getDate() - offset);
-        const candidateStr = getLocalDateStr(candidate);
-        if (!withinTracking(candidateStr)) break;
-        if (!isDateHoliday(candidateStr, workDays, configuredHolidays) && getAttendanceForDate(allAttendance, candidateStr).length > 0) {
-          comparisonDate = candidate;
-          comparisonDateStr = candidateStr;
-          break;
-        }
-      }
-
-      const comparisonAttendance = getAttendanceForDate(allAttendance, comparisonDateStr);
-      const comparisonCounts = getAttendanceStatusCounts(comparisonAttendance, allStudents.length);
-      const comparisonRate = allStudents.length > 0
-        ? Math.round((comparisonCounts.attended / allStudents.length) * 100)
-        : 0;
-      const rateChange = isTodayHoliday ? 0 : attendance_rate - comparisonRate;
-      const comparisonLabel = comparisonDate.toLocaleDateString('ar-SA', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'short'
-      });
-
-      setStats({
-        total_students: allStudents.length,
-        present_count,
-        late_count,
-        absent_count,
-        attendance_rate
-      });
-
-      // Attendance by class for detailed view
-      const attendanceByClassData = classData.map(c => ({
-        name: c.name,
-        present: c.present,
-        late: c.late,
-        absent: c.absent,
-        total: c.total,
-        rate: c.rate
-      }));
-      setAttendanceByClass(attendanceByClassData);
-
-      // Violations data
-      const violationsByLevel = [
-        { name: 'منخفض', value: allViolations.filter(v => v.level === 1).length, color: '#10b981' },
-        { name: 'متوسط', value: allViolations.filter(v => v.level === 2).length, color: '#f59e0b' },
-        { name: 'عالي', value: allViolations.filter(v => v.level === 3).length, color: '#ef4444' }
-      ];
-      setViolationsData(violationsByLevel);
-
-      // Exits data
+      setAttendanceByClass(classData);
+      const allViolations = violationSnapshot.violations.filter(record => todayEligible && studentIds.has(record.student_id) && getLocalDateStr(new Date(record.created_at)) === today);
+      const allExits = exitSnapshot.exits.filter(record => todayEligible && studentIds.has(record.student_id) && getLocalDateStr(new Date(record.exit_time)) === today);
+      setViolationsData([1, 2, 3, 4, 5].map((level, i) => ({ name: `درجة ${level}`, value: allViolations.filter(v => Number(v.level) === level).length, color: ['#10b981', '#f59e0b', '#f97316', '#ef4444', '#be123c'][i] })));
       setExitsData(allExits);
-
-      // Monthly trends (last 30 days)
-      const monthlyData: any[] = [];
-      for (let i = 29; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        const dateStr = getLocalDateStr(date);
-        const dayAtt = getAttendanceForDate(allAttendance, dateStr);
-        const isHoliday = isDateHoliday(dateStr, workDays, configuredHolidays);
-        const dayCounts = getAttendanceStatusCounts(dayAtt, allStudents.length, { isHoliday: isHoliday || !withinTracking(dateStr) });
-        const dayRate = allStudents.length > 0 && !isHoliday && withinTracking(dateStr) && dayAtt.length > 0
-          ? Math.round((dayCounts.attended / allStudents.length) * 100)
-          : null;
-        monthlyData.push({
-          date: dateStr,
-          day: date.getDate(),
-          rate: dayRate,
-          present: dayCounts.present,
-          late: dayCounts.late,
-          isHoliday
-        });
-      }
-      setMonthlyTrends(monthlyData);
-
-      // Detailed stats object
-      const workingWeek = weeklyData.filter(day => !day.isHoliday && day.presence != null);
+      const comparison = analytics.days.filter(day => day.date < today && day.complete).at(-1);
+      const todayComplete = todayStats.has_data && todayStats.unrecorded_count === 0;
+      const comparisonRate = comparison?.rate ?? null;
+      const rateChange = todayComplete && comparisonRate !== null ? Math.round((todayStats.attendance_rate - comparisonRate) * 10) / 10 : null;
+      const measuredWeek = weeklyData.filter(day => day.rate !== null);
       setDetailedStats({
-        total_students: allStudents.length,
-        todayRate: attendance_rate,
-        comparisonRate,
-        comparisonLabel,
-        rateChange,
-        totalViolations: allViolations.length,
-        totalExits: allExits.length,
-        averageWeeklyRate: workingWeek.length > 0
-          ? Math.round(workingWeek.reduce((sum, day) => sum + Number(day.presence), 0) / workingWeek.length)
-          : 0,
-        isTodayHoliday,
-        holidayName: beforeTracking ? 'لم تبدأ فترة الاحتساب' : todayHolidayInfo?.label,
-        trackingStart: getEffectiveTrackingStart(settings?.attendance_settings)
+        total_students: analytics.roster.length, todayRate: todayStats.attendance_rate,
+        comparisonRate, comparisonLabel: comparison ? dateLabel(comparison.date) : 'لا يوجد يوم مكتمل للمقارنة', rateChange,
+        totalViolations: allViolations.length, totalExits: allExits.length,
+        averageWeeklyRate: measuredWeek.length ? Math.round(measuredWeek.reduce((sum, day) => sum + (day.rate ?? 0), 0) / measuredWeek.length * 10) / 10 : null,
+        isTodayHoliday: !todayEligible,
+        holidayName: !isWithinTrackingPeriod(today, settings?.attendance_settings, today) ? 'لم تبدأ فترة الاحتساب' : getHolidayInfo(today, settings?.attendance_settings?.academic_holidays)?.label,
+        trackingStart: hasTrackingStartDate(settings?.attendance_settings) ? getEffectiveTrackingStart(settings?.attendance_settings) : null
       });
 
     } catch (e) {
+      if (seq === dashboardFetchSeqRef.current) {
+        setStats({ total_students: 0, present_count: 0, late_count: 0, absent_count: 0, attendance_rate: 0, has_data: false });
+        setDetailedStats({ error: 'تعذر تحميل الإحصاءات كاملة. أعد التحديث بعد التحقق من الاتصال.' });
+      }
       logError(e, 'Admin - Operation');
     } finally {
       setLoading(false);
@@ -1595,6 +1446,10 @@ const Admin: React.FC = () => {
       tracking_start_date: dates.tracking_start_date
     }));
     setReportData(null);
+    // Discard previously calculated metrics as soon as their calendar changes.
+    setDetailedStats(null);
+    setSelectedClassStats(null);
+    void fetchDashboard();
   }), []);
 
   const refreshActiveTabData = () => {
@@ -1659,14 +1514,17 @@ const Admin: React.FC = () => {
       const loadProfileData = async () => {
         setLoading(true);
         try {
-          const [attendance, affairs] = await Promise.all([
+          const [attendance, affairs, settings] = await Promise.all([
             db.getStudentAttendance(selectedStudentProfile.id),
-            studentAffairs.load({ type: 'student', studentId: selectedStudentProfile.id })
+            studentAffairs.load({ type: 'student', studentId: selectedStudentProfile.id }),
+            appSettings.load()
           ]);
+          const eligible = (date: string) => isWithinTrackingPeriod(date, settings.attendance_settings)
+            && !isDateHoliday(date, settings.attendance_settings?.work_days ?? settings.work_days, settings.attendance_settings?.academic_holidays);
           setStudentProfileData({
-            attendance,
-            exits: affairs.exits,
-            violations: affairs.violations
+            attendance: uniqueAttendanceByStudentDate(attendance.filter(record => eligible(record.date))),
+            exits: affairs.exits.filter(record => eligible(getLocalDateStr(new Date(record.exit_time)))),
+            violations: affairs.violations.filter(record => eligible(getLocalDateStr(new Date(record.created_at))))
           });
         } catch (e) {
           logError(e, 'Admin - Operation');
@@ -1678,7 +1536,7 @@ const Admin: React.FC = () => {
     } else {
       setStudentProfileData(null);
     }
-  }, [selectedStudentProfile]);
+  }, [selectedStudentProfile, attendanceSettings.tracking_start_date, attendanceSettings.academic_year_start_date]);
 
   const showLocalToast = (message: string, type: 'success' | 'error' = 'success') => {
     setLocalToast({ show: true, message, type });
@@ -2694,9 +2552,9 @@ const Admin: React.FC = () => {
   const sectionsForSelectedGrade = selectedGrade
     ? getCatalogSections(schoolCatalog, selectedGrade)
     : [];
-  const classAttendanceRate = selectedClassStats && selectedClassStats.totalStudents > 0
-    ? Math.max(0, Math.round(((selectedClassStats.present + selectedClassStats.late) / (selectedClassStats.totalStudents * selectedClassStats.days)) * 100))
-    : 0;
+  const classAttendanceRate = selectedClassStats && selectedClassStats.present + selectedClassStats.late + selectedClassStats.absent > 0
+    ? percentage(selectedClassStats.present + selectedClassStats.late, selectedClassStats.totalStudents * selectedClassStats.days)
+    : null;
   const totalSections = classes.reduce((sum, cls) => sum + (cls.sections?.length || 0), 0);
   const filteredClassStudents = React.useMemo(() => {
     const query = classStudentSearch.trim().toLowerCase();
@@ -3565,7 +3423,7 @@ const Admin: React.FC = () => {
                   </h3>
                   <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
                     {studentProfileData.violations.length === 0 ? (
-                      <p className="text-gray-500 text-sm text-center py-4">لا يوجد مخالفات - ممتاز! 🌟</p>
+                      <p className="text-gray-500 text-sm text-center py-4">لا توجد مخالفات مسجلة ضمن فترة التشغيل</p>
                     ) : (
                       studentProfileData.violations.slice(0, 10).map((v, i) => (
                         <div key={i} className="p-2 bg-white/5 rounded-lg text-sm">

@@ -11,6 +11,9 @@ import { AcademicHoliday, AttendanceSettings, ATTENDANCE_DEFAULTS } from '../typ
 
 export type AcademicTrackingDates = Pick<AttendanceSettings, 'academic_year_start_date' | 'tracking_start_date'>;
 
+export const hasTrackingStartDate = (settings?: AcademicTrackingDates | null): boolean =>
+    isValidDateKey(settings?.tracking_start_date ?? '');
+
 /** A school may have used Hader before the current year, or adopted it mid-year. */
 export function getEffectiveTrackingStart(settings: AcademicTrackingDates = {}): string | null {
     const dates = [settings.academic_year_start_date, settings.tracking_start_date]
@@ -31,7 +34,7 @@ export function resolveReportingPeriod(
     return {
         startDate: effectiveStart,
         endDate: effectiveEnd,
-        isEmpty: !isValidDateKey(startDate) || !isValidDateKey(endDate) || !isValidDateKey(today)
+        isEmpty: !hasTrackingStartDate(settings) || !isValidDateKey(startDate) || !isValidDateKey(endDate) || !isValidDateKey(today)
             || effectiveStart > effectiveEnd,
         wasClamped: effectiveStart !== startDate || effectiveEnd !== endDate
     };
@@ -43,7 +46,7 @@ export function isWithinTrackingPeriod(
     today = formatDateKey(new Date())
 ): boolean {
     const start = getEffectiveTrackingStart(settings);
-    return isValidDateKey(date) && date <= today && (!start || date >= start);
+    return hasTrackingStartDate(settings) && isValidDateKey(date) && date <= today && (!start || date >= start);
 }
 
 // =============================================================================

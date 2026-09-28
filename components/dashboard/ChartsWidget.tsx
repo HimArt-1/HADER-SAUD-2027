@@ -13,7 +13,7 @@ import { Student, AttendanceRecord, SystemSettings } from '../../types';
 import { filterRowsByDashboardStudents, getLocalISODate, getLocalDateStr } from '../../services/dbHelpers';
 import { isWithinTrackingPeriod, isDateHoliday } from '../../services/academicCalendarService';
 import { NumberTicker } from '../ui/NumberTicker';
-import { calculateDisciplineIndex } from '../../utils/disciplineIndex';
+import { buildAttendanceAnalytics } from '../../modules/attendance/analytics';
 import {
   getAttendanceForDate,
   getAttendanceStatusCounts,
@@ -54,7 +54,7 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
     const late = counts.late;
     const absent = counts.absent;
 
-    return { present, late, absent, total: totalStudents };
+    return { present, late, absent, unrecorded: counts.unrecorded, total: isExcluded ? 0 : totalStudents };
   }, [filteredData, settings]);
 
   // توزيع التأخر حسب الصف (Bar Chart Data)
@@ -70,7 +70,7 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
     recentAttendance.forEach(record => {
       const student = filteredData.students.find(s => s.id === record.student_id);
       if (student) {
-        const grade = student.class_name.split(' ')[0] || student.class_name;
+        const grade = student.class_name;
         gradeStats.set(grade, (gradeStats.get(grade) || 0) + 1);
       }
     });
@@ -81,36 +81,15 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
       .slice(0, 5);
   }, [filteredData]);
 
-  // اتجاه الانضباط (Line Chart Data - آخر 7 أيام)
+  // اتجاه الحضور المسجل (Line Chart Data - آخر 7 أيام)
   const disciplineTrend = useMemo(() => {
-    const days = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dateStr = getLocalDateStr(date);
-
-      if (!isWithinTrackingPeriod(dateStr, settings?.attendance_settings)
-        || isDateHoliday(dateStr, settings?.attendance_settings?.work_days ?? settings?.work_days, settings?.attendance_settings?.academic_holidays)) continue;
-      const dayAttendance = getAttendanceForDate(filteredData.attendance, dateStr);
-      if (dayAttendance.length === 0) continue;
-      const totalStudents = filteredData.students.length;
-      const counts = getAttendanceStatusCounts(dayAttendance, totalStudents);
-      const late = counts.late;
-      const totalPresent = counts.attended;
-
-      const attendanceRate = totalStudents > 0 ? (totalPresent / totalStudents) * 100 : 0;
-      const lateRate = totalPresent > 0 ? (late / totalPresent) * 100 : 0;
-
-      const explicitAbsences = dayAttendance.filter(record => record.status === 'absent').length;
-      const disciplineIndex = calculateDisciplineIndex(attendanceRate, lateRate, totalStudents > 0 ? explicitAbsences / totalStudents * 100 : 0, 0, 1);
-
-      days.push({
-        date: dateStr,
-        day: date.toLocaleDateString('ar-SA', { weekday: 'short' }),
-        index: disciplineIndex
-      });
-    }
-    return days;
+    const today = getLocalISODate();
+    const start = new Date(`${today}T12:00:00`); start.setDate(start.getDate() - 6);
+    return buildAttendanceAnalytics({ students: filteredData.students, attendance: filteredData.attendance, settings,
+      startDate: getLocalDateStr(start), endDate: today, today }).days.map(day => ({
+        date: day.date, day: new Date(`${day.date}T12:00:00`).toLocaleDateString('ar-SA', { weekday: 'short' }),
+        index: day.rate, complete: day.complete
+      }));
   }, [filteredData, settings]);
 
   // حساب النسب المئوية للتوزيع
@@ -135,6 +114,7 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
       swatch: 'bg-amber-300',
       surface: 'border-amber-300/15 bg-amber-300/[0.06] text-amber-200'
     },
+    { name: 'غير مسجل', value: todayDistribution.unrecorded, percent: todayDistribution.total ? Math.round(todayDistribution.unrecorded / todayDistribution.total * 100) : 0, color: '#94a3b8', swatch: 'bg-slate-400', surface: 'border-slate-400/20 bg-slate-400/10 text-slate-300' },
     {
       name: 'غائب',
       value: todayDistribution.absent,
@@ -196,7 +176,7 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
           {attendanceSegments.map((segment) => (
             <div key={segment.name} className={`rounded-lg border p-3 ${segment.surface}`}>
               <div className="mb-2 flex items-center gap-2">
@@ -232,7 +212,7 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
                   cursor={{ fill: 'rgba(148, 163, 184, 0.06)' }}
                   contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: 'rgba(148, 163, 184, 0.18)', borderRadius: '0.75rem', color: '#e2e8f0' }}
                 />
-                <Bar dataKey="count" name="عدد المتأخرين" fill="#fbbf24" radius={[6, 6, 6, 6]} />
+                <Bar dataKey="count" name="حالات التأخر" fill="#fbbf24" radius={[6, 6, 6, 6]} />
               </RechartsBarChart>
             </ResponsiveContainer>
           ) : (
@@ -250,12 +230,12 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
               <LineChart className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-50">اتجاه الانضباط</h3>
+              <h3 className="text-base font-bold text-slate-50">اتجاه الحضور المسجل</h3>
               <p className="text-xs text-slate-500">آخر 7 أيام</p>
             </div>
           </div>
 
-          {disciplineTrend.length >= 2 && (
+          {disciplineTrend.length >= 2 && disciplineTrend[0].complete && disciplineTrend.at(-1)?.complete && (
             <div className={`inline-flex w-fit items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold ${
               trendDelta > 0
                 ? 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200'
@@ -292,9 +272,9 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
                 contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: 'rgba(148, 163, 184, 0.18)', borderRadius: '0.75rem', color: '#e2e8f0' }}
               />
               <Area
-                type="monotone"
+                type="linear"
                 dataKey="index"
-                name="المؤشر"
+                name="الحضور المسجل %"
                 stroke="#38bdf8"
                 strokeWidth={3}
                 fillOpacity={1}

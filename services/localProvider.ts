@@ -1,3 +1,5 @@
+import { loadWeeklyAttendanceStats, loadClassAttendanceStats, loadAttendanceReport, loadClassProfileStats } from '../modules/attendance/statisticsPort';
+import { buildDashboardSnapshot } from '../modules/attendance/analytics';
 // =============================================================================
 // نظام حاضر (Hader) - Local Provider
 // =============================================================================
@@ -32,7 +34,6 @@ import { resolveRecorder } from './recorderResolver';
 import { accessPolicy } from '../modules/access';
 import {
   decideAttendanceTiming,
-  getAttendanceStatusCounts,
   uniqueAttendanceByStudentDate
 } from '../modules/attendance';
 
@@ -911,84 +912,16 @@ export class LocalProvider implements IDatabaseProvider, IStudentAffairsProvider
   }
 
   async getDashboardStats(): Promise<DashboardStats> {
-    const allStudents = await this.getStudents();
-    // Filter active students only (matching HybridProvider behavior)
-    const students = allStudents.filter(s => s.is_active !== false && (s.is_active as any) !== 0);
     const today = getLocalISODate();
-    const logs = await this.getAttendance(today);
-    const total = students.length;
-    const counts = getAttendanceStatusCounts(logs, total, { date: today });
-    const present = counts.present;
-    const late = counts.late;
-    const absent = counts.absent;
-    const rate = total > 0 ? (counts.attended / total) * 100 : 0;
-    return Promise.resolve({ total_students: total, present_count: present, late_count: late, absent_count: absent, attendance_rate: Math.round(rate) });
+    const [students, attendance, settings] = await Promise.all([this.getStudents(), this.getAttendance(today), this.getSettings()]);
+    return buildDashboardSnapshot(students, attendance, settings, today);
   }
 
-  async getWeeklyStats(): Promise<any[]> {
-    // Calculate real weekly stats from local attendance data
-    const days = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
-    const allStudents = await this.getStudents();
-    const students = allStudents.filter(s => s.is_active !== false && (s.is_active as any) !== 0);
-    const total = students.length;
-    if (total === 0) return Promise.resolve(days.map(day => ({ day, presence: 0 })));
+  async getWeeklyStats() { return loadWeeklyAttendanceStats(this); }
 
-    const allLogs = this.get<AttendanceRecord>(STORAGE_KEYS.ATTENDANCE);
-    const result: any[] = [];
-    const today = getSyncedDate();
+  async getClassStats() { return loadClassAttendanceStats(this); }
 
-    for (let i = 4; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const dayIndex = date.getDay();
-      const dayLogs = uniqueAttendanceByStudentDate(allLogs, dateStr)
-        .filter(l => l.status === 'present' || l.status === 'late');
-      const presence = Math.round((dayLogs.length / total) * 100);
-      result.push({ day: days[dayIndex] || days[0], presence });
-    }
-    return Promise.resolve(result);
-  }
-
-  async getClassStats(): Promise<any[]> {
-    // Calculate real class stats from local data
-    const allStudents = await this.getStudents();
-    const students = allStudents.filter(s => s.is_active !== false && (s.is_active as any) !== 0);
-    const today = getLocalISODate();
-    const todayLogs = this.get<AttendanceRecord>(STORAGE_KEYS.ATTENDANCE).filter(l => l.date === today);
-    const attendedIds = new Set(todayLogs.filter(l => l.status === 'present' || l.status === 'late').map(l => l.student_id));
-
-    // Group students by class
-    const classMap = new Map<string, number>();
-    for (const s of students) {
-      const cls = s.class_name || 'غير محدد';
-      if (!classMap.has(cls)) classMap.set(cls, 0);
-      if (!attendedIds.has(s.id)) {
-        classMap.set(cls, (classMap.get(cls) || 0) + 1);
-      }
-    }
-
-    return Promise.resolve(Array.from(classMap.entries()).map(([name, absent]) => ({ name, absent })));
-  }
-
-  async getAttendanceReport(filters: ReportFilter): Promise<{ summary: any, details: any[] }> {
-    const allLogs = this.get<AttendanceRecord>(STORAGE_KEYS.ATTENDANCE).filter(l => l.date >= filters.date_from && l.date <= filters.date_to);
-    let students = await this.getStudents();
-    if (filters.class_name) students = students.filter(s => s.class_name === filters.class_name);
-    if (filters.section) students = students.filter(s => s.section === filters.section);
-    const studentsById = new Map(students.map(student => [student.id, student]));
-
-    const details = allLogs.map(log => {
-      const s = studentsById.get(log.student_id);
-      if (!s) return null;
-      return { student_id: log.student_id, studentName: s.name, className: s.class_name, section: s.section, date: log.date, time: log.timestamp, status: log.status };
-    }).filter(Boolean);
-
-    return Promise.resolve({
-      summary: { totalRecords: details.length, late: details.filter(d => d!.status === 'late').length, present: details.filter(d => d!.status === 'present').length },
-      details: details as any[]
-    });
-  }
+  async getAttendanceReport(filters: ReportFilter) { return loadAttendanceReport(this, filters); }
 
   async addExit(record: ExitRecord): Promise<void> {
     const exits = this.get<ExitRecord>(STORAGE_KEYS.EXITS);
@@ -1179,45 +1112,7 @@ export class LocalProvider implements IDatabaseProvider, IStudentAffairsProvider
     return Promise.resolve(students);
   }
 
-  async getClassProfileStats(className: string, section: string, fromDate: string, toDate: string): Promise<ClassStatsSummary> {
-    const students = await this.getStudentsByClass(className, section);
-    const studentIds = students.map(s => s.id);
-    const days = Math.max(1, Math.floor((new Date(toDate).getTime() - new Date(fromDate).getTime()) / 86400000) + 1);
-
-    const inRange = (date: string) => date >= fromDate && date <= toDate;
-
-    const attendance = uniqueAttendanceByStudentDate(
-      this.get<AttendanceRecord>(STORAGE_KEYS.ATTENDANCE)
-        .filter(l => studentIds.includes(l.student_id) && inRange(l.date))
-    );
-
-    const exits = this.get<ExitRecord>(STORAGE_KEYS.EXITS)
-      .filter(e => {
-        const exitDate = (e.exit_time || '').split('T')[0];
-        return studentIds.includes(e.student_id) && exitDate && inRange(exitDate);
-      });
-
-    const violations = this.get<ViolationRecord>(STORAGE_KEYS.VIOLATIONS)
-      .filter(v => {
-        const violationDate = (v.created_at || '').split('T')[0];
-        return studentIds.includes(v.student_id) && violationDate && inRange(violationDate);
-      });
-
-    const counts = getAttendanceStatusCounts(attendance, studentIds.length * days);
-    const present = counts.present;
-    const late = counts.late;
-    const absent = counts.absent;
-
-    return Promise.resolve({
-      present,
-      late,
-      absent,
-      exits: exits.length,
-      violations: violations.length,
-      totalStudents: studentIds.length,
-      days,
-    });
-  }
+  async getClassProfileStats(className: string, section: string, fromDate: string, toDate: string) { return loadClassProfileStats(this, className, section, fromDate, toDate); }
 
   saveClass(schoolClass: SchoolClass): Promise<void> {
     const classes = this.get<SchoolClass>(STORAGE_KEYS.CLASSES);

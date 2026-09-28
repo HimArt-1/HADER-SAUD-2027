@@ -1,6 +1,7 @@
+import { uniqueAttendanceByStudentDate } from '../../modules/attendance';
 import type { AttendanceRecord, Student } from '../../types';
 
-export type WatcherAttendanceTab = 'early' | 'late' | 'absent';
+export type WatcherAttendanceTab = 'early' | 'late' | 'absent' | 'unrecorded';
 
 const normalizeWatcherText = (value?: string | null) => (value ?? '')
     .normalize('NFKC')
@@ -31,31 +32,29 @@ export const buildWatcherDailyState = ({
 
     for (const student of students) {
         const id = student.id?.trim();
-        if (!id || student.is_active === false || seenStudentIds.has(id)) continue;
+        if (!id || student.is_active === false || (student.is_active as unknown) === 0 || seenStudentIds.has(id)) continue;
         seenStudentIds.add(id);
         activeStudents.push(id === student.id ? student : { ...student, id });
     }
 
     const attendanceByStudent = new Map<string, AttendanceRecord>();
-    for (const log of logs) {
-        if (log.date !== date || !seenStudentIds.has(log.student_id)) continue;
-        const current = attendanceByStudent.get(log.student_id);
-        if (!current || recordTime(log) >= recordTime(current)) {
-            attendanceByStudent.set(log.student_id, log);
-        }
+    for (const log of uniqueAttendanceByStudentDate([...logs], date)) {
+        if (seenStudentIds.has(log.student_id)) attendanceByStudent.set(log.student_id, log);
     }
 
     const present: Student[] = [];
     const late: Student[] = [];
     const absent: Student[] = [];
+    const unrecorded: Student[] = [];
     for (const student of activeStudents) {
         const status = attendanceByStudent.get(student.id)?.status;
         if (status === 'present') present.push(student);
         else if (status === 'late') late.push(student);
-        else absent.push(student);
+        else if (status === 'absent') absent.push(student);
+        else unrecorded.push(student);
     }
 
-    return { activeStudents, attendanceByStudent, present, late, absent };
+    return { activeStudents, attendanceByStudent, present, late, absent, unrecorded };
 };
 
 export const filterWatcherStudents = (students: readonly Student[], search: string) => {
@@ -74,9 +73,9 @@ export const filterWatcherStudents = (students: readonly Student[], search: stri
 };
 
 export const getWatcherStudentsForTab = (
-    state: Pick<ReturnType<typeof buildWatcherDailyState>, 'present' | 'late' | 'absent'>,
+    state: Pick<ReturnType<typeof buildWatcherDailyState>, 'present' | 'late' | 'absent' | 'unrecorded'>,
     tab: WatcherAttendanceTab
-) => tab === 'early' ? state.present : tab === 'late' ? state.late : state.absent;
+) => tab === 'early' ? state.present : tab === 'late' ? state.late : tab === 'absent' ? state.absent : state.unrecorded;
 
 export const buildManualAttendanceSeed = ({
     students,

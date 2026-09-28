@@ -1,3 +1,4 @@
+import { hasTrackingStartDate } from '../../services/academicCalendarService';
 import React, { useMemo } from 'react';
 import { FileText, Search, Maximize2, Minimize2, FileSpreadsheet, FileType, Printer, BarChart3, CalendarRange, Users, Timer, RotateCcw, SlidersHorizontal, Loader2, UserPlus, AlertCircle } from 'lucide-react';
 import { AcademicHoliday, ReportFilter, SchoolClass, Student } from '../../types';
@@ -87,7 +88,7 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
         { label: 'الطلاب في النطاق', value: displayedSummary.rosterCount, hint: reportFilter.search_query ? 'يشمل نتيجة البحث' : reportFilter.class_name ? 'حسب الصف أو الفصل' : 'جميع الطلاب النشطين', icon: Users, className: 'border-primary-500/20 bg-primary-500/[0.07] text-primary-100' },
         { label: 'أيام الدوام', value: displayedSummary.workingDays, hint: `${displayedSummary.calendarDays} أيام تقويمية`, icon: CalendarRange, className: 'border-secondary-500/20 bg-secondary-500/[0.07] text-secondary-100' },
         { label: 'الفلاتر المفعلة', value: activeReportFilters, hint: activeReportFilters === 0 ? 'الوضع الافتراضي' : 'تصفية مخصصة', icon: SlidersHorizontal, className: 'border-amber-500/20 bg-amber-500/[0.07] text-amber-100' },
-        { label: 'نسبة الانضباط', value: reportData ? `${displayedSummary.attendanceRate}%` : '-', hint: reportData ? 'الحضور والتأخر في أيام الدوام' : 'تظهر بعد توليد التقرير', icon: BarChart3, className: 'border-emerald-500/20 bg-emerald-500/[0.07] text-emerald-100' }
+        { label: 'نسبة الحضور المسجل', value: reportData && displayedSummary.attendanceRate != null ? `${displayedSummary.attendanceRate}%` : '—', hint: reportData ? 'الحضور والتأخر في أيام الدوام' : 'تظهر بعد توليد التقرير', icon: BarChart3, className: 'border-emerald-500/20 bg-emerald-500/[0.07] text-emerald-100' }
     ];
 
     const updateReportFilter = React.useCallback((changes: Partial<ReportFilter>) => {
@@ -116,7 +117,7 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
             return;
         }
         if (effectivePeriod.isEmpty) {
-            setReportError('الفترة المختارة خارج فترة احتساب البيانات. اختر تاريخًا بعد بداية الاحتساب وحتى اليوم.');
+            setReportError(!hasTrackingStartDate(trackingDates) ? 'حدد بداية تشغيل حاضر في التقويم الدراسي أولًا.' : 'الفترة المختارة خارج فترة احتساب البيانات. اختر تاريخًا بعد بداية الاحتساب وحتى اليوم.');
             return;
         }
         if (students.length === 0) {
@@ -127,7 +128,7 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
         setReportError(null);
         setReportData(null);
         try {
-            const data = await db.getAttendanceReport({ ...reportFilter, date_from: effectivePeriod.startDate, date_to: effectivePeriod.endDate });
+            const data = await db.getAttendanceReport({ ...reportFilter, status: 'all', date_from: effectivePeriod.startDate, date_to: effectivePeriod.endDate });
             setReportData(buildAttendanceReportData({
                 students,
                 details: data.details,
@@ -522,7 +523,7 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
                             </div>
                             <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
                                 <div className="text-xs text-emerald-700">نسبة الانضباط</div>
-                                <div className="text-3xl font-bold text-emerald-700 font-mono">{reportData.summary.attendanceRate}%</div>
+                                <div className="text-3xl font-bold text-emerald-700 font-mono">{reportData.summary.attendanceRate == null ? '—' : `${reportData.summary.attendanceRate}%`}</div>
                             </div>
                             <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
                                 <div className="text-xs text-amber-700">غير مسجل</div>

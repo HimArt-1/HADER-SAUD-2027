@@ -1,3 +1,4 @@
+import { hasTrackingStartDate } from '../services/academicCalendarService';
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/db';
 import { appSettings } from '../services/settings';
@@ -80,7 +81,7 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
         }
     };
 
-    useEffect(() => appSettings.subscribe(setSettings), []);
+    useEffect(() => appSettings.subscribe(next => { setSettings(next); setAttendanceData([]); }), []);
 
     const trackingStart = getEffectiveTrackingStart(settings?.attendance_settings);
     const reportAttendance = useMemo(() => uniqueAttendanceByStudentDate(attendanceData.filter(record =>
@@ -694,6 +695,7 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
                 </button>
             </div>
 
+            {settings && !hasTrackingStartDate(settings.attendance_settings) && <p role="status" className="rounded-xl border border-amber-400/30 p-4 text-amber-200">حدد بداية تشغيل حاضر في التقويم الدراسي لتفعيل التحليلات.</p>}
             {trackingStart && <p className="rounded-xl border border-primary-400/20 bg-primary-500/10 p-4 text-sm text-primary-100">
                 تبدأ مؤشرات العام الدراسي من <bdi>{trackingStart}</bdi>، مع استبعاد العطل والأيام المستقبلية من الاحتساب.
             </p>}

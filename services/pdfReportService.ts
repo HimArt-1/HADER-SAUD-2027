@@ -38,7 +38,7 @@ export interface AttendanceReportData {
     presentCount: number;
     lateCount: number;
     absentCount: number;
-    attendanceRate: number;
+    attendanceRate: number | null;
   };
 }
 
@@ -332,7 +332,7 @@ class PDFReportService {
 
     // Key Metrics Cards
     const metrics = [
-      { label: 'نسبة الحضور', value: `${data.attendance.summary.attendanceRate}%`, color: [16, 185, 129] },
+      { label: 'نسبة الحضور', value: data.attendance.summary.attendanceRate == null ? '—' : `${data.attendance.summary.attendanceRate}%`, color: [16, 185, 129] },
       { label: 'حالات التأخير', value: data.attendance.summary.lateCount.toString(), color: [245, 158, 11] },
       { label: 'حالات الغياب', value: data.attendance.summary.absentCount.toString(), color: [239, 68, 68] },
       { label: 'المخالفات', value: data.violations.summary.totalViolations.toString(), color: [139, 92, 246] },

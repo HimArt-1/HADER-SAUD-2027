@@ -30,8 +30,8 @@ describe('admin dashboard analytics', () => {
     );
 
     expect(summary.workingPoints).toEqual([]);
-    expect(summary.average).toBe(0);
-    expect(summary.change).toBe(0);
+    expect(summary.average).toBeNull();
+    expect(summary.change).toBeNull();
     expect(summary.best).toBeNull();
     expect(summary.worst).toBeNull();
   });

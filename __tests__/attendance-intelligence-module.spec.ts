@@ -30,6 +30,7 @@ const attendanceRecord = (
 describe('attendance intelligence public interface', () => {
   it('classifies three consecutive absences as high risk', () => {
     const result = analyzeAttendanceRisk({
+      trackingDates: { tracking_start_date: '2026-01-01' },
       students: [student],
       attendanceRecords: [
         attendanceRecord('2026-05-17', 'absent'),
@@ -70,6 +71,7 @@ describe('attendance intelligence public interface', () => {
     };
 
     const result = analyzeAttendanceRisk({
+      trackingDates: { tracking_start_date: '2026-01-01' },
       students: [student],
       attendanceRecords: [
         sundayPresent,
@@ -97,6 +99,7 @@ describe('attendance intelligence public interface', () => {
 
   it('builds a weekly scorecard without treating unrecorded days as absences', () => {
     const scorecard = buildWeeklyAttendanceScorecard({
+      trackingDates: { tracking_start_date: '2026-01-01' },
       student,
       attendanceRecords: [
         attendanceRecord('2026-05-17', 'present'),
@@ -130,6 +133,7 @@ describe('attendance intelligence public interface', () => {
 
   it('detects absences adjacent to the configured weekly break', () => {
     const result = analyzeAttendanceRisk({
+      trackingDates: { tracking_start_date: '2026-01-01' },
       students: [student],
       attendanceRecords: [
         attendanceRecord('2026-05-18', 'absent'),
@@ -149,11 +153,13 @@ describe('attendance intelligence public interface', () => {
 
   it('keeps missing attendance data unknown instead of reporting perfect attendance', () => {
     const analysis = analyzeAttendanceRisk({
+      trackingDates: { tracking_start_date: '2026-01-01' },
       students: [student],
       attendanceRecords: [],
       period: { startDate: '2026-05-17', endDate: '2026-05-21' }
     });
     const scorecard = buildWeeklyAttendanceScorecard({
+      trackingDates: { tracking_start_date: '2026-01-01' },
       student,
       attendanceRecords: [],
       weekStartDate: '2026-05-17'

@@ -25,7 +25,7 @@ interface AdminStructureTabProps {
     classes: SchoolClass[];
     classStudents: Student[];
     selectedClassStats: ClassStatsSummary | null;
-    classAttendanceRate: number;
+    classAttendanceRate: number | null;
     totalSections: number;
     gradeKeys: string[];
     sectionsForSelectedGrade: string[];
@@ -76,7 +76,7 @@ const AdminStructureTab: React.FC<AdminStructureTabProps> = ({
         { label: 'إجمالي الطلاب', value: students.length, hint: 'ضمن قاعدة البيانات', icon: Users, className: 'border-primary-500/20 bg-primary-500/[0.07] text-primary-100' },
         { label: 'المراحل', value: classes.length, hint: 'صفوف نشطة', icon: Building2, className: 'border-secondary-500/20 bg-secondary-500/[0.07] text-secondary-100' },
         { label: 'الفصول', value: totalSections, hint: 'شُعب مسجلة', icon: Layers3, className: 'border-emerald-500/20 bg-emerald-500/[0.07] text-emerald-100' },
-        { label: 'حضور النطاق', value: `${classAttendanceRate}%`, hint: selectedScope, icon: BarChart3, className: 'border-amber-500/20 bg-amber-500/[0.07] text-amber-100' }
+        { label: 'حضور النطاق', value: classAttendanceRate == null ? '—' : `${classAttendanceRate == null ? 'لا توجد بيانات' : `${classAttendanceRate}%`}`, hint: selectedScope, icon: BarChart3, className: 'border-amber-500/20 bg-amber-500/[0.07] text-amber-100' }
     ];
 
     return (
@@ -227,7 +227,7 @@ const AdminStructureTab: React.FC<AdminStructureTabProps> = ({
                                     <div className="flex items-center gap-3">
                                         <div className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-center">
                                             <div className="text-xs text-gray-400">نسبة الحضور</div>
-                                            <div className="text-2xl font-bold text-primary-300">{classAttendanceRate}%</div>
+                                            <div className="text-2xl font-bold text-primary-300">{classAttendanceRate == null ? 'لا توجد بيانات' : `${classAttendanceRate}%`}</div>
                                         </div>
                                         <div className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-center">
                                             <div className="text-xs text-gray-400">نطاق البيانات</div>
@@ -242,6 +242,7 @@ const AdminStructureTab: React.FC<AdminStructureTabProps> = ({
                                     {[{ label: 'حضور', value: selectedClassStats?.present || 0, color: 'emerald' },
                                     { label: 'تأخر', value: selectedClassStats?.late || 0, color: 'amber' },
                                     { label: 'غياب', value: selectedClassStats?.absent || 0, color: 'red' },
+                                    { label: 'غير مسجل', value: selectedClassStats?.unrecorded || 0, color: 'amber' },
                                     { label: 'استئذان', value: selectedClassStats?.exits || 0, color: 'cyan' },
                                     { label: 'مخالفات', value: selectedClassStats?.violations || 0, color: 'purple' },
                                     { label: 'إجمالي الطلاب', value: selectedClassStats?.totalStudents || classStudents.length || 0, color: 'blue' }

@@ -1,3 +1,4 @@
+import { buildAttendanceAnalytics } from '../../modules/attendance/analytics';
 import React, { useRef, useState } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -20,7 +21,7 @@ export const SmartReportPDF: React.FC<SmartReportPDFProps> = ({ studentId, onClo
   const [downloading, setDownloading] = useState(false);
   const [trackingStart, setTrackingStart] = useState<string | null>(null);
   const [student, setStudent] = useState<Student | null>(null);
-  const [attendanceStats, setAttendanceStats] = useState({ present: 0, late: 0, absent: 0, total: 0 });
+  const [attendanceStats, setAttendanceStats] = useState({ present: 0, late: 0, absent: 0, total: 0, expected: 0, unrecorded: 0, rate: null as number | null });
 
   React.useEffect(() => {
     // Load student data and calculate stats
@@ -44,7 +45,8 @@ export const SmartReportPDF: React.FC<SmartReportPDFProps> = ({ studentId, onClo
       const late = studentAttendance.filter(a => a.status === 'late').length;
       const absent = studentAttendance.filter(a => a.status === 'absent').length;
 
-      setAttendanceStats({ present, late, absent, total: studentAttendance.length });
+      const analysis = buildAttendanceAnalytics({ students: foundStudent ? [foundStudent] : [], attendance: studentAttendance, settings, startDate: start ?? getLocalISODate(), endDate: getLocalISODate() });
+      setAttendanceStats({ present, late, absent, total: studentAttendance.length, expected: analysis.expected, unrecorded: analysis.unrecorded, rate: analysis.attendanceRate });
     };
     loadData();
   }, [studentId]);
@@ -167,7 +169,7 @@ export const SmartReportPDF: React.FC<SmartReportPDFProps> = ({ studentId, onClo
             <div className="p-4 rounded-xl bg-slate-800/50 border border-primary-500/20 flex flex-col items-center justify-center text-center">
                <div className="p-2 bg-primary-500/10 rounded-full mb-2"><Printer className="w-5 h-5 text-primary-400" /></div>
                <div className="text-3xl font-bold text-primary-400">
-                  {formatPercent(attendanceStats.total > 0 ? (attendanceStats.present + attendanceStats.late) / attendanceStats.total * 100 : 0)}
+                  {attendanceStats.rate === null ? '—' : formatPercent(attendanceStats.rate)}
                </div>
                <div className="text-xs text-primary-400/70 mt-1">نسبة الحضور</div>
             </div>
@@ -175,7 +177,7 @@ export const SmartReportPDF: React.FC<SmartReportPDFProps> = ({ studentId, onClo
 
           <h3 className="text-xl font-bold text-white mt-8 border-r-4 border-emerald-500 pr-3">تحليل الأداء والملاحظات</h3>
           <div className="p-6 rounded-2xl bg-white/5 border border-white/10 text-slate-300 leading-relaxed">
-             الطالب يتمتع بنسبة حضور ممتازة تعكس التزامه المستمر. لم يُلاحظ أي تجاوزات سلوكية خلال الفترة المحددة، مما يدل على مستوى انضباط عالٍ. نوصي بالاستمرار في هذا النهج للحفاظ على التفوق.
+             {attendanceStats.total === 0 ? 'لا توجد سجلات حضور ضمن فترة التشغيل؛ لا يمكن تقييم انتظام الطالب.' : `حضر الطالب ${attendanceStats.present + attendanceStats.late} يومًا، منها ${attendanceStats.late} يوم تأخر، وسُجّل غيابه ${attendanceStats.absent} يومًا. لم تُسجّل حالته في ${attendanceStats.unrecorded} يوم دوام. نسبة الحضور المسجل محسوبة على ${attendanceStats.expected} يوم دوام ضمن الفترة المحددة.`}
           </div>
 
           <div className="mt-auto pt-10 text-center text-xs text-slate-600 font-mono">

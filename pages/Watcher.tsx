@@ -39,13 +39,13 @@ const Watcher: React.FC = () => {
   const routeLocation = useLocation();
   const urlTab = searchParams.get('tab') as WatcherAttendanceTab | null;
   const urlSearch = searchParams.get('search');
-  const [activeTab, setActiveTab] = useState<WatcherAttendanceTab>(urlTab === 'absent' || urlTab === 'late' || urlTab === 'early' ? urlTab : 'early');
+  const [activeTab, setActiveTab] = useState<WatcherAttendanceTab>(urlTab === 'unrecorded' || urlTab === 'absent' || urlTab === 'late' || urlTab === 'early' ? urlTab : 'early');
   const [searchTerm, setSearchTerm] = useState(urlSearch || '');
 
   useEffect(() => {
     const tabParam = searchParams.get('tab') as WatcherAttendanceTab | null;
     const searchParam = searchParams.get('search');
-    if (tabParam === 'absent' || tabParam === 'late' || tabParam === 'early') {
+    if (tabParam === 'unrecorded' || tabParam === 'absent' || tabParam === 'late' || tabParam === 'early') {
       setActiveTab(tabParam);
     }
     if (searchParam !== null) {
@@ -123,7 +123,8 @@ const Watcher: React.FC = () => {
     attendanceByStudent,
     present: presentList,
     late: lateList,
-    absent: absentList
+    absent: absentList,
+    unrecorded: unrecordedList
   } = dailyState;
   const currentList = useMemo(() => filterWatcherStudents(
     getWatcherStudentsForTab(dailyState, activeTab),
@@ -593,11 +594,12 @@ const Watcher: React.FC = () => {
         </div>
       </div>
 
+      <div className="rounded-xl border border-slate-500/30 p-4 text-sm text-slate-300">لم تُسجّل حالتهم: <strong>{unrecordedList.length}</strong> طالبًا. لا يُحتسبون ضمن الغياب المسجل.</div>
       {/* Lists Section */}
       <section className="glass-card flex min-h-[520px] flex-col overflow-hidden rounded-3xl border border-white/10" aria-label="قوائم حضور اليوم">
         {/* Tabs & Search - Enhanced */}
         <div className="bg-gradient-to-br from-black/30 to-black/10 p-5 border-b border-white/10 flex flex-col lg:flex-row justify-between gap-4">
-          <div className="grid w-full grid-cols-3 rounded-xl border border-white/5 bg-black/50 p-1.5 backdrop-blur-sm lg:w-auto">
+          <div className="grid w-full grid-cols-2 sm:grid-cols-4 rounded-xl border border-white/5 bg-black/50 p-1.5 backdrop-blur-sm lg:w-auto">
             <button
               onClick={() => setActiveTab('early')}
               aria-pressed={activeTab === 'early'}
@@ -628,6 +630,7 @@ const Watcher: React.FC = () => {
                 <span>غائب ({absentList.length})</span>
               </div>
             </button>
+            <button onClick={() => setActiveTab('unrecorded')} aria-pressed={activeTab === 'unrecorded'} className={`rounded-xl px-2 py-3 text-xs font-bold sm:px-6 sm:text-sm ${activeTab === 'unrecorded' ? 'bg-slate-600 text-white' : 'text-slate-400'}`}>غير مسجل ({unrecordedList.length})</button>
           </div>
 
           <div className="flex flex-col md:flex-row gap-3 w-full lg:w-auto">
@@ -694,6 +697,7 @@ const Watcher: React.FC = () => {
                     <div>
                       {activeTab === 'early' && <span className="inline-flex items-center justify-center bg-emerald-500/20 text-emerald-300 p-2 rounded-xl border border-emerald-500/30 shadow-lg shadow-emerald-500/10"><CheckCircle className="w-5 h-5" /></span>}
                       {activeTab === 'late' && <span className="inline-flex items-center justify-center bg-amber-500/20 text-amber-300 p-2 rounded-xl border border-amber-500/30 shadow-lg shadow-amber-500/10"><Clock className="w-5 h-5" /></span>}
+                      {activeTab === 'unrecorded' && <span className="text-sm text-slate-400">غير مسجل</span>}
                       {activeTab === 'absent' && <span className="inline-flex items-center justify-center bg-red-500/20 text-red-300 p-2 rounded-xl border border-red-500/30 shadow-lg shadow-red-500/10"><AlertCircle className="w-5 h-5" /></span>}
                     </div>
                   </div>
@@ -760,6 +764,7 @@ const Watcher: React.FC = () => {
                     <td className="p-6">
                       {activeTab === 'early' && <span className="inline-flex items-center gap-1.5 text-sm bg-emerald-500/20 text-emerald-300 px-3 py-1.5 rounded-lg border border-emerald-500/30 font-semibold"><CheckCircle className="w-3.5 h-3.5" />حاضر</span>}
                       {activeTab === 'late' && <span className="inline-flex items-center gap-1.5 text-sm bg-amber-500/20 text-amber-300 px-3 py-1.5 rounded-lg border border-amber-500/30 font-semibold"><Clock className="w-3.5 h-3.5" />متأخر</span>}
+                      {activeTab === 'unrecorded' && <span className="text-sm text-slate-400">غير مسجل</span>}
                       {activeTab === 'absent' && <span className="inline-flex items-center gap-1.5 text-sm bg-red-500/20 text-red-300 px-3 py-1.5 rounded-lg border border-red-500/30 font-semibold"><AlertCircle className="w-3.5 h-3.5" />غائب</span>}
                     </td>
                     <td className="p-6">

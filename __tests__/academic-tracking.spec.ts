@@ -33,9 +33,9 @@ describe('academic tracking period', () => {
         expect(isWithinTrackingPeriod('2026-08-27', dates, '2026-08-26')).toBe(false);
     });
 
-    it('keeps an existing range when dates have not been configured instead of guessing a start', () => {
+    it('withholds analytics until an actual operating date is configured', () => {
         expect(resolveReportingPeriod('2025-12-28', '2026-01-04', {}, '2026-01-04')).toMatchObject({
-            startDate: '2025-12-28', endDate: '2026-01-04', isEmpty: false, wasClamped: false
+            startDate: '2025-12-28', endDate: '2026-01-04', isEmpty: true, wasClamped: false
         });
     });
 
