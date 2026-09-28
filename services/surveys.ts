@@ -1,5 +1,6 @@
 import { supabase, supabaseStatus } from './supabase';
 import { secureSessionStorage } from './secureStorage';
+import { getUserManagementErrorMessage } from './userManagementError';
 import {
   createSurveyResponse,
   publishSurvey as publishSurveyDomain,
@@ -174,21 +175,28 @@ export const hasSurveyAdminAccess = (): boolean => {
 
 export const saveManagedCloudUser = async (user: Readonly<Record<string, unknown>>): Promise<Record<string, any>> => {
   if (!supabaseStatus.isConfigured) throw new Error('الاتصال السحابي غير مهيأ');
-  const { data, error } = await supabase.rpc('save_hader_user', {
-    p_session_token: getSurveyAdminToken('إدارة المستخدمين'),
-    p_user: user
-  });
-  if (error || !data) throwDataError(error, 'حفظ المستخدم');
+  const token = getSurveyAdminToken('إدارة المستخدمين');
+  let response;
+  try {
+    response = await supabase.rpc('save_hader_user', { p_session_token: token, p_user: user });
+  } catch (error) {
+    throw new Error(getUserManagementErrorMessage(error, 'حفظ المستخدم'));
+  }
+  const { data, error } = response;
+  if (error || !data) throw new Error(getUserManagementErrorMessage(error, 'حفظ المستخدم'));
   return data as Record<string, any>;
 };
 
 export const deleteManagedCloudUser = async (userId: string): Promise<void> => {
   if (!supabaseStatus.isConfigured) throw new Error('الاتصال السحابي غير مهيأ');
-  const { error } = await supabase.rpc('delete_hader_user', {
-    p_session_token: getSurveyAdminToken('إدارة المستخدمين'),
-    p_user_id: userId
-  });
-  if (error) throwDataError(error, 'حذف المستخدم');
+  const token = getSurveyAdminToken('إدارة المستخدمين');
+  let response;
+  try {
+    response = await supabase.rpc('delete_hader_user', { p_session_token: token, p_user_id: userId });
+  } catch (error) {
+    throw new Error(getUserManagementErrorMessage(error, 'حذف المستخدم'));
+  }
+  if (response.error) throw new Error(getUserManagementErrorMessage(response.error, 'حذف المستخدم'));
 };
 
 export const createSurveyService = (options: Readonly<{

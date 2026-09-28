@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { auth } from '../services/auth';
 import { Role, STORAGE_KEYS, User } from '../types';
 import { secureSessionStorage } from '../services/secureStorage';
+import { LocalProvider } from '../services/localProvider';
 
 const baseSettings = {
   system_ready: true,
@@ -55,6 +56,15 @@ beforeEach(() => {
 });
 
 describe('Authentication flows', () => {
+  it('preserves the local password when an administrator edits only the role', async () => {
+    const provider = new LocalProvider();
+    const updated = await provider.saveUser({
+      id: 'sup-1', username: 'supervisorUser', name: 'مشرف', role: Role.SCHOOL_ADMIN
+    });
+    expect(updated.password).toBe('supPass');
+    const stored: User[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS)!);
+    expect(stored.find(user => user.id === 'sup-1')).toMatchObject({ role: Role.SCHOOL_ADMIN, password: 'supPass' });
+  });
   it(
     'authenticates supervisor and watcher roles and rejects invalid credentials',
     async () => {

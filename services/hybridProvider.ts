@@ -1140,7 +1140,7 @@ export class HybridProvider {
     }
 
     async getUsers(): Promise<User[]> {
-        if (supabaseStatus.isConfigured && navigator.onLine) {
+        if (supabaseStatus.isConfigured) {
             try {
                 return await this.fetchUsersFromCloud();
             } catch (error) {
@@ -1158,9 +1158,11 @@ export class HybridProvider {
     }
 
     private async assertUserManagementReady(): Promise<void> {
-        if (!supabaseStatus.isConfigured || !navigator.onLine) {
-            throw new Error('إدارة المستخدمين تتطلب اتصالاً بالخادم؛ لم يُحفظ أي تغيير.');
+        if (!supabaseStatus.isConfigured) {
+            throw new Error('اتصال الخادم غير مهيأ في هذه النسخة. يلزم استكمال إعداد الاتصال لإدارة المستخدمين.');
         }
+        // navigator.onLine is only a browser hint. Let the authenticated RPC
+        // determine reachability; never queue or cache an unconfirmed change.
         // Do not let an older queued mutation overwrite a newly confirmed RPC.
         const pending = await localDb.sync_queue.where('table').equals('users').count();
         if (pending > 0) {

@@ -56,6 +56,9 @@ export const validateUserAccountDraft = (
     const normalizedUsername = normalizeAccountUsername(username);
     const password = draft.password?.trim() ?? '';
     const passwordRequired = options.passwordRequired ?? true;
+    const hasUnchangedUsername = Boolean(options.excludeUserId && existingUsers.some(user =>
+        user.id === options.excludeUserId && user.username.trim() === username
+    ));
 
     if (!name) {
         issues.push({ field: 'name', message: 'أدخل الاسم الكامل.' });
@@ -63,9 +66,9 @@ export const validateUserAccountDraft = (
 
     if (!username) {
         issues.push({ field: 'username', message: 'أدخل اسم المستخدم.' });
-    } else if (username.length < 3) {
+    } else if (!hasUnchangedUsername && username.length < 3) {
         issues.push({ field: 'username', message: 'اسم المستخدم يجب أن يتكون من 3 أحرف على الأقل.' });
-    } else if (!USERNAME_PATTERN.test(username)) {
+    } else if (!hasUnchangedUsername && !USERNAME_PATTERN.test(username)) {
         issues.push({ field: 'username', message: 'استخدم حروفًا أو أرقامًا أو النقطة والشرطة فقط، دون مسافات.' });
     } else if (existingUsers.some(user =>
         user.id !== options.excludeUserId && normalizeAccountUsername(user.username) === normalizedUsername

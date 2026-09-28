@@ -29,6 +29,22 @@ const baseProps = {
 afterEach(cleanup);
 
 describe('admin users tab', () => {
+  it('prevents repeated submissions while waiting for server confirmation', () => {
+    const handleAddUser = vi.fn();
+    const { container } = render(<AdminUsersTab {...baseProps} handleAddUser={handleAddUser} isSaving
+      newUser={{ ...baseProps.newUser, name: 'موظف', username: 'new.user', password: 'Password123' }} />);
+    expect((screen.getByRole('button', { name: 'جارٍ حفظ الحساب…' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(container.querySelector('form')!);
+    expect(handleAddUser).not.toHaveBeenCalled();
+  });
+
+  it('keeps the draft and shows the actionable failure next to the save button', () => {
+    render(<AdminUsersTab {...baseProps} saveError="انتهت جلسة إدارة المستخدمين. أعد تسجيل الدخول."
+      newUser={{ ...baseProps.newUser, name: 'موظف', username: 'new.user', password: 'Password123' }} />);
+    expect(screen.getByRole('alert').textContent).toContain('أعد تسجيل الدخول');
+    expect((screen.getByPlaceholderText('ahmed_school') as HTMLInputElement).value).toBe('new.user');
+    expect((screen.getByRole('button', { name: 'إنشاء حساب' }) as HTMLButtonElement).disabled).toBe(false);
+  });
   it('keeps a new password hidden until explicitly revealed', () => {
     render(<AdminUsersTab {...baseProps} />);
 

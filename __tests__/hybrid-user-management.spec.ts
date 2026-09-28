@@ -51,8 +51,7 @@ describe('confirmed cloud user management', () => {
     expect(mocks.queue).not.toHaveBeenCalled();
     expect(mocks.sync).not.toHaveBeenCalled();
   });
-  it.each(['offline', 'unconfigured', 'pending'])('rejects %s without local mutation or cloud call', async reason => {
-    if (reason === 'offline') Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+  it.each(['unconfigured', 'pending'])('rejects %s without local mutation or cloud call', async reason => {
     if (reason === 'unconfigured') mocks.status.isConfigured = false;
     if (reason === 'pending') mocks.pendingCount.mockResolvedValue(1);
     await expect(provider().saveUser(draft)).rejects.toThrow();
@@ -62,6 +61,25 @@ describe('confirmed cloud user management', () => {
     expect(mocks.put).not.toHaveBeenCalled();
     expect(mocks.deleteLocal).not.toHaveBeenCalled();
     expect(mocks.tombstone).not.toHaveBeenCalled();
+  });
+  it('uses the server response even when the browser reports offline', async () => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    await expect(provider().saveUser(draft)).resolves.toMatchObject({ id: 'server-id' });
+    await expect(provider().deleteUser('existing')).resolves.toBeUndefined();
+    expect(mocks.save).toHaveBeenCalledOnce();
+    expect(mocks.remove).toHaveBeenCalledWith('existing');
+    expect(mocks.queue).not.toHaveBeenCalled();
+  });
+  it('preserves local accounts and drafts when the network really fails', async () => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    mocks.save.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    mocks.remove.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await expect(provider().saveUser(draft)).rejects.toThrow('fetch');
+    await expect(provider().deleteUser('existing')).rejects.toThrow('fetch');
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.deleteLocal).not.toHaveBeenCalled();
+    expect(mocks.tombstone).not.toHaveBeenCalled();
+    expect(mocks.queue).not.toHaveBeenCalled();
   });
   it('does not leave a new account or queued write after server rejection', async () => {
     mocks.save.mockRejectedValueOnce(new Error('اسم المستخدم مستخدم'));
@@ -94,6 +112,7 @@ describe('confirmed cloud user management', () => {
     await expect(provider().deleteUser('existing')).resolves.toBeUndefined();
   });
   it('uses the authoritative cloud list instead of returning deleted cached accounts', async () => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
     mocks.from.mockReturnValue({ select: () => ({ order: async () => ({ data: [], error: null }) }) });
     expect(await provider().getUsers()).toEqual([]);
   });

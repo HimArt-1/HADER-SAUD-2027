@@ -226,6 +226,10 @@ const Admin: React.FC = () => {
   });
   const [editingUser, setEditingUser] = useState<(User & { password?: string }) | null>(null);
   const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const userSaveInFlight = useRef(false);
+  const [userSaving, setUserSaving] = useState(false);
+  const [createUserError, setCreateUserError] = useState('');
+  const [editUserError, setEditUserError] = useState('');
 
   // Modals State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -2246,6 +2250,8 @@ const Admin: React.FC = () => {
   };
 
   const handleAddUser = async () => {
+    if (userSaveInFlight.current) return;
+    setCreateUserError('');
     const validationIssues = validateUserAccountDraft(
       newUser,
       currentUser ? [...users, currentUser] : users
@@ -2254,6 +2260,8 @@ const Admin: React.FC = () => {
       toast.warning(validationIssues[0].message);
       return;
     }
+    userSaveInFlight.current = true;
+    setUserSaving(true);
     try {
       const payload: any = {
         username: newUser.username.trim(),
@@ -2284,7 +2292,12 @@ const Admin: React.FC = () => {
 
     } catch (error) {
       logError(error, 'Admin - Create User');
-      toast.error(`فشل إنشاء المستخدم: ${getErrorMessage(error)}`, 8000);
+      const message = `فشل إنشاء المستخدم: ${getErrorMessage(error)}`;
+      setCreateUserError(message);
+      toast.error(message, 8000);
+    } finally {
+      userSaveInFlight.current = false;
+      setUserSaving(false);
     }
   };
 
@@ -2297,6 +2310,7 @@ const Admin: React.FC = () => {
   };
 
   const handleStartEditUser = (user: User) => {
+    setEditUserError('');
     setEditingUser({
       ...user,
       password: ''
@@ -2305,7 +2319,8 @@ const Admin: React.FC = () => {
   };
 
   const handleUpdateUser = async () => {
-    if (!editingUser) return;
+    if (!editingUser || userSaveInFlight.current) return;
+    setEditUserError('');
     if (editingUser.id === currentUser?.id && editingUser.role !== currentUser.role) {
       toast.warning('لا يمكنك تغيير صلاحية الحساب المستخدم حاليًا.');
       return;
@@ -2320,9 +2335,9 @@ const Admin: React.FC = () => {
       return;
     }
 
-    setLoading(true);
+    userSaveInFlight.current = true;
+    setUserSaving(true);
     try {
-      const existingUser = users.find(u => u.id === editingUser.id);
       const payload: any = {
         id: editingUser.id,
         username: editingUser.username.trim(),
@@ -2330,14 +2345,14 @@ const Admin: React.FC = () => {
         role: editingUser.role,
         is_active: editingUser.is_active ?? true,
         can_use_whatsapp: !!editingUser.can_use_whatsapp,
+        email: editingUser.email,
+        phone: editingUser.phone,
         assigned_classes: editingUser.role === Role.SUPERVISOR_CLASS ? editingUser.assigned_classes : null,
         assigned_sections: null,
       };
 
       if (editingUser.password && editingUser.password.trim()) {
         payload.password = editingUser.password.trim();
-      } else if (existingUser?.password) {
-        payload.password = existingUser.password;
       }
 
       const updatedUser = await db.saveUser(payload);
@@ -2347,9 +2362,12 @@ const Admin: React.FC = () => {
       toast.success('تم تحديث المستخدم بنجاح');
     } catch (error) {
       logError(error, 'Admin - Update User');
-      toast.error('فشل تحديث المستخدم. تحقق من البيانات وحاول مجددًا');
+      const message = `فشل تحديث المستخدم: ${getErrorMessage(error)}`;
+      setEditUserError(message);
+      toast.error(message, 8000);
     } finally {
-      setLoading(false);
+      userSaveInFlight.current = false;
+      setUserSaving(false);
     }
   };
 
@@ -2376,6 +2394,7 @@ const Admin: React.FC = () => {
       setDeleteConfirmation(null);
     } catch (e) {
       logError(e, 'Admin - Operation');
+      toast.error(`تعذر الحذف: ${getErrorMessage(e)}`, 8000);
     } finally {
       setLoading(false);
     }
@@ -3114,6 +3133,8 @@ const Admin: React.FC = () => {
               handleStartEditUser={handleStartEditUser}
               onGoToStructure={() => setActiveTab('structure')}
               currentUserId={currentUser?.id}
+              isSaving={userSaving}
+              saveError={createUserError}
             />
           )}
 
@@ -3970,15 +3991,15 @@ const Admin: React.FC = () => {
       {/* Edit User Modal */}
       {
         showEditUserModal && editingUser && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-            <div className="glass-card w-full max-w-xl rounded-3xl p-6 relative animate-fade-in-up border border-white/20">
-              <button onClick={() => { setShowEditUserModal(false); setEditingUser(null); }} className="absolute left-6 top-6 text-gray-400 hover:text-white">
+          <div role="dialog" aria-modal="true" aria-label="تعديل بيانات المستخدم" className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <div className="glass-card w-full max-w-xl max-h-[90dvh] overflow-y-auto rounded-3xl p-6 relative animate-fade-in-up border border-white/20">
+              <button aria-label="إغلاق تعديل المستخدم" disabled={userSaving} onClick={() => { setShowEditUserModal(false); setEditingUser(null); }} className="absolute left-6 top-6 text-gray-400 hover:text-white">
                 <X className="w-6 h-6" />
               </button>
               <h3 className="text-2xl font-bold font-serif text-white mb-6 flex items-center gap-2">
                 <Edit3 className="w-6 h-6 text-primary-400" /> تعديل بيانات المستخدم
               </h3>
-              <div className="space-y-4">
+              <fieldset disabled={userSaving} className="space-y-4">
                 <div>
                   <label className="text-xs text-gray-400 mb-1 block">الاسم الكامل</label>
                   <input
@@ -3998,20 +4019,24 @@ const Admin: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 mb-1 block">كلمة المرور (اتركها فارغة للإبقاء عليها)</label>
+                  <label htmlFor="edit-user-password" className="text-xs text-gray-400 mb-1 block">كلمة المرور (اتركها فارغة للإبقاء عليها)</label>
                   <input
+                    id="edit-user-password"
                     type="password"
+                    autoComplete="new-password"
                     className="w-full input-glass p-3 rounded-xl"
                     placeholder="كلمة مرور جديدة"
                     value={editingUser.password ?? ''}
                     onChange={e => setEditingUser({ ...editingUser, password: e.target.value })}
                   />
+                  <p className="mt-1.5 text-xs text-gray-400">كلمة المرور الجديدة: 8 أحرف على الأقل، تتضمن حرفًا ورقمًا.</p>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 mb-1 block">الصلاحية</label>
                   <select
                     className="w-full input-glass p-3 rounded-xl"
                     value={editingUser.role}
+                    disabled={editingUser.id === currentUser?.id}
                     onChange={e => setEditingUser({ ...editingUser, role: e.target.value as Role, assigned_classes: [] })}
                   >
                     <option value={Role.SCHOOL_ADMIN}>مدير مدرسة - صلاحيات كاملة</option>
@@ -4105,15 +4130,16 @@ const Admin: React.FC = () => {
                   </div>
                 )}
 
+                {editUserError && <p role="alert" className="rounded-xl border border-red-400/25 bg-red-500/10 p-3 text-sm leading-7 text-red-200">{editUserError}</p>}
                 <button
                   onClick={handleUpdateUser}
-                  disabled={loading}
-                  className={`w-full py-3 rounded-xl text-white font-bold transition-all ${loading ? 'bg-primary-500/30 cursor-not-allowed' : 'bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-500 hover:to-secondary-500'
+                  disabled={userSaving}
+                  className={`w-full py-3 rounded-xl text-white font-bold transition-all ${userSaving ? 'bg-primary-500/30 cursor-not-allowed' : 'bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-500 hover:to-secondary-500'
                     }`}
                 >
-                  حفظ التغييرات
+                  {userSaving ? 'جارٍ حفظ التغييرات…' : 'حفظ التغييرات'}
                 </button>
-              </div>
+              </fieldset>
             </div>
           </div>
         )

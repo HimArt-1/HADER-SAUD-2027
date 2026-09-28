@@ -11,6 +11,24 @@ const validDraft = {
 };
 
 describe('admin user account validation', () => {
+  it.each(['1', 'DH', 'M1', 'old user'])('allows editing permissions and passwords without renaming legacy account %s', username => {
+    expect(validateUserAccountDraft(
+      { ...validDraft, id: 'legacy', username, role: Role.SCHOOL_ADMIN },
+      [{ id: 'legacy', username }],
+      { passwordRequired: false, excludeUserId: 'legacy' }
+    )).toEqual([]);
+  });
+
+  it.each(['M1', 'old user'])('still validates new or changed usernames: %s', username => {
+    expect(validateUserAccountDraft({ ...validDraft, username }, [])).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: 'username' })
+    ]));
+    expect(validateUserAccountDraft(
+      { ...validDraft, id: 'legacy', username },
+      [{ id: 'legacy', username: 'DH' }],
+      { passwordRequired: false, excludeUserId: 'legacy' }
+    )).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'username' })]));
+  });
   it('rejects duplicate usernames regardless of letter case', () => {
     const issues = validateUserAccountDraft(validDraft, [
       { id: 'existing', username: 'Ahmed.School' }

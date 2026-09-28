@@ -34,6 +34,8 @@ export interface AdminUsersTabProps {
     handleStartEditUser: (u: UserRecord) => void;
     onGoToStructure: () => void;
     currentUserId?: string;
+    isSaving?: boolean;
+    saveError?: string;
 }
 
 const roleMeta: Partial<Record<Role, { label: string; description: string; badge: string; avatar: string }>> = {
@@ -139,7 +141,8 @@ const dedupeClasses = (classes: SchoolClass[]) => {
 
 const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     classes, visibleUsers, newUser, setNewUser,
-    handleAddUser, handleDeleteUser, handleStartEditUser, onGoToStructure, currentUserId
+    handleAddUser, handleDeleteUser, handleStartEditUser, onGoToStructure, currentUserId,
+    isSaving = false, saveError
 }) => {
     const [showPassword, setShowPassword] = React.useState(false);
     const [userSearch, setUserSearch] = React.useState('');
@@ -167,7 +170,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     const issueFor = (field: 'name' | 'username' | 'password' | 'assigned_classes') =>
         formIssues.find(issue => issue.field === field)?.message;
     const passwordStrength = getPasswordStrength(newUser.password);
-    const isFormReady = formIssues.length === 0;
+    const isFormReady = formIssues.length === 0 && !isSaving;
     const normalizedSearch = normalizeKey(userSearch);
     const filteredUsers = React.useMemo(() => uniqueUsers.filter(user => {
         const matchesRole = roleFilter === 'all' || user.role === roleFilter;
@@ -188,7 +191,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         </div>
                         <h2 className="text-2xl font-black text-white md:text-3xl">إدارة المستخدمين</h2>
                         <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">
-                            إضافة حسابات المدرسة وتحديد الصلاحيات والصفوف المسندة بدون تغيير مسار الحفظ أو المزامنة.
+                            أضف حسابات المدرسة وعدّل بياناتها وكلمات المرور والصلاحيات والصفوف المسندة.
                         </p>
                     </div>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[560px]">
@@ -232,6 +235,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         if (isFormReady) handleAddUser();
                     }}
                 >
+                    <fieldset disabled={isSaving} className="space-y-4">
                     <div>
                         <label className="text-xs text-gray-400 mb-1 block">الاسم الكامل</label>
                         <input type="text" autoComplete="name" className="w-full input-glass rounded-xl p-3" placeholder="مثال: أحمد محمد العتيبي" value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} />
@@ -391,13 +395,15 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         </div>
                     )}
 
+                    {saveError && <p role="alert" className="rounded-xl border border-red-400/25 bg-red-500/10 p-3 text-sm leading-7 text-red-200">{saveError}</p>}
                     <button
                         type="submit"
                         disabled={!isFormReady}
                         className={`w-full rounded-xl py-3 font-black transition-all shadow-lg ${isFormReady ? 'bg-primary-300 text-slate-950 hover:bg-primary-200 active:scale-[0.99]' : 'cursor-not-allowed bg-white/10 text-slate-500'}`}
                     >
-                        إنشاء حساب
+                        {isSaving ? 'جارٍ حفظ الحساب…' : 'إنشاء حساب'}
                     </button>
+                    </fieldset>
                 </form>
             </div>
             <div className="space-y-4">
@@ -475,8 +481,9 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                                    <div className="flex items-center gap-2">
                                         <button
+                                            disabled={isSaving}
                                             onClick={() => handleStartEditUser(u)}
                                             className="rounded-xl border border-primary-500/20 bg-primary-500/10 p-2 text-primary-300 hover:bg-primary-500/20"
                                             title="تعديل المستخدم"
@@ -485,7 +492,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                                         </button>
                                         <button
                                             onClick={() => handleDeleteUser(u.id, u.name)}
-                                            disabled={u.id === currentUserId}
+                                            disabled={isSaving || u.id === currentUserId}
                                             className="rounded-xl border border-red-500/20 bg-red-500/10 p-2 text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-30"
                                             title={u.id === currentUserId ? 'لا يمكن حذف الحساب المستخدم حاليًا' : 'حذف المستخدم'}
                                         >

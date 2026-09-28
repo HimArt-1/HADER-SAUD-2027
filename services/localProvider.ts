@@ -1209,7 +1209,11 @@ export class LocalProvider implements IDatabaseProvider, IStudentAffairsProvider
 
     const idx = users.findIndex(u => u.id === normalizedUser.id);
     if (idx >= 0) {
-      users[idx] = normalizedUser;
+      users[idx] = {
+        ...users[idx],
+        ...normalizedUser,
+        password: normalizedUser.password || users[idx].password
+      };
       savedUser = users[idx];
     } else {
       const newUser = { ...normalizedUser, id: normalizedUser.id || Math.random().toString(36).substr(2, 9) };
