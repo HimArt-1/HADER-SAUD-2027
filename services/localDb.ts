@@ -1,6 +1,7 @@
 import Dexie, { Table } from 'dexie';
 import { Student, AttendanceRecord, SchoolClass, User, SystemSettings, ExitRecord, ViolationRecord, Notification, GuardianExcuseRecord } from '../types';
 import { syncCatalog } from '../modules/sync/catalog';
+import { LEGACY_USER_QUEUE_CATEGORY, LEGACY_USER_QUEUE_MESSAGE } from '../modules/sync/userQueuePolicy';
 
 // ==========================================
 // 1. Interfaces for Local Data
@@ -55,6 +56,8 @@ export interface SyncTombstoneEntry extends SyncableRecord {
     record_id: string;
     deleted_at: string;
     created_at?: string;
+    // Required before propagating an account deletion to other devices.
+    _cloud_delete_confirmed?: boolean;
 }
 
 // Extended types with sync fields
@@ -313,7 +316,8 @@ export async function recordSyncTombstone(
     tableName: string,
     recordId: string,
     deletedAt = new Date().toISOString(),
-    synced = false
+    synced = false,
+    cloudDeleteConfirmed = false
 ): Promise<void> {
     if (!tableName || !recordId || !syncCatalog.has(tableName)) return;
 
@@ -324,13 +328,14 @@ export async function recordSyncTombstone(
         deleted_at: deletedAt,
         created_at: deletedAt,
         _synced: synced,
+        ...(tableName === 'users' ? { _cloud_delete_confirmed: cloudDeleteConfirmed } : {}),
         _updated_at: deletedAt
     });
 }
 
 export async function getUnsyncedTombstones(): Promise<SyncTombstoneEntry[]> {
     return localDb.sync_tombstones
-        .filter(row => row._synced === false)
+        .filter(row => row._synced === false && (row.table_name !== 'users' || row._cloud_delete_confirmed === true))
         .toArray();
 }
 
@@ -343,6 +348,8 @@ export async function markTombstonesSynced(ids: string[]): Promise<void> {
 }
 
 export async function removePendingSyncEntriesForRecord(tableName: string, recordId: string): Promise<void> {
+    // Keep historical account requests available for review even after deletion.
+    if (tableName === 'users') return;
     const entries = await localDb.sync_queue
         .where('table')
         .equals(tableName)
@@ -400,10 +407,23 @@ export async function queueChange(
 /**
  * Get pending sync queue entries
  */
+export async function quarantineLegacyUserSyncEntries(): Promise<void> {
+    const blockedAt = new Date().toISOString();
+    await localDb.sync_queue.where('table').equals('users')
+        .filter(entry => !entry.blocked_at || entry.failure_category !== LEGACY_USER_QUEUE_CATEGORY)
+        .modify(entry => {
+            entry.blocked_at ||= blockedAt;
+            entry.blocked_reason = LEGACY_USER_QUEUE_MESSAGE;
+            entry.failure_category = LEGACY_USER_QUEUE_CATEGORY;
+            // Preserve the payload, retry history and original error for review.
+        });
+}
+
 export async function getPendingSyncEntries(options: { includeBlocked?: boolean } = {}): Promise<SyncQueueEntry[]> {
+    await quarantineLegacyUserSyncEntries();
     const entries = await localDb.sync_queue.orderBy('created_at').toArray();
     if (options.includeBlocked) return entries;
-    return entries.filter(entry => !entry.blocked_at);
+    return entries.filter(entry => !entry.blocked_at && entry.table !== 'users');
 }
 
 /**

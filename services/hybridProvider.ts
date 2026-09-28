@@ -1163,11 +1163,8 @@ export class HybridProvider {
         }
         // navigator.onLine is only a browser hint. Let the authenticated RPC
         // determine reachability; never queue or cache an unconfirmed change.
-        // Do not let an older queued mutation overwrite a newly confirmed RPC.
-        const pending = await localDb.sync_queue.where('table').equals('users').count();
-        if (pending > 0) {
-            throw new Error('توجد عمليات مستخدمين معلقة من إصدار سابق؛ أكمل مزامنتها أو راجع أخطاءها قبل إجراء تغيير جديد.');
-        }
+        // Legacy user entries are retained for review, never replayed by sync.
+        // Their presence must not block a new authenticated account change.
     }
 
     async saveUser(user: User): Promise<User> {
@@ -1205,7 +1202,7 @@ export class HybridProvider {
         // Preserve the cached account if the server rejects deletion. Only a
         // confirmed deletion may enter the local tombstone stream.
         try {
-            await recordSyncTombstone('users', userId);
+            await recordSyncTombstone('users', userId, new Date().toISOString(), false, true);
             await localDb.users.delete(userId);
         } catch (error) {
             logger.warn('Hybrid', 'User deleted on server; local cache refresh failed:', error);

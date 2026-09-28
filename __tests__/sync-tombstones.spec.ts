@@ -132,6 +132,36 @@ describe('SyncService tombstones', () => {
     expect(result.pushed.byTable.sync_tombstones).toBe(1);
   });
 
+  it('does not propagate legacy account deletions that lack a server receipt', async () => {
+    getUnsyncedTombstonesMock.mockResolvedValue([{
+      id: 'users:legacy', table_name: 'users', record_id: 'legacy',
+      deleted_at: '2026-05-05T08:00:00.000Z', _synced: false
+    }]);
+    const service = new SyncService();
+    const result = createSyncResult();
+    await (service as any).pushTombstonesToCloud(result);
+    expect(supabaseFromMock).not.toHaveBeenCalled();
+    expect(markTombstonesSyncedMock).not.toHaveBeenCalled();
+    expect(result.pushed.total).toBe(0);
+  });
+
+  it('propagates only confirmed account deletions in a mixed backlog', async () => {
+    const record = { table_name: 'users', deleted_at: '2026-05-05T08:00:00.000Z', _synced: false };
+    getUnsyncedTombstonesMock.mockResolvedValue([
+      { ...record, id: 'users:old', record_id: 'old' },
+      { ...record, id: 'users:confirmed', record_id: 'confirmed', _cloud_delete_confirmed: true }
+    ]);
+    const service = new SyncService();
+    const result = createSyncResult();
+    await (service as any).pushTombstonesToCloud(result);
+    expect(markTombstonesSyncedMock).toHaveBeenCalledWith(['users:confirmed']);
+    const uploaded = supabaseFromMock.mock.results[0].value.upsert.mock.calls[0][0];
+    expect(uploaded).toHaveLength(1);
+    expect(uploaded[0]).toMatchObject({ record_id: 'confirmed' });
+    expect(uploaded[0]).not.toHaveProperty('_cloud_delete_confirmed');
+    expect(result.pushed.success).toBe(1);
+  });
+
   it('applies pulled tombstones by deleting stale local records', async () => {
     fetchAllFromSupabaseMock.mockResolvedValue([
       {

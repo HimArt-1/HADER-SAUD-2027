@@ -75,6 +75,49 @@ vi.mock('../services/dbFetchAll', () => ({
 }));
 
 import { SyncService } from '../services/syncService';
+import { supabase } from '../services/supabase';
+import { getPendingSyncEntries, markSyncEntryBlocked, removeSyncedEntries } from '../services/localDb';
+
+describe('legacy user queue isolation during sync', () => {
+  const result = () => ({
+    pushed: { total: 0, success: 0, failed: 0, byTable: {} }, errors: []
+  });
+
+  it.each(['INSERT', 'UPDATE', 'UPSERT', 'DELETE'])('never replays a historical account %s even from a previously loaded snapshot', async operation => {
+    const service = new SyncService();
+    await expect((service as any).processSyncEntry({ table: 'users', operation, payload: { id: 'old', password: 'old-hash' } }))
+      .rejects.toThrow('أُوقف إرسالها تلقائيًا');
+  });
+
+  it('continues syncing other tables without treating retained user requests as successful writes', async () => {
+    vi.clearAllMocks();
+    const upsert = vi.fn(async () => ({ error: null }));
+    const from = vi.fn(() => ({ upsert }));
+    supabase.from = from;
+    try {
+      vi.mocked(getPendingSyncEntries).mockResolvedValueOnce([
+        ...(['INSERT', 'UPDATE', 'UPSERT', 'DELETE'] as const).map((operation, index) => ({
+          id: index + 1, table: 'users', operation, payload: { id: 'old', password: 'old-hash' },
+          created_at: '2026-09-01T00:00:00Z', retry_count: 5
+        })),
+        { id: 5, table: 'students', operation: 'INSERT', payload: { id: 's1', name: 'طالب' }, created_at: '2026-09-28T00:00:00Z', retry_count: 0 }
+      ]);
+      const service = new SyncService();
+      const svc = service as any;
+      svc.requeueUnsyncedAttendanceWithoutQueue = vi.fn(async () => undefined);
+      const outcome = result();
+      await svc.pushToCloud(outcome);
+      expect(from).toHaveBeenCalledTimes(1);
+      expect(from).toHaveBeenCalledWith('students');
+      expect(upsert).toHaveBeenCalledWith([{ id: 's1', name: 'طالب' }], expect.any(Object));
+      expect(markSyncEntryBlocked).toHaveBeenCalledTimes(4);
+      expect(removeSyncedEntries).toHaveBeenCalledWith([5]);
+      expect(outcome.pushed).toEqual({ total: 1, success: 1, failed: 0, byTable: { students: 1 } });
+    } finally {
+      delete supabase.from;
+    }
+  });
+});
 
 describe('SyncService watermark safeguards', () => {
   beforeEach(() => {

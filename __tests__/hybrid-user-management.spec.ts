@@ -51,9 +51,8 @@ describe('confirmed cloud user management', () => {
     expect(mocks.queue).not.toHaveBeenCalled();
     expect(mocks.sync).not.toHaveBeenCalled();
   });
-  it.each(['unconfigured', 'pending'])('rejects %s without local mutation or cloud call', async reason => {
-    if (reason === 'unconfigured') mocks.status.isConfigured = false;
-    if (reason === 'pending') mocks.pendingCount.mockResolvedValue(1);
+  it('rejects an unconfigured server without local mutation or cloud call', async () => {
+    mocks.status.isConfigured = false;
     await expect(provider().saveUser(draft)).rejects.toThrow();
     await expect(provider().deleteUser('existing')).rejects.toThrow();
     expect(mocks.save).not.toHaveBeenCalled();
@@ -61,6 +60,16 @@ describe('confirmed cloud user management', () => {
     expect(mocks.put).not.toHaveBeenCalled();
     expect(mocks.deleteLocal).not.toHaveBeenCalled();
     expect(mocks.tombstone).not.toHaveBeenCalled();
+  });
+  it('allows new edits and deletions despite a backlog of legacy user mutations', async () => {
+    mocks.pendingCount.mockResolvedValue(7);
+    await expect(provider().saveUser({ ...draft, id: 'existing' })).resolves.toMatchObject({ id: 'server-id' });
+    await expect(provider().deleteUser('existing')).resolves.toBeUndefined();
+    expect(mocks.save).toHaveBeenCalledOnce();
+    expect(mocks.remove).toHaveBeenCalledWith('existing');
+    expect(mocks.pendingCount).not.toHaveBeenCalled();
+    expect(mocks.sync).not.toHaveBeenCalled();
+    expect(mocks.queue).not.toHaveBeenCalled();
   });
   it('uses the server response even when the browser reports offline', async () => {
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
@@ -101,7 +110,7 @@ describe('confirmed cloud user management', () => {
   it('removes cached account and records tombstone only after confirmed deletion', async () => {
     await provider().deleteUser('existing');
     expect(mocks.remove).toHaveBeenCalledWith('existing');
-    expect(mocks.tombstone).toHaveBeenCalledWith('users', 'existing');
+    expect(mocks.tombstone).toHaveBeenCalledWith('users', 'existing', expect.any(String), false, true);
     expect(mocks.deleteLocal).toHaveBeenCalledWith('existing');
     expect(mocks.queue).not.toHaveBeenCalled();
   });

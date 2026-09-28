@@ -48,7 +48,7 @@ import {
 import { conflictResolver } from './conflictResolver';
 import { fetchAllFromSupabase } from './dbFetchAll';
 import { syncCatalog } from '../modules/sync/catalog';
-import { deleteManagedCloudUser, saveManagedCloudUser } from './surveys';
+import { LEGACY_USER_QUEUE_CATEGORY, LEGACY_USER_QUEUE_MESSAGE } from '../modules/sync/userQueuePolicy';
 
 const TOMBSTONE_TABLE = 'sync_tombstones';
 const TOMBSTONE_MISSING_RETRY_MS = 10 * 60 * 1000;
@@ -540,6 +540,12 @@ export class SyncService {
         // Group entries by table and operation for true batch processing
         const byTableAndOp = new Map<string, SyncQueueEntry[]>();
         for (const entry of entries) {
+            // Also guard snapshots taken before the local queue was quarantined.
+            if (entry.table === 'users') {
+                if (entry.id != null) await markSyncEntryBlocked(entry.id, LEGACY_USER_QUEUE_MESSAGE, LEGACY_USER_QUEUE_CATEGORY);
+                result.pushed.total--;
+                continue;
+            }
             // Treat isolated UPSERTs as separate from INSERTs
             const key = `${entry.table}:${entry.operation}`;
             const list = byTableAndOp.get(key) || [];
@@ -801,7 +807,9 @@ export class SyncService {
     private async pushTombstonesToCloud(result: SyncResult): Promise<void> {
         if (this.isTombstoneCloudUnavailable()) return;
 
-        const rows = await getUnsyncedTombstones();
+        const rows = (await getUnsyncedTombstones()).filter(row =>
+            row.table_name !== 'users' || row._cloud_delete_confirmed === true
+        );
         if (rows.length === 0) return;
 
         try {
@@ -905,6 +913,7 @@ export class SyncService {
 
     private async processSyncEntry(entry: SyncQueueEntry): Promise<void> {
         const { table, operation, payload } = entry;
+        if (table === 'users') throw new Error(LEGACY_USER_QUEUE_MESSAGE);
 
         let cleanPayload: any;
         const runCloudWrite = async () => {
@@ -913,21 +922,6 @@ export class SyncService {
             cleanPayload = this.cleanPayloadForCloud(payload, table);
             if (table === 'settings' && cleanPayload && typeof cleanPayload === 'object' && !Array.isArray(cleanPayload)) {
                 cleanPayload = { ...cleanPayload, id: await resolveSettingsUpsertId() };
-            }
-
-            if (table === 'users') {
-                if (operation === 'DELETE') {
-                    const deleteId = typeof payload === 'string' ? payload : payload?.id;
-                    if (!deleteId) throw new Error('Delete requires id');
-                    await deleteManagedCloudUser(deleteId);
-                    this.recentlyDeletedRecords.set(`${table}:${deleteId}`, Date.now());
-                    await recordSyncTombstone(table, deleteId, new Date().toISOString(), false);
-                    return;
-                }
-                const userData = Array.isArray(cleanPayload) ? cleanPayload[0] : cleanPayload;
-                if (!userData) throw new Error('User sync requires a payload');
-                await saveManagedCloudUser(userData);
-                return;
             }
 
             switch (operation) {

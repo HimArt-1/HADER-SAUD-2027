@@ -257,7 +257,7 @@ export class CloudProvider implements IDatabaseProvider, IStudentAffairsProvider
 
   private async writeDeleteTombstone(tableName: string, recordId: string): Promise<void> {
     const deletedAt = new Date().toISOString();
-    await recordSyncTombstone(tableName, recordId, deletedAt, false);
+    await recordSyncTombstone(tableName, recordId, deletedAt, false, tableName === 'users');
 
     try {
       const { error } = await supabase

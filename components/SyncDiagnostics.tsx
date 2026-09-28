@@ -1,4 +1,5 @@
 import { syncFailureMessage } from '../services/supportDiagnostics';
+import { LEGACY_USER_QUEUE_CATEGORY, LEGACY_USER_QUEUE_MESSAGE } from '../modules/sync/userQueuePolicy';
 import React, { useState, useEffect } from 'react';
 import { 
   Database, 
@@ -339,9 +340,15 @@ const SyncDiagnostics: React.FC<{ allowDataDeletion?: boolean }> = ({ allowDataD
                           <span className="text-amber-400 mr-2">({entry.retry_count} محاولات)</span>
                         )}
                         {entry.blocked_at && (
-                          <span className="text-red-400 mr-2">محظور للمراجعة</span>
+                          <span className="text-amber-400 mr-2">{entry.failure_category === LEGACY_USER_QUEUE_CATEGORY ? 'عملية قديمة محفوظة' : 'محظور للمراجعة'}</span>
                         )}
                       </div>
+                      {entry.failure_category === LEGACY_USER_QUEUE_CATEGORY && (
+                        <div className="mt-2 space-y-1 text-amber-200">
+                          <p>{String(entry.payload?.name || entry.payload?.username || entry.payload?.id || (typeof entry.payload === 'string' ? entry.payload : 'حساب مستخدم'))}</p>
+                          <p className="leading-6">{LEGACY_USER_QUEUE_MESSAGE}</p>
+                        </div>
+                      )}
                       {entry.last_error && (
                         <div className="mt-1 truncate text-red-300" title={entry.last_error}>
                           {entry.last_error}
