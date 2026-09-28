@@ -34,6 +34,7 @@ import { UniversalGuideModal, GuideStep } from '../components/common/UniversalGu
 import { printExitCard, printViolationNotice } from '../services/documentPrintTemplates';
 import { EXIT_REQUESTER_RELATIONS, getExitRequesterRelationLabel } from '../services/exitRequester';
 import { upsertAttendanceRecord } from '../modules/attendance';
+import { IncidentStudentPicker, EMPTY_INCIDENT_STUDENT_FILTERS } from '../components/supervision/IncidentStudentPicker';
 import { appSettings } from '../services/settings';
 import {
   buildSupervisorAttendanceIndex,
@@ -272,14 +273,8 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
   const [directoryQuery, setDirectoryQuery] = useState('');
 
   // Student selection filters (per form context)
-  const [exitStudentFilters, setExitStudentFilters] = useState({
-    class_name: '',
-    section: ''
-  });
-  const [violationStudentFilters, setViolationStudentFilters] = useState({
-    class_name: '',
-    section: ''
-  });
+  const [exitStudentFilters, setExitStudentFilters] = useState(() => ({ ...EMPTY_INCIDENT_STUDENT_FILTERS }));
+  const [violationStudentFilters, setViolationStudentFilters] = useState(() => ({ ...EMPTY_INCIDENT_STUDENT_FILTERS }));
 
   // Bulk Selection
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
@@ -1970,144 +1965,6 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
     setExportFilterSection('');
   };
 
-  const StudentSelectComponent = ({
-    value,
-    onChange,
-    label = 'الطالب *',
-    context,
-    disabled = false
-  }: {
-    value: string;
-    onChange: (id: string) => void;
-    label?: string;
-    context: 'exit' | 'violation';
-    disabled?: boolean;
-  }) => {
-    const filters = context === 'exit' ? exitStudentFilters : violationStudentFilters;
-    const [searchText, setSearchText] = useState('');
-    const searchInputRef = React.useRef<HTMLInputElement>(null);
-    const [caret, setCaret] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
-
-    const availableSections = useMemo(
-      () => getSectionsForClass(filters.class_name || undefined),
-      [filters.class_name, getSectionsForClass]
-    );
-
-    const filteredStudents = useMemo(() => {
-      let list = [...students];
-      if (filters.class_name) {
-        list = list.filter(student => labelsMatch(student.class_name, filters.class_name));
-      }
-      if (filters.section) {
-        list = list.filter(student => labelsMatch(student.section, filters.section));
-      }
-
-      const query = searchText.trim().toLowerCase();
-      if (query) {
-        list = list.filter(s =>
-          s.name.toLowerCase().includes(query) ||
-          s.id.toLowerCase().includes(query)
-        );
-      }
-      return list.sort((a, b) => compareLabels(a.name || '', b.name || ''));
-    }, [students, filters.class_name, filters.section, searchText]);
-
-    useEffect(() => {
-      setSearchText('');
-      setCaret({ start: 0, end: 0 });
-    }, [filters.class_name, filters.section, context]);
-
-    useEffect(() => {
-      if (searchInputRef.current) {
-        searchInputRef.current.setSelectionRange(caret.start, caret.end);
-      }
-    }, [caret, searchText]);
-
-    const updateFilters = (partial: Partial<typeof filters>) => {
-      const formatted: Partial<typeof filters> = { ...partial };
-      if (partial.class_name !== undefined) {
-        formatted.class_name = formatLabel(partial.class_name);
-      }
-      if (partial.section !== undefined) {
-        formatted.section = formatLabel(partial.section);
-      }
-      if (context === 'exit') {
-        setExitStudentFilters(prev => ({ ...prev, ...formatted }));
-      } else {
-        setViolationStudentFilters(prev => ({ ...prev, ...formatted }));
-      }
-    };
-
-    return (
-      <div className="space-y-3">
-        <label className="block text-sm font-medium text-gray-300">{label}</label>
-
-        <div className="grid grid-cols-2 gap-2">
-          <select
-            value={filters.class_name}
-            onChange={e => updateFilters({ class_name: e.target.value, section: '' })}
-            className="input-glass p-2 rounded-xl text-sm"
-            disabled={disabled}
-          >
-            <option value="">كل الصفوف</option>
-            {uniqueClasses.map(cls => (
-              <option key={cls} value={cls}>{cls}</option>
-            ))}
-          </select>
-
-          <select
-            value={filters.section}
-            onChange={e => updateFilters({ section: e.target.value })}
-            className="input-glass p-2 rounded-xl text-sm"
-            disabled={disabled || !filters.class_name}
-          >
-            <option value="">كل الفصول</option>
-            {availableSections.map(section => (
-              <option key={section} value={section}>{section}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="relative">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            placeholder="بحث بالاسم أو المعرف..."
-            value={searchText}
-            disabled={disabled}
-            onChange={e => {
-              const { selectionStart, selectionEnd } = e.currentTarget;
-              setSearchText(e.target.value);
-              setCaret({
-                start: selectionStart ?? e.target.value.length,
-                end: selectionEnd ?? e.target.value.length
-              });
-            }}
-            className="w-full input-glass pr-10 p-2.5 rounded-xl text-sm"
-          />
-        </div>
-
-        <select
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className="w-full input-glass p-3 rounded-xl disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={disabled}
-          size={6}
-        >
-          <option value="">اختر الطالب...</option>
-          {filteredStudents.map(s => (
-            <option key={s.id} value={s.id}>
-              {s.name} | {s.id} | {s.class_name}/{s.section}
-            </option>
-          ))}
-        </select>
-
-        <p className="text-xs text-gray-500">{filteredStudents.length} طالب</p>
-      </div>
-    );
-  };
-
   // Loading State
   if (loading) {
     return (
@@ -2819,9 +2676,9 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
 
       {/* ===================== TAB 2: EXITS ===================== */}
       {activeTab === 'exits' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.6fr)]">
           {/* Exit Form */}
-          <div className={`rounded-[1.75rem] p-6 ${surfaceClass}`}>
+          <div className={`min-w-0 rounded-[1.75rem] p-4 sm:p-6 ${surfaceClass}`}>
             <div className="flex items-center gap-3 mb-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-400/20 bg-sky-500/10">
                 <DoorOpen className="w-6 h-6 text-sky-100" />
@@ -2844,15 +2701,18 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
 
             <div className="space-y-4">
               {/* Enhanced Student Select */}
-              <StudentSelectComponent
+              <IncidentStudentPicker
                 value={exitForm.student_id}
                 onChange={(id) => {
                   setExitForm({ ...exitForm, student_id: id });
                   setDuplicateExitConfirmed(false);
                   setExitFormError('');
                 }}
-                context="exit"
-                disabled={Boolean(editingExitId)}
+                students={students}
+                classes={classes}
+                filters={exitStudentFilters}
+                onFilterChange={partial => setExitStudentFilters(previous => ({ ...previous, ...partial }))}
+                disabled={Boolean(editingExitId) || exitSaving}
               />
 
               {selectedTodayExit && !editingExitId && (
@@ -3002,7 +2862,7 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
           </div>
 
           {/* Today's Exits */}
-          <div className={`rounded-[1.75rem] p-6 lg:col-span-2 ${surfaceClass}`}>
+          <div className={`min-w-0 rounded-[1.75rem] p-4 sm:p-6 ${surfaceClass}`}>
             <div className="flex items-center justify-between mb-6">
               <h3 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-white">
                 <Clock className="w-5 h-5 text-secondary-400" />
@@ -3117,9 +2977,9 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
 
       {/* ===================== TAB 3: VIOLATIONS ===================== */}
       {activeTab === 'violations' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.6fr)]">
           {/* Violation Form */}
-          <div className={`rounded-[1.75rem] p-6 ${surfaceClass}`}>
+          <div className={`min-w-0 rounded-[1.75rem] p-4 sm:p-6 ${surfaceClass}`}>
             <div className="flex items-center gap-3 mb-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-rose-400/20 bg-rose-500/10">
                 <AlertTriangle className="w-6 h-6 text-rose-100" />
@@ -3142,14 +3002,17 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
 
             <div className="space-y-4">
               {/* Enhanced Student Select */}
-              <StudentSelectComponent
+              <IncidentStudentPicker
                 value={violationForm.student_id}
                 onChange={(id) => {
                   setViolationForm({ ...violationForm, student_id: id });
                   setViolationFormError('');
                 }}
-                context="violation"
-                disabled={Boolean(editingViolationId)}
+                students={students}
+                classes={classes}
+                filters={violationStudentFilters}
+                onFilterChange={partial => setViolationStudentFilters(previous => ({ ...previous, ...partial }))}
+                disabled={Boolean(editingViolationId) || violationSaving}
               />
 
               {/* Violation Type */}
@@ -3272,7 +3135,7 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
           </div>
 
           {/* Today's Violations */}
-          <div className={`rounded-[1.75rem] p-6 lg:col-span-2 ${surfaceClass}`}>
+          <div className={`min-w-0 rounded-[1.75rem] p-4 sm:p-6 ${surfaceClass}`}>
             <div className="flex items-center justify-between mb-6">
               <h3 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-white">
                 <AlertCircle className="w-5 h-5 text-red-400" />
