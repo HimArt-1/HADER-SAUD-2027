@@ -5,7 +5,8 @@ import { Settings, Clock, Activity, Shield, Headphones, TrendingUp, Award, Users
 import { motion } from 'framer-motion';
 import { KioskLaunchModal } from '../components/kiosk/KioskLaunchModal';
 import { getKioskLaunchPreferences, executeKioskLaunch } from '../utils/kioskLaunchHelper';
-import { calculateDisciplineIndex } from '../utils/disciplineIndex';
+import { buildDisciplineAnalytics } from '../components/dashboard/disciplineAnalytics';
+import { appSettings } from '../services/settings';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import { db, getLocalISODate, getLocalDateStr } from '../services/db';
 import { studentAffairs } from '../services/studentAffairs';
@@ -16,7 +17,7 @@ import { getExitRequesterRelationLabel } from '../services/exitRequester';
 import { useLiveUpdates } from '../hooks/useLiveUpdates';
 import { supabase } from '../services/supabase';
 import { NumberTicker } from '../components/ui/NumberTicker';
-import { isDateHoliday, getCachedHolidays } from '../services/academicCalendarService';
+import { isDateHoliday, getCachedHolidays, isWithinTrackingPeriod } from '../services/academicCalendarService';
 import { useCleanup, useSafeAsync } from '../hooks/useResourceManagement';
 import { logError } from '../types/errors';
 import { useAdminTheme } from '../hooks/useAdminTheme';
@@ -61,91 +62,11 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
     };
   }, [students, attendanceRecords, violations, exits]);
 
-  // حساب الإحصائيات
-  const stats = useMemo(() => {
-    const { students: filteredStudents, attendance: filteredAttendance, violations: filteredViolations, exits: filteredExits } = filteredData;
-
-    if (filteredStudents.length === 0) {
-      return {
-        disciplineIndex: 0,
-        attendanceRate: 0,
-        lateRate: 0,
-        absenceRate: 0,
-        incidentsCount: 0,
-        exitRate: 0,
-        violationRate: 0,
-        totalDays: 30
-      };
-    }
-
-    // حساب نسبة الحضور (آخر 30 يوماً)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const recentAttendance = uniqueAttendanceByStudentDate(filteredAttendance.filter(a => {
-      const recordDate = new Date(a.date);
-      return recordDate >= thirtyDaysAgo;
-    }));
-
-    const workDays = settings?.work_days ?? settings?.attendance_settings?.work_days ?? [0, 1, 2, 3, 4];
-    let workDaysCount = 0;
-
-    // Get academic holidays for accurate calculation
-    const academicHolidays = (settings?.attendance_settings as any)?.academic_holidays ?? getCachedHolidays();
-
-    // Calculate actual work days in the last 30 days (excluding academic holidays)
-    for (let i = 0; i < 30; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      if (!isDateHoliday(d, workDays, academicHolidays)) {
-        workDaysCount++;
-      }
-    }
-
-    const totalPossibleDays = filteredStudents.length * (workDaysCount || 30); // Use 30 if count is 0 to avoid division by zero
-    const counts = getAttendanceStatusCounts(recentAttendance, totalPossibleDays);
-    const presentCount = counts.present;
-    const lateCount = counts.late;
-    const totalAttended = counts.attended;
-    const absentCount = counts.absent;
-
-    const attendanceRate = totalPossibleDays > 0 ? (totalAttended / totalPossibleDays) * 100 : 0;
-    const lateRate = totalAttended > 0 ? (lateCount / totalAttended) * 100 : 0;
-    const absenceRate = totalPossibleDays > 0 ? (absentCount / totalPossibleDays) * 100 : 0;
-
-    // حساب الحوادث (مخالفات + استئذانات) في آخر 30 يوماً
-    const recentViolations = filteredViolations.filter(v => {
-      const violationDate = new Date(v.created_at);
-      return violationDate >= thirtyDaysAgo;
-    });
-    const recentExits = filteredExits.filter(e => {
-      const exitDate = new Date(e.exit_time);
-      return exitDate >= thirtyDaysAgo;
-    });
-    const incidentsCount = recentViolations.length + recentExits.length;
-
-    // حساب نسبة الاستئذان والمخالفات
-    const exitRate = totalPossibleDays > 0 ? Math.round((recentExits.length / totalPossibleDays) * 100 * 10) / 10 : 0;
-    const violationRate = totalPossibleDays > 0 ? Math.round((recentViolations.length / totalPossibleDays) * 100 * 10) / 10 : 0;
-
-    const disciplineIndex = calculateDisciplineIndex(
-      attendanceRate,
-      lateRate,
-      absenceRate,
-      incidentsCount,
-      30
-    );
-
-    return {
-      disciplineIndex,
-      attendanceRate: Math.round(attendanceRate),
-      lateRate: Math.round(lateRate),
-      absenceRate: Math.round(absenceRate),
-      incidentsCount,
-      exitRate,
-      violationRate,
-      totalDays: workDaysCount || 30
-    };
-  }, [filteredData, settings]);
+  const stats = useMemo(() => buildDisciplineAnalytics({
+    ...filteredData,
+    settings,
+    today: getLocalISODate()
+  }), [filteredData, settings]);
 
   const getIndexTone = (index: number) => {
     if (index >= 80) {
@@ -180,6 +101,14 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
     if (index >= 40) return 'مقبول';
     return 'يحتاج تحسين';
   };
+
+  if (!stats.hasData) {
+    return <section className="glass-card rounded-xl border border-white/10 p-6">
+      <h3 className="text-lg font-bold text-slate-50">مؤشر الانضباط الشامل</h3>
+      <p className="mt-3 text-sm text-slate-400">لا توجد سجلات كافية ضمن فترة الاحتساب لإظهار مؤشر واقعي.</p>
+      <p className="mt-2 text-xs text-slate-500">{stats.period.isEmpty ? 'لم تبدأ فترة الاحتساب بعد.' : `الفترة: ${stats.period.startDate} إلى ${stats.period.endDate} · ${stats.totalDays} يوم دوام`}</p>
+    </section>;
+  }
 
   const indexTone = getIndexTone(stats.disciplineIndex);
   const detailItems = [
@@ -226,7 +155,7 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
               </div>
               <div>
                 <h3 className="text-lg font-bold text-slate-50">مؤشر الانضباط الشامل</h3>
-                <p className="text-xs text-slate-400">آخر 30 يوماً</p>
+                <p className="text-xs text-slate-400">{stats.period.startDate} إلى {stats.period.endDate}</p>
               </div>
             </div>
           </div>
@@ -257,6 +186,7 @@ const DisciplineIndexWidget: React.FC<DisciplineIndexWidgetProps> = ({
           </div>
         </div>
 
+        <p className="text-xs text-slate-400">السجلات المتاحة: {stats.recordedRecords} من {stats.expectedRecords} سجل متوقع خلال أيام الدوام.</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {detailItems.map((item) => (
             <div key={item.label} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
@@ -407,12 +337,13 @@ const DailyStatsWidget: React.FC<DailyStatsWidgetProps> = ({
   // حساب الحالات اليومية
   const dailyStats = useMemo(() => {
     const today = getLocalISODate();
-    const todayAttendance = getAttendanceForDate(filteredData.attendance, today);
+    const beforeTracking = !isWithinTrackingPeriod(today, settings?.attendance_settings, today);
+    const todayAttendance = beforeTracking ? [] : getAttendanceForDate(filteredData.attendance, today);
 
     // Check Holiday (weekly + academic)
-    const workDays = settings?.work_days ?? [0, 1, 2, 3, 4];
+    const workDays = settings?.attendance_settings?.work_days ?? settings?.work_days ?? [0, 1, 2, 3, 4];
     const academicHolidays = (settings?.attendance_settings as any)?.academic_holidays ?? getCachedHolidays();
-    const isHoliday = isDateHoliday(today, workDays, academicHolidays);
+    const isHoliday = beforeTracking || isDateHoliday(today, workDays, academicHolidays);
 
     const totalStudents = filteredData.students.length;
     const counts = getAttendanceStatusCounts(todayAttendance, totalStudents, { isHoliday });
@@ -426,11 +357,11 @@ const DailyStatsWidget: React.FC<DailyStatsWidgetProps> = ({
     // حساب المستئذنين والمخالفين اليوم
     const todayExits = filteredData.exits.filter(e => {
       const exitDate = getLocalDateStr(new Date(e.exit_time));
-      return exitDate === today;
+      return !beforeTracking && exitDate === today;
     });
     const todayViolations = filteredData.violations.filter(v => {
       const violationDate = getLocalDateStr(new Date(v.created_at));
-      return violationDate === today;
+      return !beforeTracking && violationDate === today;
     });
 
     const attendanceRate = totalStudents > 0 ? Math.round((totalPresent / totalStudents) * 100) : 0;
@@ -450,7 +381,8 @@ const DailyStatsWidget: React.FC<DailyStatsWidgetProps> = ({
       absenceRate,
       exitsCount: todayExits.length,
       violationsCount: todayViolations.length,
-      isHoliday
+      isHoliday,
+      beforeTracking
     };
   }, [filteredData, settings]);
 
@@ -465,7 +397,7 @@ const DailyStatsWidget: React.FC<DailyStatsWidgetProps> = ({
 
       <DailyMetricCard
         label="الحضور اليوم"
-        value={dailyStats.isHoliday ? <span className="font-sans text-xl font-semibold leading-none text-slate-100 sm:text-2xl">عطلة</span> : <NumberTicker value={dailyStats.totalPresent} />}
+        value={dailyStats.isHoliday ? <span className="font-sans text-xl font-semibold leading-none text-slate-100 sm:text-2xl">{dailyStats.beforeTracking ? 'لم يبدأ' : 'عطلة'}</span> : <NumberTicker value={dailyStats.totalPresent} />}
         detail={dailyStats.isHoliday ? undefined : <NumberTicker value={dailyStats.attendanceRate} suffix="%" />}
         icon={UserCheck}
         tone="emerald"
@@ -1079,16 +1011,16 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
       const startDate = getLocalDateStr(thirtyDaysAgo);
       const endDate = getLocalISODate();
 
-      const [attendanceData, violationsData, todayExits] = await Promise.all([
+      const [attendanceData, violationsData, allExits] = await Promise.all([
         db.getAttendanceRange(startDate, endDate),
         studentAffairs.load({ type: 'violations' }).then(result => result.violations),
-        studentAffairs.load({ type: 'exits', date: getLocalISODate() }).then(result => result.exits).catch(() => [] as ExitRecord[]),
+        studentAffairs.load({ type: 'exits' }).then(result => result.exits).catch(() => [] as ExitRecord[]),
       ]);
 
       // تصفية الاستئذانات لآخر 30 يوماً
       const thirtyDaysAgoEx = new Date();
       thirtyDaysAgoEx.setDate(thirtyDaysAgoEx.getDate() - 30);
-      const exitsData = todayExits.filter(exit => {
+      const exitsData = allExits.filter(exit => {
         const exitDate = new Date(exit.exit_time);
         return exitDate >= thirtyDaysAgoEx;
       });
@@ -1216,7 +1148,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const s = await db.getSettings();
+        const s = await appSettings.load();
         setSettings(s);
       } catch (error) {
         logError(error, 'Dashboard - Load Settings');
@@ -1224,6 +1156,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
     };
 
     void loadSettings();
+    return appSettings.subscribe(setSettings);
   }, []);
 
   // Backup Reminder Logic (Moved here)
@@ -1609,6 +1542,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
             <ChartsWidget
               students={students}
               attendanceRecords={attendanceRecords}
+              settings={settings}
             />
           </Suspense>
         </motion.div>

@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/db';
+import { appSettings } from '../services/settings';
+import { getEffectiveTrackingStart, isWithinTrackingPeriod, isDateHoliday, resolveReportingPeriod } from '../services/academicCalendarService';
+import { uniqueAttendanceByStudentDate } from '../modules/attendance';
 import { Student, AttendanceRecord, SchoolClass, DismissalRecord, User, SystemSettings } from '../types';
 import { accessPolicy } from '../modules/access';
 import { FileText, Download, Calendar, User as UserIcon, Search, Filter, Loader2, BarChart2, AlertCircle, CheckCircle2, Clock, DoorOpen, BrainCircuit } from 'lucide-react';
@@ -59,7 +62,7 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
             const [s, c, systemSettings] = await Promise.all([
                 db.getStudents(),
                 db.getClasses(),
-                db.getSettings()
+                appSettings.load()
             ]);
             let nextStudents = s;
             let nextClasses = c;
@@ -77,6 +80,14 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
         }
     };
 
+    useEffect(() => appSettings.subscribe(setSettings), []);
+
+    const trackingStart = getEffectiveTrackingStart(settings?.attendance_settings);
+    const reportAttendance = useMemo(() => uniqueAttendanceByStudentDate(attendanceData.filter(record =>
+        isWithinTrackingPeriod(record.date, settings?.attendance_settings)
+        && !isDateHoliday(record.date, settings?.attendance_settings?.work_days ?? settings?.work_days, settings?.attendance_settings?.academic_holidays)
+    )), [attendanceData, settings]);
+
     const handleGenerateReport = async () => {
         setLoading(true);
         setAttendanceData([]); // Clear previous data
@@ -84,16 +95,13 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
             let startStr = '';
             let endStr = '';
 
-            if (activeTab === 'monthly') {
+            if (activeTab === 'monthly' || activeTab === 'dismissal') {
                 const start = startOfMonth(selectedMonth);
                 const end = endOfMonth(selectedMonth);
                 startStr = format(start, 'yyyy-MM-dd');
                 endStr = format(end, 'yyyy-MM-dd');
             } else if (activeTab === 'student_profile' || activeTab === 'chronic_absence') {
-                // Fetch academic year data (approximate start from Aug/Sept or just start of current year)
-                // For simplicity, let's fetch current year to now. 
-                // In a real app, this might be configured per academic year.
-                const start = startOfYear(new Date());
+                const start = trackingStart ? parseISO(trackingStart) : startOfYear(new Date());
                 const end = new Date(); // To today
                 startStr = format(start, 'yyyy-MM-dd');
                 endStr = format(end, 'yyyy-MM-dd');
@@ -104,11 +112,16 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
             }
 
             if (startStr && endStr) {
-                const records = await db.getAttendanceRange(startStr, endStr);
+                const period = resolveReportingPeriod(startStr, endStr, settings?.attendance_settings);
+                if (period.isEmpty) {
+                    setDismissalData([]);
+                    return;
+                }
+                const records = await db.getAttendanceRange(period.startDate, period.endDate);
                 setAttendanceData(records);
 
                 // Also fetch dismissal data
-                const dismissals = await db.getDismissalsByDateRange(startStr, endStr);
+                const dismissals = await db.getDismissalsByDateRange(period.startDate, period.endDate);
                 setDismissalData(dismissals);
             }
 
@@ -132,7 +145,7 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
     // Pre-compute attendance lookup map for O(1) access: Map<student_id, Map<date, record>>
     const attendanceLookup = useMemo(() => {
         const map = new Map<string, Map<string, AttendanceRecord>>();
-        for (const r of attendanceData) {
+        for (const r of reportAttendance) {
             let studentMap = map.get(r.student_id);
             if (!studentMap) {
                 studentMap = new Map();
@@ -141,7 +154,7 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
             studentMap.set(r.date, r);
         }
         return map;
-    }, [attendanceData]);
+    }, [reportAttendance]);
 
     const intelligencePeriod = useMemo(
         () => getAttendanceIntelligencePeriod(selectedWeekStart),
@@ -193,6 +206,10 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
                                     </td>
                                     {days.map(day => {
                                         const dateStr = format(day, 'yyyy-MM-dd');
+                                        if (!isWithinTrackingPeriod(dateStr, settings?.attendance_settings)
+                                            || isDateHoliday(dateStr, settings?.attendance_settings?.work_days ?? settings?.work_days, settings?.attendance_settings?.academic_holidays)) {
+                                            return <td key={dateStr} className="p-1 text-center text-slate-600" title="خارج فترة الاحتساب أو يوم عطلة">—</td>;
+                                        }
                                         const record = studentMap?.get(dateStr);
                                         const status = record?.status;
 
@@ -227,7 +244,7 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
         const selectedStudent = students.find(s => s.id === selectedStudentId);
 
         // Stats
-        const studentRecords = attendanceData.filter(r => r.student_id === selectedStudentId);
+        const studentRecords = reportAttendance.filter(r => r.student_id === selectedStudentId);
         const absenceCount = studentRecords.filter(r => r.status === 'absent').length;
         const lateCount = studentRecords.filter(r => r.status === 'late').length;
         const lateMinutes = studentRecords.reduce((acc, curr) => acc + (curr.minutes_late || 0), 0);
@@ -374,7 +391,7 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
     const chronicAnalysis = useMemo(() => {
         const map = new Map<string, { student: Student; absences: number; lates: number }>();
 
-        attendanceData.forEach(record => {
+        reportAttendance.forEach(record => {
             if (!map.has(record.student_id)) {
                 const student = students.find(s => s.id === record.student_id);
                 if (student) {
@@ -392,7 +409,7 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
         return Array.from(map.values())
             .filter(item => item.absences >= absenceThreshold)
             .sort((a, b) => b.absences - a.absences);
-    }, [attendanceData, students, absenceThreshold]);
+    }, [reportAttendance, students, absenceThreshold]);
 
     const renderChronicAbsenceReport = () => {
 
@@ -677,6 +694,10 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
                 </button>
             </div>
 
+            {trackingStart && <p className="rounded-xl border border-primary-400/20 bg-primary-500/10 p-4 text-sm text-primary-100">
+                تبدأ مؤشرات العام الدراسي من <bdi>{trackingStart}</bdi>، مع استبعاد العطل والأيام المستقبلية من الاحتساب.
+            </p>}
+
             {/* Report Content */}
             <div className="glass-card p-4 rounded-xl min-h-[500px] border border-primary-500/10 bg-slate-900/40">
                 {loading ? (
@@ -692,11 +713,12 @@ const Reports: React.FC<{ user: User }> = ({ user }) => {
                         {activeTab === 'attendance_intelligence' && (
                             <AttendanceIntelligenceReport
                                 students={intelligenceStudents}
-                                attendanceRecords={attendanceData}
+                                attendanceRecords={reportAttendance}
                                 period={intelligencePeriod}
                                 weekStartDate={selectedWeekStart}
                                 workDays={settings?.attendance_settings?.work_days || settings?.work_days}
                                 holidays={settings?.attendance_settings?.academic_holidays}
+                                trackingDates={settings?.attendance_settings}
                             />
                         )}
                         {activeTab === 'dismissal' && renderDismissalReport()}

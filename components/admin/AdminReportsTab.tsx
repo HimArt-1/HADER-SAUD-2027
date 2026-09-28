@@ -4,6 +4,7 @@ import { AcademicHoliday, ReportFilter, SchoolClass, Student } from '../../types
 import { FileService } from '../../services/fileService';
 import { db } from '../../services/db';
 import { logError } from '../../types/errors';
+import { AcademicTrackingDates, getEffectiveTrackingStart, resolveReportingPeriod } from '../../services/academicCalendarService';
 import {
     AdminAttendanceReportData,
     buildAttendanceReportData,
@@ -26,6 +27,7 @@ export interface AdminReportsTabProps {
     defaultReportDate: string;
     workDays: number[];
     holidays: AcademicHoliday[];
+    trackingDates?: AcademicTrackingDates;
     onGoToStudents: () => void;
 }
 
@@ -44,9 +46,12 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
     defaultReportDate,
     workDays,
     holidays,
+    trackingDates,
     onGoToStudents,
 }) => {
     const [reportError, setReportError] = React.useState<string | null>(null);
+    const trackingStart = getEffectiveTrackingStart(trackingDates);
+    const effectivePeriod = resolveReportingPeriod(reportFilter.date_from, reportFilter.date_to, trackingDates, defaultReportDate);
     // --- Computed Values ---
     const activeReportFilters = useMemo(() => {
         let count = 0;
@@ -58,9 +63,10 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
         return count;
     }, [reportFilter, defaultReportDate]);
 
-    const reportDateSummary = reportFilter.date_from === reportFilter.date_to
-        ? `يوم ${reportFilter.date_from}`
-        : `${reportFilter.date_from} → ${reportFilter.date_to}`;
+    const reportDateSummary = effectivePeriod.isEmpty ? 'خارج فترة الاحتساب'
+        : effectivePeriod.startDate === effectivePeriod.endDate
+            ? `يوم ${effectivePeriod.startDate}`
+            : `${effectivePeriod.startDate} → ${effectivePeriod.endDate}`;
 
     const reportDateError = validateReportDateRange(
         reportFilter.date_from,
@@ -72,8 +78,10 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
         details: [],
         filter: reportFilter,
         workDays,
-        holidays
-    }).summary, [holidays, reportFilter, students, workDays]);
+        holidays,
+        trackingDates,
+        today: defaultReportDate
+    }).summary, [holidays, reportFilter, students, workDays, trackingDates, defaultReportDate]);
     const displayedSummary = reportData?.summary ?? reportPreview;
     const reportSummaryCards = [
         { label: 'الطلاب في النطاق', value: displayedSummary.rosterCount, hint: reportFilter.search_query ? 'يشمل نتيجة البحث' : reportFilter.class_name ? 'حسب الصف أو الفصل' : 'جميع الطلاب النشطين', icon: Users, className: 'border-primary-500/20 bg-primary-500/[0.07] text-primary-100' },
@@ -107,6 +115,10 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
             setReportError(reportDateError);
             return;
         }
+        if (effectivePeriod.isEmpty) {
+            setReportError('الفترة المختارة خارج فترة احتساب البيانات. اختر تاريخًا بعد بداية الاحتساب وحتى اليوم.');
+            return;
+        }
         if (students.length === 0) {
             setReportError('أضف الطلاب أولًا قبل إنشاء تقرير الحضور.');
             return;
@@ -115,13 +127,15 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
         setReportError(null);
         setReportData(null);
         try {
-            const data = await db.getAttendanceReport(reportFilter);
+            const data = await db.getAttendanceReport({ ...reportFilter, date_from: effectivePeriod.startDate, date_to: effectivePeriod.endDate });
             setReportData(buildAttendanceReportData({
                 students,
                 details: data.details,
                 filter: reportFilter,
                 workDays,
-                holidays
+                holidays,
+                trackingDates,
+                today: defaultReportDate
             }));
         } catch (e) {
             logError(e, 'Admin - Generate Attendance Report');
@@ -131,8 +145,8 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
 
     const handleExport = (type: 'csv' | 'xlsx' | 'html' | 'pdf') => {
         if (!reportData) return;
-        const filename = `تقرير_الحضور_${reportFilter.date_from}_${reportFilter.date_to}`;
-        const title = `تقرير الحضور - ${reportFilter.date_from} إلى ${reportFilter.date_to}`;
+        const filename = `تقرير_الحضور_${effectivePeriod.startDate}_${effectivePeriod.endDate}`;
+        const title = `تقرير الحضور - ${effectivePeriod.startDate} إلى ${effectivePeriod.endDate}`;
         const exportData = reportData.details.map(d => ({
             student_id: d.student_id,
             studentName: d.studentName,
@@ -161,6 +175,9 @@ const AdminReportsTab: React.FC<AdminReportsTabProps> = ({
 
     return (
         <div className="space-y-6 animate-fade-in">
+            {trackingStart && <p className="rounded-xl border border-primary-400/20 bg-primary-500/10 p-4 text-sm text-primary-100">
+                بداية الاحتساب المعتمدة: <bdi>{trackingStart}</bdi>. {effectivePeriod.isEmpty ? 'الفترة المحددة لا تتضمن أيامًا قابلة للاحتساب.' : <>الفترة الفعلية للتقرير: <bdi>{effectivePeriod.startDate}</bdi> إلى <bdi>{effectivePeriod.endDate}</bdi>.</>}
+            </p>}
             <section className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-slate-950/65 p-5 shadow-[0_24px_80px_-50px_rgb(var(--color-primary-500)_/_0.55)] backdrop-blur-2xl">
                 <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-l from-transparent via-primary-300/40 to-transparent" />
                 <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">

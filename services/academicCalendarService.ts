@@ -7,7 +7,44 @@
 //   1. Weekly off-days (work_days array, e.g. Fri+Sat off)
 //   2. Specific-date holidays (academic_holidays array, e.g. midterm break)
 
-import { AcademicHoliday, ATTENDANCE_DEFAULTS } from '../types';
+import { AcademicHoliday, AttendanceSettings, ATTENDANCE_DEFAULTS } from '../types';
+
+export type AcademicTrackingDates = Pick<AttendanceSettings, 'academic_year_start_date' | 'tracking_start_date'>;
+
+/** A school may have used Hader before the current year, or adopted it mid-year. */
+export function getEffectiveTrackingStart(settings: AcademicTrackingDates = {}): string | null {
+    const dates = [settings.academic_year_start_date, settings.tracking_start_date]
+        .filter((date): date is string => typeof date === 'string' && isValidDateKey(date));
+    return dates.sort().at(-1) ?? null;
+}
+
+/** Intersect the requested range with the current academic/tracking period and elapsed time. */
+export function resolveReportingPeriod(
+    startDate: string,
+    endDate: string,
+    settings: AcademicTrackingDates = {},
+    today = formatDateKey(new Date())
+) {
+    const trackingStart = getEffectiveTrackingStart(settings);
+    const effectiveStart = trackingStart && trackingStart > startDate ? trackingStart : startDate;
+    const effectiveEnd = endDate > today ? today : endDate;
+    return {
+        startDate: effectiveStart,
+        endDate: effectiveEnd,
+        isEmpty: !isValidDateKey(startDate) || !isValidDateKey(endDate) || !isValidDateKey(today)
+            || effectiveStart > effectiveEnd,
+        wasClamped: effectiveStart !== startDate || effectiveEnd !== endDate
+    };
+}
+
+export function isWithinTrackingPeriod(
+    date: string,
+    settings: AcademicTrackingDates = {},
+    today = formatDateKey(new Date())
+): boolean {
+    const start = getEffectiveTrackingStart(settings);
+    return isValidDateKey(date) && date <= today && (!start || date >= start);
+}
 
 // =============================================================================
 // Storage Key

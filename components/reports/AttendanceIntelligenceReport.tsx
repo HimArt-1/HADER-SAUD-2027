@@ -2,6 +2,7 @@ import React, { memo, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarDays, CheckCircle2, Clock3 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { arSA } from 'date-fns/locale';
+import { AcademicTrackingDates, resolveReportingPeriod } from '../../services/academicCalendarService';
 import type { AcademicHoliday, AttendanceRecord, Student } from '../../types';
 import {
   analyzeAttendanceRisk,
@@ -17,6 +18,7 @@ type AttendanceIntelligenceReportProps = Readonly<{
   weekStartDate: string;
   workDays?: readonly number[];
   holidays?: readonly AcademicHoliday[];
+  trackingDates?: AcademicTrackingDates;
 }>;
 
 const RISK_LABELS: Record<AttendanceRiskLevel, string> = {
@@ -55,16 +57,19 @@ const AttendanceIntelligenceReport: React.FC<AttendanceIntelligenceReportProps> 
   period,
   weekStartDate,
   workDays,
-  holidays
+  holidays,
+  trackingDates
 }) => {
   const [selectedStudentId, setSelectedStudentId] = useState('');
+  const effectivePeriod = resolveReportingPeriod(period.startDate, period.endDate, trackingDates);
   const analysis = useMemo(() => analyzeAttendanceRisk({
     students,
     attendanceRecords,
     period,
     workDays,
-    holidays
-  }), [attendanceRecords, holidays, period, students, workDays]);
+    holidays,
+    trackingDates
+  }), [attendanceRecords, holidays, period, students, workDays, trackingDates]);
   const selectedProfile = analysis.profiles.find(profile => profile.studentId === selectedStudentId)
     || analysis.profiles[0];
   const selectedStudent = students.find(student => student.id === selectedProfile?.studentId);
@@ -73,8 +78,9 @@ const AttendanceIntelligenceReport: React.FC<AttendanceIntelligenceReportProps> 
     attendanceRecords,
     weekStartDate,
     workDays,
-    holidays
-  }) : null, [attendanceRecords, holidays, selectedStudent, weekStartDate, workDays]);
+    holidays,
+    trackingDates
+  }) : null, [attendanceRecords, holidays, selectedStudent, weekStartDate, workDays, trackingDates]);
 
   if (students.length === 0) {
     return (
@@ -98,7 +104,7 @@ const AttendanceIntelligenceReport: React.FC<AttendanceIntelligenceReportProps> 
             <h2 className="mt-1 text-xl font-bold tracking-tight text-white">مؤشرات انتظام الحضور</h2>
           </div>
           <p className="text-xs text-slate-500">
-            من {period.startDate} إلى {period.endDate}
+            {effectivePeriod.isEmpty ? 'لا توجد أيام ضمن فترة الاحتساب' : `من ${effectivePeriod.startDate} إلى ${effectivePeriod.endDate}`}
           </p>
         </div>
         <div className="grid grid-cols-2 divide-x divide-x-reverse divide-y divide-slate-800 md:grid-cols-5 md:divide-y-0">

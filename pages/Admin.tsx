@@ -18,7 +18,7 @@ import { FileSpreadsheet, Upload, UserPlus, Database, Loader2, LayoutDashboard, 
 import { getErrorMessage, logError } from '../types/errors';
 import { useLiveUpdates } from '../hooks/useLiveUpdates';
 import { AdminDashboard, AdminReportsTab, AdminKioskTab, AdminStructureTab, AdminStudentsTab, AdminUsersTab, AdminSettingsTab, AdminFollowUpTab, AdminIncidentsTab, AdminExcusesTab, AdminBackupTab, AdminNotificationsTab, AdminCalendarTab, AdminActivityLogTab, AdminGuardianPhonesTab, AdminIntegrationsTab, AdminStaffOperationsTab, THEME_CONFIG, HIDDEN_ADMIN_USERNAMES, PRIVACY_ADD_KEY, PRIVACY_IMPORT_KEY } from '../components/admin';
-import { cacheHolidays, getCachedHolidays, getHolidayInfo, isDateHoliday, normalizeAcademicHolidays } from '../services/academicCalendarService';
+import { cacheHolidays, getCachedHolidays, getHolidayInfo, isDateHoliday, normalizeAcademicHolidays, AcademicTrackingDates, isValidDateKey, isWithinTrackingPeriod, getEffectiveTrackingStart } from '../services/academicCalendarService';
 import { useToast } from '../components/Toast';
 import { useSyncRefresh } from '../hooks/useSyncRefresh';
 import { UniversalGuideModal, GuideStep } from '../components/common/UniversalGuideModal';
@@ -525,11 +525,13 @@ const Admin: React.FC = () => {
   const saveAttendanceSettingsToCloud = async (newSettings: AttendanceSettingsDraft): Promise<boolean> => {
     setAttendanceSettingsSaving(true);
     try {
-      await appSettings.execute({
+      // Calendar dates are saved by the calendar form, never by a stale schedule draft.
+      const { academic_year_start_date, tracking_start_date, ...scheduleSettings } = newSettings;
+      const saved = await appSettings.execute({
         type: 'patch',
         changes: {
           attendance_settings: {
-            ...newSettings,
+            ...scheduleSettings,
             work_days: newSettings.work_days
           },
           // Keep the root value for backward compatibility.
@@ -537,8 +539,9 @@ const Admin: React.FC = () => {
         }
       });
       // Update local storage
-      localStorage.setItem('hader:attendance:settings', JSON.stringify(newSettings));
-      setAttendanceSettings(newSettings);
+      const normalized = normalizeAttendanceSettings(saved.attendance_settings);
+      localStorage.setItem('hader:attendance:settings', JSON.stringify(normalized));
+      setAttendanceSettings(normalized);
       showToast('تم حفظ إعدادات الدوام 💾', 'success');
       return true;
     } catch (e) {
@@ -569,6 +572,24 @@ const Admin: React.FC = () => {
     } catch (e) {
       logError(e, 'Admin - Save Academic Holidays');
       showToast('فشل حفظ التقويم الدراسي', 'error');
+      return false;
+    } finally {
+      setCalendarSaving(false);
+    }
+  };
+
+  const saveAcademicTrackingDates = async (dates: AcademicTrackingDates): Promise<boolean> => {
+    if (!isValidDateKey(dates.academic_year_start_date || '') || !isValidDateKey(dates.tracking_start_date || '')) return false;
+    setCalendarSaving(true);
+    try {
+      const saved = await appSettings.execute({ type: 'patch', changes: { attendance_settings: dates } });
+      setAttendanceSettings(previous => ({ ...previous, ...dates }));
+      localStorage.setItem('hader:attendance:settings', JSON.stringify(normalizeAttendanceSettings(saved.attendance_settings)));
+      setReportData(null);
+      showToast('تم حفظ بداية السنة وفترة احتساب البيانات', 'success');
+      return true;
+    } catch (error) {
+      logError(error, 'Admin - Save Academic Tracking Dates');
       return false;
     } finally {
       setCalendarSaving(false);
@@ -1054,7 +1075,7 @@ const Admin: React.FC = () => {
       thirtyDaysAgo.setDate(anchor.getDate() - 30);
       const startDate = getLocalDateStr(thirtyDaysAgo);
 
-      const [allStudents, allAttendance, allClasses, allUsers, violationSnapshot, exitSnapshot, settings] = await Promise.all([
+      const [allStudents, attendanceSnapshot, allClasses, allUsers, violationSnapshot, exitSnapshot, settings] = await Promise.all([
         db.getStudents(),
         db.getAttendanceRange(startDate, today), // Fix: Fetch only last 30 days to avoid 1000-row limit
         db.getClasses(),
@@ -1063,8 +1084,10 @@ const Admin: React.FC = () => {
         studentAffairs.load({ type: 'exits', date: today }),
         appSettings.load()
       ]);
-      const allViolations = violationSnapshot.violations;
-      const allExits = exitSnapshot.exits;
+      const withinTracking = (date: string) => isWithinTrackingPeriod(date, settings?.attendance_settings, today);
+      const allAttendance = attendanceSnapshot.filter(record => withinTracking(record.date));
+      const allViolations = violationSnapshot.violations.filter(record => withinTracking(getLocalDateStr(new Date(record.created_at))));
+      const allExits = exitSnapshot.exits.filter(record => withinTracking(getLocalDateStr(new Date(record.exit_time))));
 
       // Ignore stale responses when a newer dashboard fetch already started.
       if (seq !== dashboardFetchSeqRef.current) return;
@@ -1088,11 +1111,11 @@ const Admin: React.FC = () => {
         const holidayInfo = getHolidayInfo(dateStr, configuredHolidays);
         const dayAttendance = getAttendanceForDate(allAttendance, dateStr);
         const dayStudents = allStudents.length;
-        const counts = getAttendanceStatusCounts(dayAttendance, dayStudents, { isHoliday });
+        const counts = getAttendanceStatusCounts(dayAttendance, dayStudents, { isHoliday: isHoliday || !withinTracking(dateStr) });
         const present = counts.present;
         const late = counts.late;
 
-        const rate = (dayStudents > 0 && !isHoliday) ? Math.round(((present + late) / dayStudents) * 100) : null;
+        const rate = (dayStudents > 0 && !isHoliday && withinTracking(dateStr) && dayAttendance.length > 0) ? Math.round(((present + late) / dayStudents) * 100) : null;
 
         weeklyData.push({
           day: weekDays[dayIndex],
@@ -1118,7 +1141,8 @@ const Admin: React.FC = () => {
 
       // Calculate real class stats
       const classData: any[] = [];
-      const isTodayHoliday = isDateHoliday(today, workDays, configuredHolidays);
+      const beforeTracking = !withinTracking(today);
+      const isTodayHoliday = beforeTracking || isDateHoliday(today, workDays, configuredHolidays);
       const todayHolidayInfo = getHolidayInfo(today, configuredHolidays);
       const todayAttendanceAll = getAttendanceForDate(allAttendance, today);
 
@@ -1163,7 +1187,8 @@ const Admin: React.FC = () => {
         const candidate = new Date(`${today}T12:00:00`);
         candidate.setDate(candidate.getDate() - offset);
         const candidateStr = getLocalDateStr(candidate);
-        if (!isDateHoliday(candidateStr, workDays, configuredHolidays)) {
+        if (!withinTracking(candidateStr)) break;
+        if (!isDateHoliday(candidateStr, workDays, configuredHolidays) && getAttendanceForDate(allAttendance, candidateStr).length > 0) {
           comparisonDate = candidate;
           comparisonDateStr = candidateStr;
           break;
@@ -1220,8 +1245,8 @@ const Admin: React.FC = () => {
         const dateStr = getLocalDateStr(date);
         const dayAtt = getAttendanceForDate(allAttendance, dateStr);
         const isHoliday = isDateHoliday(dateStr, workDays, configuredHolidays);
-        const dayCounts = getAttendanceStatusCounts(dayAtt, allStudents.length, { isHoliday });
-        const dayRate = allStudents.length > 0 && !isHoliday
+        const dayCounts = getAttendanceStatusCounts(dayAtt, allStudents.length, { isHoliday: isHoliday || !withinTracking(dateStr) });
+        const dayRate = allStudents.length > 0 && !isHoliday && withinTracking(dateStr) && dayAtt.length > 0
           ? Math.round((dayCounts.attended / allStudents.length) * 100)
           : null;
         monthlyData.push({
@@ -1249,7 +1274,8 @@ const Admin: React.FC = () => {
           ? Math.round(workingWeek.reduce((sum, day) => sum + Number(day.presence), 0) / workingWeek.length)
           : 0,
         isTodayHoliday,
-        holidayName: todayHolidayInfo?.label
+        holidayName: beforeTracking ? 'لم تبدأ فترة الاحتساب' : todayHolidayInfo?.label,
+        trackingStart: getEffectiveTrackingStart(settings?.attendance_settings)
       });
 
     } catch (e) {
@@ -1560,6 +1586,16 @@ const Admin: React.FC = () => {
     };
     loadSettings();
   }, []);
+
+  useEffect(() => appSettings.subscribe(settings => {
+    const dates = settings.attendance_settings || {};
+    setAttendanceSettings(previous => ({
+      ...previous,
+      academic_year_start_date: dates.academic_year_start_date,
+      tracking_start_date: dates.tracking_start_date
+    }));
+    setReportData(null);
+  }), []);
 
   const refreshActiveTabData = () => {
     if (activeTab === 'dashboard') fetchDashboard();
@@ -3270,6 +3306,8 @@ const Admin: React.FC = () => {
               workDays={attendanceSettings.work_days ?? [0, 1, 2, 3, 4]}
               saving={calendarSaving}
               onSaveHolidays={saveAcademicHolidays}
+              trackingDates={attendanceSettings}
+              onSaveTrackingDates={saveAcademicTrackingDates}
               showToast={showToast}
             />
           )}
@@ -3387,6 +3425,7 @@ const Admin: React.FC = () => {
               defaultReportDate={defaultReportDate}
               workDays={attendanceSettings.work_days ?? [0, 1, 2, 3, 4]}
               holidays={academicHolidays}
+              trackingDates={attendanceSettings}
               onGoToStudents={() => setActiveTab('students')}
             />
           )}

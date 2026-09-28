@@ -21,6 +21,7 @@ interface AdminDashboardProps {
     averageWeeklyRate: number;
     isTodayHoliday: boolean;
     holidayName?: string;
+    trackingStart?: string | null;
   };
   weeklyStats: Array<{
     day: string;
@@ -220,6 +221,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       initial="hidden"
       animate="visible"
     >
+
+      {detailedStats.trackingStart && <p className="rounded-xl border border-primary-400/20 bg-primary-500/10 px-4 py-3 text-sm text-primary-100">
+        بداية احتساب مؤشرات العام الدراسي: <bdi>{detailedStats.trackingStart}</bdi>. تُستبعد الأيام السابقة والعطل من الاتجاهات والمقارنات.
+      </p>}
 
       {detailedStats.isTodayHoliday && (
         <motion.div

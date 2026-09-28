@@ -1,5 +1,5 @@
 import { AcademicHoliday, ATTENDANCE_DEFAULTS, ReportFilter, Student } from '../../types';
-import { getDateRange, isDateHoliday } from '../../services/academicCalendarService';
+import { AcademicTrackingDates, getDateRange, isDateHoliday, resolveReportingPeriod } from '../../services/academicCalendarService';
 
 export interface AttendanceReportDetail {
     student_id: string;
@@ -67,13 +67,17 @@ export const buildAttendanceReportData = ({
     details,
     filter,
     workDays = [...ATTENDANCE_DEFAULTS.WORK_DAYS],
-    holidays = []
+    holidays = [],
+    trackingDates,
+    today
 }: {
     students: Student[];
     details: AttendanceReportDetail[];
     filter: ReportFilter;
     workDays?: number[];
     holidays?: AcademicHoliday[];
+    trackingDates?: AcademicTrackingDates;
+    today?: string;
 }): AdminAttendanceReportData => {
     const query = normalizeSearchValue(filter.search_query);
     const roster = students.filter(student => {
@@ -84,13 +88,14 @@ export const buildAttendanceReportData = ({
         return true;
     });
     const rosterById = new Map(roster.map(student => [student.id, student]));
-    const dateRange = getDateRange(filter.date_from, filter.date_to);
+    const period = resolveReportingPeriod(filter.date_from, filter.date_to, trackingDates, today);
+    const dateRange = period.isEmpty ? [] : getDateRange(period.startDate, period.endDate);
     const workingDates = new Set(dateRange.filter(date => !isDateHoliday(date, workDays, holidays)));
 
     const uniqueDetails = new Map<string, AttendanceReportDetail>();
     details.forEach(detail => {
         const student = rosterById.get(detail.student_id);
-        if (!student || detail.date < filter.date_from || detail.date > filter.date_to) return;
+        if (!student || period.isEmpty || detail.date < period.startDate || detail.date > period.endDate) return;
         uniqueDetails.set(`${detail.student_id}:${detail.date}`, {
             ...detail,
             studentName: detail.studentName || student.name,

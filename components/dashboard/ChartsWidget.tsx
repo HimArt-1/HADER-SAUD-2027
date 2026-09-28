@@ -9,8 +9,9 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer,
   BarChart as RechartsBarChart, Bar, Cell, PieChart as RechartsPieChart, Pie
 } from 'recharts';
-import { Student, AttendanceRecord } from '../../types';
+import { Student, AttendanceRecord, SystemSettings } from '../../types';
 import { filterRowsByDashboardStudents, getLocalISODate, getLocalDateStr } from '../../services/dbHelpers';
+import { isWithinTrackingPeriod, isDateHoliday } from '../../services/academicCalendarService';
 import { NumberTicker } from '../ui/NumberTicker';
 import { calculateDisciplineIndex } from '../../utils/disciplineIndex';
 import {
@@ -22,32 +23,39 @@ import {
 interface ChartsWidgetProps {
   students: Student[];
   attendanceRecords: AttendanceRecord[];
+  settings?: SystemSettings | null;
 }
 
 const ChartsWidget: React.FC<ChartsWidgetProps> = ({
   students,
-  attendanceRecords
+  attendanceRecords,
+  settings
 }) => {
   // الرئيسية تعرض إحصاء المدرسة كاملاً لكل الأدوار، مع استبعاد سجلات الطلاب غير النشطين/غير المحملين.
   const filteredData = useMemo(() => {
     return {
       students,
-      attendance: filterRowsByDashboardStudents(attendanceRecords, students)
+      attendance: filterRowsByDashboardStudents(attendanceRecords, students).filter(record =>
+        isWithinTrackingPeriod(record.date, settings?.attendance_settings)
+        && !isDateHoliday(record.date, settings?.attendance_settings?.work_days ?? settings?.work_days, settings?.attendance_settings?.academic_holidays)
+      )
     };
-  }, [students, attendanceRecords]);
+  }, [students, attendanceRecords, settings]);
 
   // توزيع الحضور اليومي (Pie Chart Data)
   const todayDistribution = useMemo(() => {
     const today = getLocalISODate();
     const todayAttendance = getAttendanceForDate(filteredData.attendance, today);
     const totalStudents = filteredData.students.length;
-    const counts = getAttendanceStatusCounts(todayAttendance, totalStudents);
+    const isExcluded = !isWithinTrackingPeriod(today, settings?.attendance_settings)
+      || isDateHoliday(today, settings?.attendance_settings?.work_days ?? settings?.work_days, settings?.attendance_settings?.academic_holidays);
+    const counts = getAttendanceStatusCounts(todayAttendance, totalStudents, { isHoliday: isExcluded });
     const present = counts.present;
     const late = counts.late;
     const absent = counts.absent;
 
     return { present, late, absent, total: totalStudents };
-  }, [filteredData]);
+  }, [filteredData, settings]);
 
   // توزيع التأخر حسب الصف (Bar Chart Data)
   const lateByGrade = useMemo(() => {
@@ -81,7 +89,10 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
       date.setDate(date.getDate() - i);
       const dateStr = getLocalDateStr(date);
 
+      if (!isWithinTrackingPeriod(dateStr, settings?.attendance_settings)
+        || isDateHoliday(dateStr, settings?.attendance_settings?.work_days ?? settings?.work_days, settings?.attendance_settings?.academic_holidays)) continue;
       const dayAttendance = getAttendanceForDate(filteredData.attendance, dateStr);
+      if (dayAttendance.length === 0) continue;
       const totalStudents = filteredData.students.length;
       const counts = getAttendanceStatusCounts(dayAttendance, totalStudents);
       const late = counts.late;
@@ -90,7 +101,8 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
       const attendanceRate = totalStudents > 0 ? (totalPresent / totalStudents) * 100 : 0;
       const lateRate = totalPresent > 0 ? (late / totalPresent) * 100 : 0;
 
-      const disciplineIndex = calculateDisciplineIndex(attendanceRate, lateRate, 100 - attendanceRate, 0, 1);
+      const explicitAbsences = dayAttendance.filter(record => record.status === 'absent').length;
+      const disciplineIndex = calculateDisciplineIndex(attendanceRate, lateRate, totalStudents > 0 ? explicitAbsences / totalStudents * 100 : 0, 0, 1);
 
       days.push({
         date: dateStr,
@@ -99,7 +111,7 @@ const ChartsWidget: React.FC<ChartsWidgetProps> = ({
       });
     }
     return days;
-  }, [filteredData]);
+  }, [filteredData, settings]);
 
   // حساب النسب المئوية للتوزيع
   const presentPercent = todayDistribution.total > 0 ? (todayDistribution.present / todayDistribution.total) * 100 : 0;

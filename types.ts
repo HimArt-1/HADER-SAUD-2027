@@ -368,6 +368,10 @@ export interface AttendanceSettings {
   enable_supervisor_quick_attendance?: boolean;
   work_days?: number[];
   academic_holidays?: AcademicHoliday[];
+  /** First day of the current academic year (YYYY-MM-DD). */
+  academic_year_start_date?: string;
+  /** First day of reliable attendance tracking in Hader (YYYY-MM-DD). */
+  tracking_start_date?: string;
 }
 
 export interface SecuritySettings {

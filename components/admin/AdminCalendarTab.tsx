@@ -4,11 +4,13 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Calendar, Plus, Trash2, X, ChevronLeft, ChevronRight, Loader2, CalendarDays, CalendarCheck, ListChecks, Sparkles } from 'lucide-react';
 import { AcademicHoliday, AcademicHolidayType } from '../../types';
+import AcademicTrackingSettings from './AcademicTrackingSettings';
 import {
     formatDateKey,
     getDateRange,
     getDateRangeLength,
-    HOLIDAY_TYPES
+    HOLIDAY_TYPES,
+    AcademicTrackingDates
 } from '../../services/academicCalendarService';
 
 // ═══════════════════════════════════════════════════════════════
@@ -20,6 +22,8 @@ export interface AdminCalendarTabProps {
     saving: boolean;
     onSaveHolidays: (holidays: AcademicHoliday[]) => Promise<boolean>;
     showToast: (message: string, type: string) => void;
+    trackingDates?: AcademicTrackingDates;
+    onSaveTrackingDates?: (dates: AcademicTrackingDates) => Promise<boolean>;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -155,7 +159,9 @@ const AdminCalendarTab: React.FC<AdminCalendarTabProps> = ({
     workDays,
     saving,
     onSaveHolidays,
-    showToast
+    showToast,
+    trackingDates = {},
+    onSaveTrackingDates
 }) => {
     const now = new Date();
     const [displayYear, setDisplayYear] = useState(now.getFullYear());
@@ -332,7 +338,7 @@ const AdminCalendarTab: React.FC<AdminCalendarTabProps> = ({
                         </div>
                         <h2 className="text-2xl font-black text-white md:text-3xl">التقويم الدراسي</h2>
                         <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">
-                            تحديد العطل الرسمية والاستثنائية وربطها بسلوك الحضور الآلي خلال السنة الدراسية.
+                            تحديد بداية السنة وفترة تشغيل حاضر والعطل الرسمية لضبط الحضور والمؤشرات.
                         </p>
                     </div>
 
@@ -370,6 +376,8 @@ const AdminCalendarTab: React.FC<AdminCalendarTabProps> = ({
                     </div>
                 </div>
             </section>
+
+            {onSaveTrackingDates && <AcademicTrackingSettings dates={trackingDates} saving={saving} onSave={onSaveTrackingDates} />}
 
             {/* ═══ Year Navigation ═══ */}
             <div className="flex items-center justify-between">

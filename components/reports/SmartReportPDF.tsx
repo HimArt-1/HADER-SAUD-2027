@@ -2,6 +2,9 @@ import React, { useRef, useState } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { db, getLocalISODate } from '../../services/db';
+import { getEffectiveTrackingStart, isDateHoliday, isWithinTrackingPeriod } from '../../services/academicCalendarService';
+import { appSettings } from '../../services/settings';
+import { uniqueAttendanceByStudentDate } from '../../modules/attendance';
 import { Student, AttendanceRecord } from '../../types';
 import { Download, CheckCircle, Clock, AlertTriangle, Printer } from 'lucide-react';
 
@@ -15,19 +18,28 @@ const formatPercent = (value: number) => `${Math.round(value)}%`;
 export const SmartReportPDF: React.FC<SmartReportPDFProps> = ({ studentId, onClose }) => {
   const reportRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
+  const [trackingStart, setTrackingStart] = useState<string | null>(null);
   const [student, setStudent] = useState<Student | null>(null);
   const [attendanceStats, setAttendanceStats] = useState({ present: 0, late: 0, absent: 0, total: 0 });
 
   React.useEffect(() => {
     // Load student data and calculate stats
     const loadData = async () => {
-      const students = await db.getStudents();
-      const attendance = await db.getAttendance();
+      const settings = await appSettings.load();
+      const start = getEffectiveTrackingStart(settings.attendance_settings);
+      setTrackingStart(start);
+      const [students, attendance] = await Promise.all([
+        db.getStudents(),
+        start && start > getLocalISODate() ? Promise.resolve([]) : start
+          ? db.getAttendanceRange(start, getLocalISODate()) : db.getStudentAttendance(studentId)
+      ]);
       
       const foundStudent = students.find(s => s.id === studentId);
       if (foundStudent) setStudent(foundStudent);
 
-      const studentAttendance = attendance.filter(a => a.student_id === studentId);
+      const studentAttendance = uniqueAttendanceByStudentDate(attendance.filter(a => a.student_id === studentId
+        && isWithinTrackingPeriod(a.date, settings.attendance_settings)
+        && !isDateHoliday(a.date, settings.attendance_settings?.work_days ?? settings.work_days, settings.attendance_settings?.academic_holidays)));
       const present = studentAttendance.filter(a => a.status === 'present').length;
       const late = studentAttendance.filter(a => a.status === 'late').length;
       const absent = studentAttendance.filter(a => a.status === 'absent').length;
@@ -105,6 +117,7 @@ export const SmartReportPDF: React.FC<SmartReportPDFProps> = ({ studentId, onClo
             <div>
               <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-l from-primary-400 to-secondary-500 mb-2">تقرير الانضباط الذكي</h1>
               <p className="text-slate-400">تاريخ الإصدار: {getLocalISODate()}</p>
+              {trackingStart && <p className="mt-1 text-xs text-slate-400">بداية احتساب البيانات: {trackingStart}</p>}
             </div>
             <div className="text-left">
                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-secondary-600 mb-2 flex items-center justify-center font-bold text-white text-2xl shadow-[0_0_15px_rgb(var(--color-primary-500)_/_0.4)]">

@@ -1,6 +1,6 @@
 import type { AcademicHoliday, AttendanceRecord, Student } from '../../types';
 import { ATTENDANCE_DEFAULTS } from '../../types';
-import { formatDateKey, getDateRange, isDateHoliday } from '../../services/academicCalendarService';
+import { AcademicTrackingDates, formatDateKey, getDateRange, isDateHoliday, resolveReportingPeriod } from '../../services/academicCalendarService';
 import { uniqueAttendanceByStudentDate } from '../attendance';
 
 export type AttendanceRiskLevel = 'high' | 'medium' | 'low' | 'normal' | 'unknown';
@@ -67,6 +67,8 @@ export type AnalyzeAttendanceRiskInput = Readonly<{
   workDays?: readonly number[];
   holidays?: readonly AcademicHoliday[];
   minutesPerSchoolDay?: number;
+  trackingDates?: AcademicTrackingDates;
+  today?: string;
 }>;
 
 export type AttendanceRiskAnalysis = Readonly<{
@@ -107,6 +109,8 @@ export type BuildWeeklyAttendanceScorecardInput = Readonly<{
   workDays?: readonly number[];
   holidays?: readonly AcademicHoliday[];
   minutesPerSchoolDay?: number;
+  trackingDates?: AcademicTrackingDates;
+  today?: string;
 }>;
 
 type AttendanceEvaluationContext = Readonly<{
@@ -321,10 +325,12 @@ export const analyzeAttendanceRisk = ({
   period,
   workDays = ATTENDANCE_DEFAULTS.WORK_DAYS,
   holidays = [],
-  minutesPerSchoolDay = 360
+  minutesPerSchoolDay = 360,
+  trackingDates,
+  today
 }: AnalyzeAttendanceRiskInput): AttendanceRiskAnalysis => {
   const context: AttendanceEvaluationContext = {
-    period,
+    period: resolveReportingPeriod(period.startDate, period.endDate, trackingDates, today),
     workDays,
     holidays,
     minutesPerSchoolDay: Math.max(0, minutesPerSchoolDay)
@@ -377,14 +383,13 @@ export const buildWeeklyAttendanceScorecard = ({
   weekStartDate,
   workDays = ATTENDANCE_DEFAULTS.WORK_DAYS,
   holidays = [],
-  minutesPerSchoolDay = 360
+  minutesPerSchoolDay = 360,
+  trackingDates,
+  today
 }: BuildWeeklyAttendanceScorecardInput): WeeklyAttendanceScorecard => {
   const weekEnd = new Date(`${weekStartDate}T00:00:00`);
   weekEnd.setDate(weekEnd.getDate() + 6);
-  const period = {
-    startDate: weekStartDate,
-    endDate: formatDateKey(weekEnd)
-  };
+  const period = resolveReportingPeriod(weekStartDate, formatDateKey(weekEnd), trackingDates, today);
   const schoolDates = getSchoolDates(period, workDays, holidays);
   const recordsByDate = getStudentRecordsByDate(attendanceRecords, student.id, schoolDates);
   const days: WeeklyAttendanceDay[] = schoolDates.map(date => {
@@ -428,7 +433,7 @@ export const buildWeeklyAttendanceScorecard = ({
       : null,
     recordingCompletionRate: days.length > 0
       ? roundOneDecimal((recordedDays / days.length) * 100)
-      : 100,
+      : 0,
     riskScore: profile.riskScore,
     riskLevel: profile.riskLevel,
     recommendation: profile.recommendation

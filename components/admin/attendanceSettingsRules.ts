@@ -1,4 +1,5 @@
 import { ATTENDANCE_DEFAULTS, AttendanceSettings } from '../../types';
+import { isValidDateKey } from '../../services/academicCalendarService';
 
 export type AttendanceSettingsDraft = AttendanceSettings & {
     mode: 'traditional' | 'hybrid';
@@ -96,6 +97,10 @@ export const normalizeAttendanceSettings = (
         mode,
         auto_mark_time: autoMarkTime,
         unmarked_default: unmarkedDefault,
+        academic_year_start_date: typeof raw.academic_year_start_date === 'string' && isValidDateKey(raw.academic_year_start_date)
+            ? raw.academic_year_start_date : undefined,
+        tracking_start_date: typeof raw.tracking_start_date === 'string' && isValidDateKey(raw.tracking_start_date)
+            ? raw.tracking_start_date : undefined,
         work_days: normalizeWorkDays(raw.work_days, fallback.work_days)
     };
 };
