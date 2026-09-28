@@ -84,6 +84,7 @@ BEGIN
     AND c.column_name = 'assigned_classes';
 
   IF assigned_classes_type = '_text' THEN
+    ALTER TABLE public.users ALTER COLUMN assigned_classes DROP DEFAULT;
     ALTER TABLE public.users
       ALTER COLUMN assigned_classes TYPE JSONB
       USING COALESCE(to_jsonb(assigned_classes), '[]'::JSONB);
