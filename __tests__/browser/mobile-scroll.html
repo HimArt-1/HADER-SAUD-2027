@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hader mobile scroll regression</title>
+    <link rel="stylesheet" href="/index.css" />
+    <style>
+      main { min-height: 300vh; padding: 6rem 1.5rem; }
+      #gesture-target { padding: 2rem; border: 1px solid currentColor; }
+      #controls { position: fixed; inset: 0 0 auto; padding: 1rem; background: #06191e; z-index: 10; }
+      footer { padding: 2rem; }
+    </style>
+  </head>
+  <body>
+    <div id="controls">
+      <button id="reset" type="button">إعادة الاختبار</button>
+      <output id="result" role="status">WAITING: scroll down over the test content</output>
+    </div>
+    <main>
+      <h1>اختبار تمرير الجوال</h1>
+      <p id="gesture-target">اسحب إلى أعلى بإصبع واحد هنا لتمرير الصفحة إلى الأسفل.</p>
+      <p>يستخدم هذا الاختبار ملف CSS الحقيقي للتطبيق، دون حساب أو اتصال بقاعدة البيانات.</p>
+    </main>
+    <footer>نهاية صفحة الاختبار</footer>
+    <script type="module">
+      const result = document.querySelector('#result');
+      let timer;
+      let initialTop = document.scrollingElement.scrollTop;
+      document.querySelector('#reset').addEventListener('click', () => {
+        clearTimeout(timer);
+        window.scrollTo({ top: 0, behavior: 'instant' });
+        initialTop = 0;
+        result.textContent = 'WAITING: scroll down over the test content';
+        delete result.dataset.verdict;
+      });
+      function observeInput() {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          const top = document.scrollingElement.scrollTop;
+          const moved = top > initialTop;
+          result.textContent = `${moved ? 'PASS' : 'FAIL'}: document scroll ${initialTop} → ${top}`;
+          result.dataset.verdict = moved ? 'pass' : 'fail';
+        }, 200);
+      }
+      document.addEventListener('wheel', observeInput, { passive: true });
+      document.addEventListener('touchmove', observeInput, { passive: true });
+    </script>
+  </body>
+</html>

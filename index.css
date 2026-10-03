@@ -2270,9 +2270,14 @@ html.light-mode .modern-splash-loader-wrapper {
     --hover-glow: none;
   }
 
+  html {
+    /* Contain pull-to-refresh at the document scroller. On body, overflow-x:
+       hidden creates a zero-range scroll container that traps mobile swipes. */
+    overscroll-behavior-y: contain;
+  }
+
   body {
     min-height: 100dvh;
-    overscroll-behavior-y: contain;
   }
 
   .ambient-bg {
