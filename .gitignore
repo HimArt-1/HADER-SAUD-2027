@@ -58,18 +58,25 @@ whatsapp/*.db
 whatsapp/*.db-journal
 whatsapp/*.db-wal
 whatsapp/*.db-shm
-# A stray run inside the published downloads folder must never ship a queue database
-# (it holds guardian phone numbers) to the public site.
-public/downloads/whatsapp/*.db
-public/downloads/whatsapp/*.db-wal
-public/downloads/whatsapp/*.db-shm
-# Same reason: a stray run there leaves guardian attachments (student photos,
-# certificates) on disk. They are runtime output, never part of the download.
-public/downloads/whatsapp/uploads/
-public/downloads/whatsapp/certificates/
-public/downloads/whatsapp/logs/
-public/downloads/whatsapp/whatsapp_session/
-whatsapp/contacts.csv
+whatsapp/certificates/
+whatsapp/*.csv
+whatsapp/.env*
+# public/downloads/whatsapp/ is served to anyone. A bridge run inside it leaves
+# guardian names and phone numbers (contacts.csv, contacts.db), the logged-in
+# WhatsApp session, logs, photos and certificates there. Ignore everything and
+# allow back only what scripts/bundle-whatsapp-launcher.mjs generates (the
+# zips are allowed back further down, after the global *.zip rule).
+public/downloads/whatsapp/*
+!public/downloads/whatsapp/INSTRUCTIONS.md
+!public/downloads/whatsapp/bridge.py
+!public/downloads/whatsapp/engine_controller.py
+!public/downloads/whatsapp/requirements.txt
+!public/downloads/whatsapp/run_mac.sh
+!public/downloads/whatsapp/run_windows.bat
+!public/downloads/whatsapp/scheduler.py
+!public/downloads/whatsapp/server.py
+!public/downloads/whatsapp/sqlite_db.py
+!public/downloads/whatsapp/whatsapp_pro_tool.py
 
 # Temp files
 /tmp
