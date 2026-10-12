@@ -102,8 +102,11 @@ const authenticateUser = async (request: IncomingMessage): Promise<{ ok: boolean
   }
 };
 
+/** Query parameters that pick the sub-route; every other parameter belongs to the bridge */
+const ROUTING_PARAMS = ['route', 'path'];
+
 /** Resolves the target sub-route from the incoming request URL */
-const resolveSubRoute = (rawUrl: string = '/'): string => {
+export const resolveSubRoute = (rawUrl: string = '/'): string => {
   try {
     const parsed = new URL(rawUrl, 'http://localhost');
     const queryPath = parsed.searchParams.get('path') || parsed.searchParams.get('route');
@@ -121,6 +124,30 @@ const resolveSubRoute = (rawUrl: string = '/'): string => {
   } catch {
     return '/status';
   }
+};
+
+/** The incoming query string minus the routing parameters, with its leading "?" when non-empty */
+const resolveForwardedQuery = (rawUrl: string = '/'): string => {
+  try {
+    const params = new URL(rawUrl, 'http://localhost').searchParams;
+    ROUTING_PARAMS.forEach(name => params.delete(name));
+    const query = params.toString();
+    return query ? `?${query}` : '';
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * Build the bridge URL for an incoming request, keeping the caller's query parameters.
+ *
+ * vercel.json rewrites /api/whatsapp/send?append=true to /api/whatsapp?route=send&append=true.
+ * This used to forward only the route, so the bridge never saw append=true, and without it
+ * /api/send replaces the whole queue: pending notices, sent history and the ids that keep an
+ * automatic notice from reaching a guardian twice.
+ */
+export const buildUpstreamUrl = (upstreamBase: string, rawUrl: string = '/'): string => {
+  return `${upstreamBase}/api${resolveSubRoute(rawUrl)}${resolveForwardedQuery(rawUrl)}`;
 };
 
 const handler = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
@@ -165,8 +192,7 @@ const handler = async (request: IncomingMessage, response: ServerResponse): Prom
 
   // 2. Resolve sub-route
   const subRoute = resolveSubRoute(request.url);
-  const upstreamBase = getUpstreamUrl();
-  const targetUrl = `${upstreamBase}/api${subRoute}`;
+  const targetUrl = buildUpstreamUrl(getUpstreamUrl(), request.url);
 
   // 3. Prepare upstream headers (Inject Secret API Key on server only)
   const upstreamHeaders: Record<string, string> = {
