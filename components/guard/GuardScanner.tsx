@@ -73,6 +73,7 @@ const GuardScanner: React.FC<GuardScannerProps> = ({ onScan, onClose, disabled }
         </div>
         <button 
           onClick={onClose}
+          aria-label="إغلاق الماسح"
           className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white backdrop-blur-md transition-all active:scale-90"
         >
           <X className="w-6 h-6" />

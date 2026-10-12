@@ -1,0 +1,185 @@
+/* Classic handset adapted from the supplied FixPhone.dc.html reference.
+   Scoped to the station; the exported prototype runtime is not required. */
+.guard-phone-page {
+  --phone-ink: #1d2413;
+  --phone-lcd: #b7c48c;
+  box-sizing: border-box;
+  min-height: 100dvh;
+  padding: max(16px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  color: #2a1f00;
+  background-color: #efbd2d;
+  background-image: radial-gradient(rgba(120, 80, 0, .16) 1.5px, transparent 1.8px);
+  background-size: 18px 18px;
+  font-family: 'Cairo', 'Tajawal', sans-serif;
+  color-scheme: light;
+}
+.guard-phone-page *, .guard-phone-page *::before, .guard-phone-page *::after { box-sizing: border-box; }
+.guard-phone-page button { font-family: inherit; cursor: pointer; }
+.guard-phone-page button:disabled { cursor: not-allowed; }
+.guard-phone-page button:focus-visible { outline: 3px solid #efbd2d; outline-offset: 3px; }
+.guard-phone {
+  width: 370px;
+  max-width: 100%;
+  flex-shrink: 0;
+  padding: 16px 14px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  border-radius: 60px 60px 72px 72px;
+  background: linear-gradient(160deg, #3a5190 0%, #22325c 42%, #172240 100%);
+  box-shadow: 0 24px 40px rgba(80, 50, 0, .4), inset 0 2px 1px rgba(255, 255, 255, .25), inset 0 -8px 16px rgba(0, 0, 0, .4);
+}
+.guard-phone__brand { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.guard-phone__brand h1 { margin: 0; font-size: 13px; line-height: 1.7; font-weight: 800; color: #c9d1e6; }
+.guard-phone__speaker { width: 76px; height: 7px; border-radius: 4px; background: #0b1224; box-shadow: inset 0 2px 3px rgba(0, 0, 0, .9); }
+.guard-phone__bezel { width: 100%; padding: 8px; border-radius: 20px 20px 28px 28px; background: #0e1526; box-shadow: inset 0 3px 8px rgba(0, 0, 0, .9), 0 1px 0 rgba(255, 255, 255, .12); }
+.guard-phone__lcd {
+  position: relative;
+  isolation: isolate;
+  height: 352px;
+  padding: 10px 12px;
+  border-radius: 10px 10px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  color: var(--phone-ink);
+  background: var(--phone-lcd);
+  box-shadow: inset 0 0 24px rgba(40, 50, 20, .35);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.65;
+}
+.guard-phone__lcd::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(183, 196, 140, .3) 1px, transparent 1px), linear-gradient(90deg, rgba(183, 196, 140, .3) 1px, transparent 1px);
+  background-size: 3px 3px;
+}
+.guard-phone__lcd button:focus-visible, .guard-phone__number:focus-visible { outline: 2px solid var(--phone-ink); outline-offset: 2px; }
+.guard-phone__statusbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0; font-size: 10px; font-weight: 800; }
+.guard-phone__badge { background: var(--phone-ink); color: var(--phone-lcd); padding: 2px 7px; }
+.guard-phone__signal { display: flex; align-items: flex-end; gap: 2px; height: 14px; direction: ltr; opacity: .35; }
+.guard-phone__signal[data-active='true'] { opacity: 1; }
+.guard-phone__signal i { width: 3px; height: 4px; background: currentColor; }
+.guard-phone__signal i:nth-child(2) { height: 7px; }
+.guard-phone__signal i:nth-child(3) { height: 10px; }
+.guard-phone__signal i:nth-child(4) { height: 14px; }
+.guard-phone__dial-screen { display: flex; flex-direction: column; justify-content: space-between; flex: 1; min-height: 0; gap: 5px; }
+.guard-phone__dial-screen label { font-size: 14px; font-weight: 800; }
+.guard-phone__number {
+  width: 100%; min-width: 0; height: 76px; flex-shrink: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--phone-ink);
+  font: 700 66px/1 'Courier New', monospace;
+  letter-spacing: -4px; text-align: center; text-shadow: 2px 2px 0 rgba(29, 36, 19, .15);
+}
+.guard-phone__number::placeholder { color: var(--phone-ink); opacity: .4; letter-spacing: 8px; }
+.guard-phone__number--long { font-size: 40px; letter-spacing: -2px; }
+.guard-phone__feedback { min-height: 63px; }
+.guard-phone__headline { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.guard-phone__headline strong { font-weight: 800; }
+.guard-phone__feedback p { margin: 3px 0 0; font-size: 10px; line-height: 1.9; max-height: 40px; overflow-y: auto; overflow-wrap: anywhere; scrollbar-width: thin; scrollbar-color: var(--phone-ink) transparent; }
+.guard-phone__cursor { display: inline-block; width: 8px; height: 15px; flex-shrink: 0; background: var(--phone-ink); animation: guard-phone-blink 1s steps(1) infinite; }
+.guard-phone__blocks { display: flex; gap: 3px; flex-shrink: 0; }
+.guard-phone__blocks span { height: 10px; flex: 1; background: rgba(29, 36, 19, .14); }
+.guard-phone__blocks span[data-on='true'] { background: var(--phone-ink); }
+.guard-phone__pulse { animation: guard-phone-pulse .8s steps(2) infinite; }
+.guard-phone__last-call { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; padding-top: 5px; border-top: 2px dashed rgba(29, 36, 19, .4); font-size: 10px; }
+.guard-phone__last-call strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guard-phone__last-call time { font-size: 9px; }
+.guard-phone__screen-actions { display: flex; justify-content: space-between; gap: 10px; }
+.guard-phone__screen-actions button { display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 3px 0; border: 0; background: transparent; color: inherit; font-weight: 800; font-size: 11px; }
+.guard-phone__screen-footer { display: flex; justify-content: space-between; border-top: 1px solid rgba(29, 36, 19, .3); padding-top: 3px; flex-shrink: 0; font-size: 9px; opacity: .75; }
+.guard-phone__soft-keys { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.guard-phone__soft-key {
+  height: 58px; border: 0; border-radius: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 10px;
+  background: linear-gradient(180deg, #f2f4f8, #c9cfdb); color: #172240; font-size: 14px; font-weight: 800;
+  box-shadow: 0 5px 0 #0e1730, 0 8px 14px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .35);
+}
+.guard-phone__soft-key--call { background: linear-gradient(180deg, #2aa35c, #1a7a42); color: #fff; }
+.guard-phone__soft-key--call:disabled { opacity: .75; filter: none; }
+.guard-phone__soft-key svg { flex-shrink: 0; }
+.guard-phone__soft-key:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 #0e1730; }
+.guard-phone__menu-key {
+  display: flex; justify-content: center; align-items: center; gap: 8px; width: 150px; height: 40px; border: 0; border-radius: 20px;
+  background: linear-gradient(180deg, #ffe07a, #efbd2d 70%, #cf9b10); color: #3a2c00; font-size: 14px; font-weight: 800;
+  box-shadow: 0 4px 0 #0e1730, 0 6px 10px rgba(0, 0, 0, .35);
+}
+.guard-phone__tools { display: flex; width: 100%; gap: 10px; }
+.guard-phone__tools .guard-phone__menu-key { width: auto; min-width: 0; flex: 1; font-size: 12px; }
+.guard-phone__voice-key { background: linear-gradient(180deg, #c8eee7, #83cbbc 70%, #58a693); color: #172c28; }
+.guard-phone__voice-key[data-recording='true'] { background: linear-gradient(180deg, #eb7770, #be3d39); color: #fff; }
+.guard-phone__voice-key svg { flex-shrink: 0; }
+.guard-voice { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 7px; }
+.guard-voice__status { flex-shrink: 0; font-size: 12px; max-height: 130px; overflow-y: auto; }
+.guard-voice__status > svg { display: inline-block; vertical-align: middle; margin-inline-end: 6px; }
+.guard-voice__status strong { font-size: 13px; }
+.guard-voice__status p { margin: 5px 0 0; line-height: 1.9; font-size: 10px; overflow-wrap: anywhere; }
+.guard-voice__status .guard-voice__transcript { font-size: 13px; font-weight: 800; }
+.guard-voice__matches { min-height: 0; flex: 1; overflow-y: auto; padding: 3px; scrollbar-width: thin; scrollbar-color: var(--phone-ink) transparent; }
+.guard-voice__student { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 58px; padding: 6px; margin-bottom: 5px; border: 2px solid var(--phone-ink); color: inherit; background: transparent; text-align: right; }
+.guard-voice__student[aria-pressed='true'] { background: var(--phone-ink); color: var(--phone-lcd); }
+.guard-voice__student span { min-width: 0; }
+.guard-voice__student strong { display: block; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.guard-voice__student small { display: block; font-size: 10px; line-height: 1.8; }
+.guard-voice__student svg { flex-shrink: 0; }
+.guard-voice__hint { margin: auto 0 0; flex-shrink: 0; font-size: 10px; line-height: 1.9; }
+.guard-phone__keypad { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 14px; padding: 0 6px; }
+.guard-phone__key {
+  min-width: 0; height: 44px; padding: 0 5px; border: 0; border-radius: 22px 22px 18px 18px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: linear-gradient(180deg, #eef0f5 0%, #cdd2dd 70%, #b7bdca 100%); color: #1b2748;
+  box-shadow: 0 4px 0 #0e1730, 0 6px 10px rgba(0, 0, 0, .35), inset 0 1px 0 #fff;
+}
+.guard-phone__key:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 #0e1730, inset 0 1px 0 #fff; }
+.guard-phone__key--center { background: linear-gradient(180deg, #ffe07a 0%, #efbd2d 70%, #cf9b10 100%); }
+.guard-phone__digit { font: 400 28px/1 'Courier New', monospace; }
+.guard-phone__letters { font-size: 9px; font-weight: 700; color: #4a5578; white-space: nowrap; }
+.guard-phone__key--center .guard-phone__letters { color: #4a3800; }
+.guard-phone__signature { font-size: 8px; letter-spacing: 3px; line-height: 1; color: #c9d1e6; opacity: .65; direction: ltr; }
+.guard-phone__notice { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+.guard-phone__notice strong { font-size: 15px; }
+.guard-phone__notice p { margin: 0; line-height: 1.9; }
+.guard-phone__spinner { animation: guard-phone-spin 1s linear infinite; }
+.guard-phone__menu { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
+.guard-phone__menu p { margin: 0; }
+.guard-phone__operator { font-size: 16px; font-weight: 800; }
+.guard-phone__screen-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; border-bottom: 2px solid var(--phone-ink); padding-bottom: 5px; }
+.guard-phone__screen-title h2 { font-size: 14px; font-weight: 800; margin: 0; overflow-wrap: anywhere; }
+.guard-phone__screen-title button { display: flex; align-items: center; gap: 2px; min-height: 30px; flex-shrink: 0; padding: 0 4px; border: 1px solid var(--phone-ink); background: transparent; font-size: 10px; color: inherit; }
+.guard-phone__lcd-button { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; min-height: 42px; flex-shrink: 0; padding: 6px; border: 2px solid var(--phone-ink); background: transparent; color: inherit; font-weight: 800; font-size: 12px; overflow-wrap: anywhere; }
+.guard-phone__lcd-button:hover, .guard-directory__student:hover { background: rgba(29, 36, 19, .1); }
+.guard-directory { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 7px; }
+.guard-directory__hint { font-size: 10px; margin: 0; }
+.guard-directory__scroll { overflow-y: auto; flex: 1; min-height: 0; padding: 3px; scrollbar-width: thin; scrollbar-color: var(--phone-ink) transparent; }
+.guard-directory__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.guard-directory__student { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 54px; margin-bottom: 6px; padding: 7px; text-align: right; border: 1px solid var(--phone-ink); color: inherit; background: transparent; }
+.guard-directory__student span { min-width: 0; }
+.guard-directory__student strong { display: block; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.guard-directory__student small { display: block; font: 11px/1.5 monospace; text-align: right; }
+.guard-directory__student svg { flex-shrink: 0; }
+.guard-directory__empty { padding: 20px 0; text-align: center; font-size: 12px; }
+@keyframes guard-phone-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes guard-phone-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes guard-phone-spin { to { transform: rotate(360deg); } }
+@media (max-width: 359px) {
+  .guard-phone { padding-inline: 10px; }
+  .guard-phone__lcd { padding-inline: 9px; }
+  .guard-phone__number { font-size: 55px; }
+  .guard-phone__number--long { font-size: 32px; }
+  .guard-phone__keypad { column-gap: 9px; padding-inline: 2px; }
+  .guard-phone__key { gap: 5px; }
+  .guard-phone__soft-key { gap: 5px; font-size: 12px; }
+  .guard-phone__headline { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .guard-phone__cursor, .guard-phone__pulse, .guard-phone__spinner { animation: none; }
+  .guard-phone-page button { transition: none; }
+}
