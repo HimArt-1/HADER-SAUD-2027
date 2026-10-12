@@ -62,7 +62,7 @@ export const createGuardianNotificationDrafts = ({
 export type SupervisorCommunicationActivity = {
     id: string;
     channel: 'portal' | 'whatsapp';
-    status: 'stored' | 'queued' | 'failed';
+    status: 'stored' | 'queued' | 'manual' | 'failed';
     title: string;
     recipientLabel: string;
     recipientCount: number;
@@ -72,6 +72,7 @@ export type SupervisorCommunicationActivity = {
 
 export const communicationStatusLabel = (activity: SupervisorCommunicationActivity) => {
     if (activity.status === 'stored') return 'محفوظ في المنصة';
+    if (activity.status === 'manual') return 'فُتحت المحادثة يدويًا';
     if (activity.status === 'queued') return 'مضاف لطابور واتساب';
     return 'فشل الإرسال';
 };

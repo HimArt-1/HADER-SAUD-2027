@@ -1122,7 +1122,7 @@ const WhatsAppControl: React.FC = () => {
                             <BadgeStudio
                                 studentName={students.find(s => s.id === manualSelectedIds[0])?.name || 'طالب غير معروف'}
                                 onSend={handleBadgeSend}
-                                onCancel={() => setManualSelectedIds([])}
+                                key={manualSelectedIds[0]}
                             />
                         ) : (
                             <div className="h-full glass-card rounded-2xl border border-white/10 flex flex-col items-center justify-center text-gray-400">

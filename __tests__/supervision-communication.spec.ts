@@ -51,5 +51,8 @@ describe('supervision communication rules', () => {
         expect(communicationStatusLabel({
             id: '2', channel: 'whatsapp', status: 'queued', title: '', recipientLabel: '', recipientCount: 1, createdAt: ''
         })).toBe('مضاف لطابور واتساب');
+        expect(communicationStatusLabel({
+            id: '3', channel: 'whatsapp', status: 'manual', title: '', recipientLabel: '', recipientCount: 1, createdAt: ''
+        })).toBe('فُتحت المحادثة يدويًا');
     });
 });

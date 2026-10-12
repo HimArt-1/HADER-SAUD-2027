@@ -4527,6 +4527,16 @@ const Supervision: React.FC<Props> = ({ user: propUser }) => {
         onClose={() => setShowQuickSendModal(false)}
         student={selectedQuickSendStudent}
         defaultTemplateId={quickSendTemplateId}
+        onManualOpened={({ student, kind }) => {
+          recordCommunicationActivity({
+            channel: 'whatsapp',
+            status: 'manual',
+            title: kind === 'badge' ? 'وسام واتساب' : 'رسالة واتساب',
+            recipientLabel: student.name,
+            recipientCount: 1,
+            detail: 'فُتحت المحادثة لإكمال الإرسال يدويًا؛ التسليم غير مؤكد.'
+          });
+        }}
         onQueued={({ student, kind }) => {
           recordCommunicationActivity({
             channel: 'whatsapp',
